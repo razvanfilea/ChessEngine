@@ -1,7 +1,1 @@
-*.iml
-.idea
-
-#Cmake
-/cmake-build-debug
-/cmake-build-release
-/cmake-build-relwithdebinfo
+/target
