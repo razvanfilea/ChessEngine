@@ -133,7 +133,7 @@ pub const fn bb_file(file: u8) -> u64 {
 
 #[inline]
 pub const fn bb_several(bb: u64) -> bool {
-    bb & (bb.wrapping_sub(1)) != 1
+    bb & (bb.wrapping_sub(1)) != 0
 }
 
 #[inline]
@@ -148,7 +148,7 @@ pub const fn bb_scan_forward(bb: u64) -> u8 {
 
 #[inline(always)]
 pub const fn bb_scan_reverse(bb: u64) -> u8 {
-    bb.leading_zeros() as u8
+    63 ^ bb.leading_zeros() as u8
 }
 
 #[inline]
@@ -178,8 +178,8 @@ pub const fn bb_get_edge_filter(sq: Sq) -> u64 {
 }
 
 pub const fn bb_generate_ray_attacks(sq: Sq, occupied: u64, dir: Dir) -> u64 {
-    const FORWARD_SENTINEL: u64 = Sq::from_raw(63).bitboard();
-    const BACKWARD_SENTINEL: u64 = Sq::from_raw(1).bitboard();
+    const FORWARD_SENTINEL: u64 = Sq::H8.bitboard();
+    const BACKWARD_SENTINEL: u64 = Sq::A1.bitboard();
 
     let attacks = bb_from_dir(dir, sq);
     let blockers = attacks & occupied;
@@ -259,3 +259,19 @@ static BB_LINE_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
 
     result
 };
+
+#[unsafe(no_mangle)]
+pub const fn generate_bishop_attacks(sq: Sq, blockers: u64) -> u64 {
+    bb_generate_ray_attacks(sq, blockers, Dir::NorthWest)
+        | bb_generate_ray_attacks(sq, blockers, Dir::NorthEast)
+        | bb_generate_ray_attacks(sq, blockers, Dir::SouthWest)
+        | bb_generate_ray_attacks(sq, blockers, Dir::SouthEast)
+}
+
+pub const fn generate_rook_attacks(sq: Sq, blockers: u64) -> u64 {
+    bb_generate_ray_attacks(sq, blockers, Dir::North)
+        | bb_generate_ray_attacks(sq, blockers, Dir::West)
+        | bb_generate_ray_attacks(sq, blockers, Dir::East)
+        | bb_generate_ray_attacks(sq, blockers, Dir::South)
+}
+

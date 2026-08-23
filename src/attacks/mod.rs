@@ -15,7 +15,7 @@ mod sliders_attack {
 
 use crate::bitboard::*;
 use crate::square::Sq;
-use crate::types::{Color, Dir};
+use crate::types::Color;
 
 pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
     let bb = sq.bitboard();
@@ -79,17 +79,3 @@ pub const fn king_attacks(sq: Sq) -> u64 {
     KING_ATTACKS[sq.as_index()]
 }
 
-#[unsafe(no_mangle)]
-pub const fn generate_bishop_attacks(sq: Sq, blockers: u64) -> u64 {
-    bb_generate_ray_attacks(sq, blockers, Dir::NorthWest)
-        | bb_generate_ray_attacks(sq, blockers, Dir::NorthEast)
-        | bb_generate_ray_attacks(sq, blockers, Dir::SouthWest)
-        | bb_generate_ray_attacks(sq, blockers, Dir::SouthEast)
-}
-
-pub const fn generate_rook_attacks(sq: Sq, blockers: u64) -> u64 {
-    bb_generate_ray_attacks(sq, blockers, Dir::North)
-        | bb_generate_ray_attacks(sq, blockers, Dir::West)
-        | bb_generate_ray_attacks(sq, blockers, Dir::East)
-        | bb_generate_ray_attacks(sq, blockers, Dir::South)
-}

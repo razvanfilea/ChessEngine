@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promotion-moves", "types"] }
 bitflags = { version = "2.13.1", features = ["std"] }
+[build-dependencies]
+bitflags = "2.13.1"
