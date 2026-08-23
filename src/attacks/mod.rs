@@ -13,9 +13,7 @@ mod sliders_attack {
     pub use super::pext::*;
 }
 
-use crate::bitboard::*;
-use crate::square::Sq;
-use crate::types::Color;
+use chess_base::{bitboard::*, prelude::*};
 
 pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
     let bb = sq.bitboard();
@@ -78,4 +76,3 @@ pub const fn knight_attacks(sq: Sq) -> u64 {
 pub const fn king_attacks(sq: Sq) -> u64 {
     KING_ATTACKS[sq.as_index()]
 }
-

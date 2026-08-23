@@ -1,10 +1,6 @@
 pub mod attacks;
-pub mod bitboard;
 pub mod board;
-pub mod chess_move;
 pub mod eval;
 pub mod move_gen;
 pub mod search;
-pub mod square;
-pub mod types;
 pub mod uci;

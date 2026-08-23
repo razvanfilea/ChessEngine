@@ -1,4 +1,4 @@
-use crate::{bitboard::*, for_each_square, square::*, types::*};
+use chess_base::{bitboard::*, for_each_square, prelude::*};
 
 type AttacksBoard = [u64; Sq::NB];
 

@@ -48,7 +48,7 @@ macro_rules! for_each_square {
     ($sq_name:ident => $body:block) => {
         let mut _i = 0u8;
         while _i < 64 {
-            let $sq_name = Sq::from_raw(_i);
+            let $sq_name = unsafe { $crate::Sq::from_raw_unchecked(_i) };
 
             $body
 
@@ -274,4 +274,3 @@ pub const fn generate_rook_attacks(sq: Sq, blockers: u64) -> u64 {
         | bb_generate_ray_attacks(sq, blockers, Dir::East)
         | bb_generate_ray_attacks(sq, blockers, Dir::South)
 }
-

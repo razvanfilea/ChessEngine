@@ -1,7 +1,6 @@
 use std::arch::x86_64::_pext_u64;
 
-use crate::{square::*,
-};
+use chess_base::prelude::*;
 
 include!(concat!(env!("OUT_DIR"), "/pext_data.rs"));
 

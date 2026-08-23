@@ -1,7 +1,4 @@
-use crate::{
-    square::Sq,
-    types::{CastlingRights, Color, ColoredPiece, Pieces},
-};
+use chess_base::prelude::*;
 
 #[derive(Default)]
 pub struct BoardState {
@@ -113,11 +110,15 @@ impl Board {
             }
         }
 
-        board.half_move_clock = half_move.and_then(|val| val.parse::<u8>().ok()).unwrap_or(0);
+        board.half_move_clock = half_move
+            .and_then(|val| val.parse::<u8>().ok())
+            .unwrap_or(0);
 
-        let counter = full_move.and_then(|val| val.parse::<u16>().ok()).unwrap_or(1);
-        board.ply = (counter.saturating_sub(1)) * 2
-            + if board.to_play == Color::Black { 1 } else { 0 };
+        let counter = full_move
+            .and_then(|val| val.parse::<u16>().ok())
+            .unwrap_or(1);
+        board.ply =
+            (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
 
         Some(board)
     }
@@ -130,7 +131,9 @@ impl Board {
     }
 
     pub fn remove_piece(&mut self, sq: Sq) {
-        let Some(piece) = self.mailbox[sq.as_index()].take() else { return; };
+        let Some(piece) = self.mailbox[sq.as_index()].take() else {
+            return;
+        };
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color) &= !bitboard;
         *self.pieces_mut(piece.piece) &= !bitboard;

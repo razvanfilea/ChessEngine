@@ -1,8 +1,5 @@
-use lucky_chess::{
-    board::Board,
-    square::Sq,
-    types::{CastlingRights, Color, ColoredPiece, Pieces},
-};
+use chess_base::prelude::*;
+use lucky_chess::board::Board;
 
 #[test]
 fn test_start_pos() {
@@ -16,31 +13,85 @@ fn test_start_pos() {
     assert_eq!(board.ply, 0);
 
     // Verify pieces on 1st rank
-    assert_eq!(board.piece_at(Sq::A1), Some(ColoredPiece::new(Pieces::Rook, Color::White)));
-    assert_eq!(board.piece_at(Sq::B1), Some(ColoredPiece::new(Pieces::Knight, Color::White)));
-    assert_eq!(board.piece_at(Sq::C1), Some(ColoredPiece::new(Pieces::Bischop, Color::White)));
-    assert_eq!(board.piece_at(Sq::D1), Some(ColoredPiece::new(Pieces::Queen, Color::White)));
-    assert_eq!(board.piece_at(Sq::E1), Some(ColoredPiece::new(Pieces::King, Color::White)));
-    assert_eq!(board.piece_at(Sq::F1), Some(ColoredPiece::new(Pieces::Bischop, Color::White)));
-    assert_eq!(board.piece_at(Sq::G1), Some(ColoredPiece::new(Pieces::Knight, Color::White)));
-    assert_eq!(board.piece_at(Sq::H1), Some(ColoredPiece::new(Pieces::Rook, Color::White)));
+    assert_eq!(
+        board.piece_at(Sq::A1),
+        Some(ColoredPiece::new(Pieces::Rook, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::B1),
+        Some(ColoredPiece::new(Pieces::Knight, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::C1),
+        Some(ColoredPiece::new(Pieces::Bischop, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::D1),
+        Some(ColoredPiece::new(Pieces::Queen, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::E1),
+        Some(ColoredPiece::new(Pieces::King, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::F1),
+        Some(ColoredPiece::new(Pieces::Bischop, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::G1),
+        Some(ColoredPiece::new(Pieces::Knight, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::H1),
+        Some(ColoredPiece::new(Pieces::Rook, Color::White))
+    );
 
     // Verify pieces on 8th rank
-    assert_eq!(board.piece_at(Sq::A8), Some(ColoredPiece::new(Pieces::Rook, Color::Black)));
-    assert_eq!(board.piece_at(Sq::B8), Some(ColoredPiece::new(Pieces::Knight, Color::Black)));
-    assert_eq!(board.piece_at(Sq::C8), Some(ColoredPiece::new(Pieces::Bischop, Color::Black)));
-    assert_eq!(board.piece_at(Sq::D8), Some(ColoredPiece::new(Pieces::Queen, Color::Black)));
-    assert_eq!(board.piece_at(Sq::E8), Some(ColoredPiece::new(Pieces::King, Color::Black)));
-    assert_eq!(board.piece_at(Sq::F8), Some(ColoredPiece::new(Pieces::Bischop, Color::Black)));
-    assert_eq!(board.piece_at(Sq::G8), Some(ColoredPiece::new(Pieces::Knight, Color::Black)));
-    assert_eq!(board.piece_at(Sq::H8), Some(ColoredPiece::new(Pieces::Rook, Color::Black)));
+    assert_eq!(
+        board.piece_at(Sq::A8),
+        Some(ColoredPiece::new(Pieces::Rook, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::B8),
+        Some(ColoredPiece::new(Pieces::Knight, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::C8),
+        Some(ColoredPiece::new(Pieces::Bischop, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::D8),
+        Some(ColoredPiece::new(Pieces::Queen, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::E8),
+        Some(ColoredPiece::new(Pieces::King, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::F8),
+        Some(ColoredPiece::new(Pieces::Bischop, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::G8),
+        Some(ColoredPiece::new(Pieces::Knight, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::H8),
+        Some(ColoredPiece::new(Pieces::Rook, Color::Black))
+    );
 
     // Verify pawns
     for file in 0..8 {
         let white_pawn = Sq::new(file, 1);
         let black_pawn = Sq::new(file, 6);
-        assert_eq!(board.piece_at(white_pawn), Some(ColoredPiece::new(Pieces::Pawn, Color::White)));
-        assert_eq!(board.piece_at(black_pawn), Some(ColoredPiece::new(Pieces::Pawn, Color::Black)));
+        assert_eq!(
+            board.piece_at(white_pawn),
+            Some(ColoredPiece::new(Pieces::Pawn, Color::White))
+        );
+        assert_eq!(
+            board.piece_at(black_pawn),
+            Some(ColoredPiece::new(Pieces::Pawn, Color::Black))
+        );
     }
 
     // Verify empty squares in middle
@@ -73,7 +124,8 @@ fn test_missing_trailing_fields() {
 
     // 3. Piece placement + side + castling
     let fen_castling = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq";
-    let board = Board::from_fen(fen_castling).expect("Piece placement + side + castling should parse");
+    let board =
+        Board::from_fen(fen_castling).expect("Piece placement + side + castling should parse");
     assert_eq!(board.to_play, Color::White);
     assert_eq!(board.castling_rights, CastlingRights::ALL);
     assert_eq!(board.ply, 0);
@@ -102,7 +154,10 @@ fn test_castling_rights_variations() {
     // Mixed: White Queenside + Black Kingside
     let fen = "r3k2r/8/8/8/8/8/8/R3K2R w Qk - 0 1";
     let board = Board::from_fen(fen).unwrap();
-    assert_eq!(board.castling_rights, CastlingRights::WHITE_000 | CastlingRights::BLACK_00);
+    assert_eq!(
+        board.castling_rights,
+        CastlingRights::WHITE_000 | CastlingRights::BLACK_00
+    );
 
     // Explicit dash '-'
     let fen = "8/8/8/8/8/8/8/4K3 w - - 0 1";
@@ -166,17 +221,32 @@ fn test_standard_chess_positions() {
     let board = Board::from_fen(kiwipete).expect("Kiwipete should parse");
     assert_eq!(board.to_play, Color::White);
     assert_eq!(board.castling_rights, CastlingRights::ALL);
-    assert_eq!(board.piece_at(Sq::E5), Some(ColoredPiece::new(Pieces::Knight, Color::White)));
-    assert_eq!(board.piece_at(Sq::F3), Some(ColoredPiece::new(Pieces::Queen, Color::White)));
-    assert_eq!(board.piece_at(Sq::E7), Some(ColoredPiece::new(Pieces::Queen, Color::Black)));
+    assert_eq!(
+        board.piece_at(Sq::E5),
+        Some(ColoredPiece::new(Pieces::Knight, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::F3),
+        Some(ColoredPiece::new(Pieces::Queen, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::E7),
+        Some(ColoredPiece::new(Pieces::Queen, Color::Black))
+    );
 
     // Endgame Position (Pos 3)
     let pos3 = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
     let board = Board::from_fen(pos3).expect("Position 3 should parse");
     assert_eq!(board.to_play, Color::White);
     assert_eq!(board.castling_rights, CastlingRights::empty());
-    assert_eq!(board.piece_at(Sq::A5), Some(ColoredPiece::new(Pieces::King, Color::White)));
-    assert_eq!(board.piece_at(Sq::H4), Some(ColoredPiece::new(Pieces::King, Color::Black)));
+    assert_eq!(
+        board.piece_at(Sq::A5),
+        Some(ColoredPiece::new(Pieces::King, Color::White))
+    );
+    assert_eq!(
+        board.piece_at(Sq::H4),
+        Some(ColoredPiece::new(Pieces::King, Color::Black))
+    );
 
     // Empty board
     let empty = "8/8/8/8/8/8/8/8 w - - 0 1";
@@ -270,15 +340,27 @@ fn test_perft_suite_positions() {
     let pos4 = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
     let board4 = Board::from_fen(pos4).expect("Pos 4 should parse");
     assert_eq!(board4.to_play, Color::White);
-    assert_eq!(board4.castling_rights, CastlingRights::BLACK_00 | CastlingRights::BLACK_000);
-    assert_eq!(board4.piece_at(Sq::A7), Some(ColoredPiece::new(Pieces::Pawn, Color::White)));
-    assert_eq!(board4.piece_at(Sq::B2), Some(ColoredPiece::new(Pieces::Pawn, Color::Black)));
+    assert_eq!(
+        board4.castling_rights,
+        CastlingRights::BLACK_00 | CastlingRights::BLACK_000
+    );
+    assert_eq!(
+        board4.piece_at(Sq::A7),
+        Some(ColoredPiece::new(Pieces::Pawn, Color::White))
+    );
+    assert_eq!(
+        board4.piece_at(Sq::B2),
+        Some(ColoredPiece::new(Pieces::Pawn, Color::Black))
+    );
 
     // Position 5 - Check and heavy tactical piece placement
     let pos5 = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
     let board5 = Board::from_fen(pos5).expect("Pos 5 should parse");
     assert_eq!(board5.to_play, Color::White);
-    assert_eq!(board5.castling_rights, CastlingRights::WHITE_00 | CastlingRights::WHITE_000);
+    assert_eq!(
+        board5.castling_rights,
+        CastlingRights::WHITE_00 | CastlingRights::WHITE_000
+    );
     assert_eq!(board5.half_move_clock, 1);
     assert_eq!(board5.ply, 14); // Move 8, White to play -> (8 - 1) * 2 = 14
 
@@ -342,9 +424,15 @@ fn test_multiple_promoted_pieces() {
     // 9 White Queens on board
     let fen_queens = "QQQQkQQQ/8/8/8/8/8/8/4K1Q1 w - - 0 1";
     let board = Board::from_fen(fen_queens).expect("Board with multiple queens should parse");
-    assert_eq!(board.piece_at(Sq::E8), Some(ColoredPiece::new(Pieces::King, Color::Black)));
-    assert_eq!(board.piece_at(Sq::E1), Some(ColoredPiece::new(Pieces::King, Color::White)));
-    
+    assert_eq!(
+        board.piece_at(Sq::E8),
+        Some(ColoredPiece::new(Pieces::King, Color::Black))
+    );
+    assert_eq!(
+        board.piece_at(Sq::E1),
+        Some(ColoredPiece::new(Pieces::King, Color::White))
+    );
+
     // Count queens in bitboard
     let queen_bb = *board.pieces(Pieces::Queen);
     assert_eq!(queen_bb.count_ones(), 8);

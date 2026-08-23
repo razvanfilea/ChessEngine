@@ -1,6 +1,5 @@
-use lucky_chess::bitboard::*;
-use lucky_chess::types::Dir;
-use lucky_chess::square::Sq;
+use chess_base::bitboard::*;
+use chess_base::prelude::*;
 
 #[test]
 fn test_sh_functions() {
@@ -14,10 +13,10 @@ fn test_sh_functions() {
     assert_eq!(sh_south_east(b), 1 << 2);
     assert_eq!(sh_south_west(b), 1 << 0);
     assert_eq!(sh_north_north(b), 1 << 25);
-    
+
     let b3 = 1 << 17; // B3
     assert_eq!(sh_south_south(b3), 1 << 1);
-    
+
     assert_eq!(sh_dir(Dir::North, b), sh_north(b));
     assert_eq!(sh_dir(Dir::South, b), sh_south(b));
     assert_eq!(sh_dir(Dir::East, b), sh_east(b));
@@ -39,7 +38,7 @@ fn test_bb_properties() {
     assert_eq!(bb_several(3), true);
     assert_eq!(bb_several(2), false);
     assert_eq!(bb_several(0), false);
-    
+
     assert_eq!(bb_only_one(3), false);
     assert_eq!(bb_only_one(2), true);
     assert_eq!(bb_only_one(0), false);
@@ -52,7 +51,7 @@ fn test_bb_scan() {
     // The user said "if you find any mistakes dont touch the code instead let me know".
     // I will write the test assuming standard correct behavior, so it will fail when run.
     assert_eq!(bb_scan_reverse(2), 1);
-    
+
     let mut bb = 3;
     let (sq, new_bb) = bb_pop_lsb(bb);
     assert_eq!(sq.as_index(), 0);
@@ -63,13 +62,13 @@ fn test_bb_scan() {
 fn test_bb_tables() {
     let sq1 = Sq::from_raw(0); // A1
     let sq2 = Sq::from_raw(2); // C1
-    
+
     let ray = bb_from_dir(Dir::East, sq1);
     assert_ne!(ray, 0);
-    
+
     let between = bb_between(sq1, sq2);
     assert_eq!(between, 1 << 1); // B1
-    
+
     let line = bb_line(sq1, sq2);
     assert_eq!(line & (1 << 0), 1 << 0);
     assert_eq!(line & (1 << 1), 1 << 1);
