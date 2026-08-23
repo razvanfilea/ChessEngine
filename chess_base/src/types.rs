@@ -41,7 +41,7 @@ impl Dir {
         Dir::SouthWest,
     ];
 
-    pub const fn oppsite(self) -> Self {
+    pub const fn opposite(self) -> Self {
         match self {
             Dir::North => Dir::South,
             Dir::South => Dir::North,

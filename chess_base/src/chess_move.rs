@@ -2,10 +2,18 @@ use std::hint::unreachable_unchecked;
 
 use crate::{Pieces, Sq};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Move(u16);
 
 impl Move {
+    pub const NONE: Self = Self(0);
+
+    #[inline(always)]
+    pub const fn is_none(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
     pub const fn new(from: Sq, to: Sq, flags: MoveFlags) -> Self {
         Self(from.as_u8() as u16 | ((to.as_u8() as u16) << 6) | ((flags as u16) << 12))
     }

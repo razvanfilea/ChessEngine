@@ -160,6 +160,11 @@ impl Board {
     }
 
     #[inline(always)]
+    pub fn color_piece(&self, piece: Pieces, color: Color) -> u64 {
+        self.colors(color) & self.pieces(piece)
+    }
+
+    #[inline(always)]
     pub fn colored_piece(&self, piece: ColoredPiece) -> u64 {
         self.colors(piece.color) & self.pieces(piece.piece)
     }

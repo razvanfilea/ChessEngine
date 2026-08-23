@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::Dir;
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Sq(u8);
@@ -140,6 +142,36 @@ impl Sq {
     #[inline(always)]
     pub const fn is_none(self) -> bool {
         self.as_u8() == 64
+    }
+
+    #[inline(always)]
+    pub const fn shift(self, dir: Dir) -> Self {
+        if !self.is_valid() {
+            return Self::NONE;
+        }
+
+        let bb = crate::bitboard::sh_dir(dir, self.bitboard());
+        if bb == 0 {
+            Self::NONE
+        } else {
+            unsafe { Self::from_raw_unchecked(bb.trailing_zeros() as u8) }
+        }
+    }
+
+    /// Shifts the square by the given direction without bounds checking.
+    /// 
+    /// # Safety
+    /// The caller must ensure that shifting this square in the given direction 
+    /// will not wrap around the files or fall off the board. 
+    #[inline(always)]
+    pub const unsafe fn shift_unchecked(self, dir: Dir) -> Self {
+        let offset = match dir {
+            Dir::North => 8, Dir::South => -8,
+            Dir::East => 1, Dir::West => -1,
+            Dir::NorthEast => 9, Dir::NorthWest => 7,
+            Dir::SouthEast => -7, Dir::SouthWest => -9,
+        };
+        unsafe { Self::from_raw_unchecked((self.0 as i8 + offset) as u8) }
     }
 
     /// Generates the corresponding bitboard (bit 0 for A1, bit 63 for H8).
