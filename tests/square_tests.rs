@@ -1,4 +1,4 @@
-use lucky_chess::square::Sq;
+use chess_base::prelude::*;
 
 #[test]
 fn test_sq_constants() {
@@ -34,7 +34,7 @@ fn test_sq_new() {
 fn test_sq_from_raw() {
     assert_eq!(Sq::from_raw(0), Sq::A1);
     assert_eq!(Sq::from_raw(63), Sq::H8);
-    
+
     // Edge cases
     assert_eq!(Sq::from_raw(64), Sq::NONE);
     assert_eq!(Sq::from_raw(255), Sq::NONE);
@@ -111,7 +111,7 @@ fn test_sq_distance_to_edge() {
     // E4 is (file 4, rank 3)
     assert_eq!(Sq::E4.distance_to_file_edge(), 3);
     assert_eq!(Sq::E4.distance_to_rank_edge(), 3);
-    
+
     // D5 is (file 3, rank 4)
     assert_eq!(Sq::D5.distance_to_file_edge(), 3);
     assert_eq!(Sq::D5.distance_to_rank_edge(), 3);
@@ -124,7 +124,7 @@ fn test_sq_distance() {
     assert_eq!(Sq::A1.distance(Sq::H8), 7);
     assert_eq!(Sq::A1.distance(Sq::A8), 7);
     assert_eq!(Sq::A1.distance(Sq::H1), 7);
-    
+
     assert_eq!(Sq::E4.distance(Sq::E4), 0);
 }
 
@@ -134,7 +134,7 @@ fn test_sq_manhattan_distance() {
     assert_eq!(Sq::A1.manhattan_distance(Sq::H8), 14);
     assert_eq!(Sq::A1.manhattan_distance(Sq::A8), 7);
     assert_eq!(Sq::A1.manhattan_distance(Sq::H1), 7);
-    
+
     assert_eq!(Sq::E4.manhattan_distance(Sq::E4), 0);
 }
 

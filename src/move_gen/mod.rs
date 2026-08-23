@@ -1,5 +1,5 @@
-use crate::{board::Board, types::Color};
-
+use crate::board::Board;
+use chess_base::prelude::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GenType {

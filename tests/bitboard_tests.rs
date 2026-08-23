@@ -1,6 +1,5 @@
-use lucky_chess::bitboard::*;
-use lucky_chess::square::Sq;
-use lucky_chess::types::Dir;
+use chess_base::bitboard::*;
+use chess_base::prelude::*;
 
 #[test]
 fn test_file_masks() {
@@ -27,7 +26,7 @@ fn test_rank_masks() {
 #[test]
 fn test_shifts() {
     let a1 = Sq::A1.bitboard();
-    
+
     // North
     assert_eq!(sh_north(a1), Sq::A2.bitboard());
     assert_eq!(sh_north(Sq::A8.bitboard()), 0);
@@ -79,22 +78,41 @@ fn test_shifts() {
 fn test_sh_dir() {
     let a1 = Sq::A1.bitboard();
     assert_eq!(sh_dir(Dir::North, a1), sh_north(a1));
-    assert_eq!(sh_dir(Dir::South, Sq::A2.bitboard()), sh_south(Sq::A2.bitboard()));
+    assert_eq!(
+        sh_dir(Dir::South, Sq::A2.bitboard()),
+        sh_south(Sq::A2.bitboard())
+    );
     assert_eq!(sh_dir(Dir::East, a1), sh_east(a1));
-    assert_eq!(sh_dir(Dir::West, Sq::B1.bitboard()), sh_west(Sq::B1.bitboard()));
+    assert_eq!(
+        sh_dir(Dir::West, Sq::B1.bitboard()),
+        sh_west(Sq::B1.bitboard())
+    );
     assert_eq!(sh_dir(Dir::NorthEast, a1), sh_north_east(a1));
-    assert_eq!(sh_dir(Dir::NorthWest, Sq::B1.bitboard()), sh_north_west(Sq::B1.bitboard()));
-    assert_eq!(sh_dir(Dir::SouthEast, Sq::A2.bitboard()), sh_south_east(Sq::A2.bitboard()));
-    assert_eq!(sh_dir(Dir::SouthWest, Sq::B2.bitboard()), sh_south_west(Sq::B2.bitboard()));
+    assert_eq!(
+        sh_dir(Dir::NorthWest, Sq::B1.bitboard()),
+        sh_north_west(Sq::B1.bitboard())
+    );
+    assert_eq!(
+        sh_dir(Dir::SouthEast, Sq::A2.bitboard()),
+        sh_south_east(Sq::A2.bitboard())
+    );
+    assert_eq!(
+        sh_dir(Dir::SouthWest, Sq::B2.bitboard()),
+        sh_south_west(Sq::B2.bitboard())
+    );
 }
 
 #[test]
 fn test_bb_from_dir() {
     // Ray from A1 going North should be A2, A3, A4, A5, A6, A7, A8
     let a1_north = bb_from_dir(Dir::North, Sq::A1);
-    let expected = Sq::A2.bitboard() | Sq::A3.bitboard() | Sq::A4.bitboard() 
-                 | Sq::A5.bitboard() | Sq::A6.bitboard() | Sq::A7.bitboard() 
-                 | Sq::A8.bitboard();
+    let expected = Sq::A2.bitboard()
+        | Sq::A3.bitboard()
+        | Sq::A4.bitboard()
+        | Sq::A5.bitboard()
+        | Sq::A6.bitboard()
+        | Sq::A7.bitboard()
+        | Sq::A8.bitboard();
     assert_eq!(a1_north, expected);
 
     // Ray from H8 going East should be 0 (no squares east of H-file)
@@ -107,7 +125,7 @@ fn test_bb_from_dir() {
     assert_eq!(e4_sw, expected_sw);
 
     // For Sq::NONE it is index 64 which will panic because array is [64]. Let's make sure it doesn't happen.
-    // wait, bb_from_dir takes Sq and internally uses sq.as_index(). Using Sq::NONE is undefined/panics, 
+    // wait, bb_from_dir takes Sq and internally uses sq.as_index(). Using Sq::NONE is undefined/panics,
     // which is standard for performance functions missing bounds check. We won't test that panic.
 }
 
@@ -123,13 +141,17 @@ fn test_bb_between() {
 
     // Between A1 and H8 -> B2, C3, D4, E5, F6, G7
     let a1_h8 = bb_between(Sq::A1, Sq::H8);
-    let expected_diag = Sq::B2.bitboard() | Sq::C3.bitboard() | Sq::D4.bitboard()
-                      | Sq::E5.bitboard() | Sq::F6.bitboard() | Sq::G7.bitboard();
+    let expected_diag = Sq::B2.bitboard()
+        | Sq::C3.bitboard()
+        | Sq::D4.bitboard()
+        | Sq::E5.bitboard()
+        | Sq::F6.bitboard()
+        | Sq::G7.bitboard();
     assert_eq!(a1_h8, expected_diag);
 
     // Not on same ray -> 0
     assert_eq!(bb_between(Sq::A1, Sq::B3), 0);
-    
+
     // Adjacent -> 0
     assert_eq!(bb_between(Sq::A1, Sq::A2), 0);
     assert_eq!(bb_between(Sq::A1, Sq::B2), 0);

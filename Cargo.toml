@@ -1,10 +1,18 @@
+[workspace]
+members = [
+    ".",
+    "chess_base",
+]
+
 [package]
 name = "lucky_chess"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promotion-moves", "types"] }
-bitflags = { version = "2.13.1", features = ["std"] }
+chess_base = { path = "chess_base" }
+uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promotion-moves", "types", "parse-go-perft"] }
+
 [build-dependencies]
-bitflags = "2.13.1"
+chess_base = { path = "chess_base" }
+

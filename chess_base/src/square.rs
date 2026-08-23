@@ -83,9 +83,7 @@ impl Sq {
 
     /// Branchless constructor from 0-indexed (file, rank).
     /// Clamps directly to `Sq::NONE` (64) if out of bounds.
-    // #[inline(always)]
-    #[inline(never)]
-    #[unsafe(no_mangle)]
+    #[inline]
     pub const fn new(file: u8, rank: u8) -> Self {
         let is_valid = ((file | rank) & !7) == 0;
         let val = if is_valid { (rank << 3) | file } else { 64 };
@@ -154,7 +152,7 @@ impl Sq {
             0
         }
     }
-    
+
     pub fn distance_to_file_edge(self) -> u8 {
         let file = self.file();
         file.min(7 - file)
@@ -165,8 +163,6 @@ impl Sq {
         rank.min(7 - rank)
     }
 
-    #[inline(never)]
-    #[unsafe(no_mangle)]
     pub const fn distance(self, other: Self) -> u8 {
         let rank_dist = self.rank().abs_diff(other.rank());
         let file_dist = self.file().abs_diff(other.file());
@@ -177,12 +173,9 @@ impl Sq {
         }
     }
 
-    #[inline(never)]
-    #[unsafe(no_mangle)]
     pub const fn manhattan_distance(self, other: Self) -> u8 {
         self.rank().abs_diff(other.rank()) + self.file().abs_diff(other.file())
     }
-
 
     pub fn parse(val: &str) -> Self {
         let mut x = val.chars();
@@ -245,4 +238,3 @@ impl fmt::Display for Sq {
         fmt::Debug::fmt(self, f)
     }
 }
-
