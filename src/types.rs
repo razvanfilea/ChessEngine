@@ -144,4 +144,11 @@ impl Dir {
             Dir::SouthWest => Dir::NorthEast,
         }
     }
+
+    pub const fn is_forwards(self) -> bool {
+        match self {
+            Dir::North | Dir::East | Dir::NorthWest | Dir::NorthEast => true,
+            Dir::South | Dir::West | Dir::SouthEast | Dir::SouthWest => false,
+        }
+    }
 }
