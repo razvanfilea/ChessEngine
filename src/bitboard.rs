@@ -13,8 +13,6 @@ pub const FILE_H: u64 = 0x8080_8080_8080_8080;
 // Inverted file masks for shift boundaries
 const NOT_FILE_A: u64 = !FILE_A;
 const NOT_FILE_H: u64 = !FILE_H;
-const NOT_FILE_AB: u64 = !(FILE_A | FILE_B);
-const NOT_FILE_GH: u64 = !(FILE_G | FILE_H);
 
 // Rank masks
 pub const RANK_1: u64 = 0x0000_0000_0000_00FF;
@@ -25,6 +23,39 @@ pub const RANK_5: u64 = 0x0000_00FF_0000_0000;
 pub const RANK_6: u64 = 0x0000_FF00_0000_0000;
 pub const RANK_7: u64 = 0x00FF_0000_0000_0000;
 pub const RANK_8: u64 = 0xFF00_0000_0000_0000;
+
+pub const EDGES: u64 = FILE_A | FILE_H | RANK_1 | RANK_8;
+
+/// Iterates over all subsets of a bitboard mask.
+/// This is implemented as a macro so it can be used inside `const fn` and `const {}` blocks!
+#[macro_export]
+macro_rules! for_subsets {
+    ($subset_name:ident in $mask:expr => $body:block) => {
+        let mut $subset_name = $mask;
+        loop {
+            $body
+
+            $subset_name = $subset_name.wrapping_sub(1) & $mask;
+            if $subset_name == $mask {
+                break;
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! for_each_square {
+    ($sq_name:ident => $body:block) => {
+        let mut _i = 0u8;
+        while _i < 64 {
+            let $sq_name = Sq::from_raw(_i);
+
+            $body
+
+            _i += 1
+        }
+    };
+}
 
 #[inline(always)]
 pub const fn sh_dir(dir: Dir, bb: u64) -> u64 {
@@ -90,20 +121,41 @@ pub const fn sh_south_south(bb: u64) -> u64 {
     bb >> 16
 }
 
-const fn sh_west_n(bb: u64, n: u8) -> u64 {
-    if n == 0 {
-        return bb;
-    }
-
-    sh_west_n(sh_west(bb), n - 1)
+#[inline(always)]
+pub const fn bb_rank(rank: u8) -> u64 {
+    RANK_1 << (rank * 8)
 }
 
-const fn sh_east_n(bb: u64, n: u8) -> u64 {
-    if n == 0 {
-        return bb;
-    }
+#[inline(always)]
+pub const fn bb_file(file: u8) -> u64 {
+    FILE_A << file
+}
 
-    sh_east_n(sh_east(bb), n - 1)
+#[inline]
+pub const fn bb_several(bb: u64) -> bool {
+    bb & (bb.wrapping_sub(1)) != 1
+}
+
+#[inline]
+pub const fn bb_only_one(bb: u64) -> bool {
+    bb != 0 && !bb_several(bb)
+}
+
+#[inline(always)]
+pub const fn bb_scan_forward(bb: u64) -> u8 {
+    bb.trailing_zeros() as u8
+}
+
+#[inline(always)]
+pub const fn bb_scan_reverse(bb: u64) -> u8 {
+    bb.leading_zeros() as u8
+}
+
+#[inline]
+pub const fn bb_pop_lsb(mut bb: u64) -> (Sq, u64) {
+    let sq = Sq::from_raw(bb.trailing_zeros() as u8);
+    bb &= bb.wrapping_sub(1);
+    (sq, bb)
 }
 
 #[inline(always)]
@@ -121,6 +173,25 @@ pub const fn bb_line(sq1: Sq, sq2: Sq) -> u64 {
     BB_LINE_SQUARES[sq1.as_index()][sq2.as_index()]
 }
 
+pub const fn bb_get_edge_filter(sq: Sq) -> u64 {
+    ((RANK_1 | RANK_8) & !bb_rank(sq.rank())) | ((FILE_A | FILE_H) & !bb_file(sq.file()))
+}
+
+pub const fn bb_generate_ray_attacks(sq: Sq, occupied: u64, dir: Dir) -> u64 {
+    const FORWARD_SENTINEL: u64 = Sq::from_raw(63).bitboard();
+    const BACKWARD_SENTINEL: u64 = Sq::from_raw(1).bitboard();
+
+    let attacks = bb_from_dir(dir, sq);
+    let blockers = attacks & occupied;
+    let found_sq = if dir.is_forwards() {
+        bb_scan_forward(blockers | FORWARD_SENTINEL)
+    } else {
+        bb_scan_reverse(blockers | BACKWARD_SENTINEL)
+    };
+
+    attacks ^ bb_from_dir(dir, unsafe { Sq::from_raw_unchecked(found_sq) })
+}
+
 static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
     let mut result = [[0; Sq::NB]; Dir::NB];
 
@@ -128,9 +199,7 @@ static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
     while dir_idx < Dir::ALL.len() {
         let dir = Dir::ALL[dir_idx];
 
-        let mut sq_index = 0u8;
-        while sq_index < 64 {
-            let sq = Sq::from_raw(sq_index);
+        for_each_square!(sq => {
             let mut ray = 0u64;
             let mut bb = sq.bitboard();
 
@@ -144,8 +213,7 @@ static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
             }
 
             result[dir as usize][sq.as_index()] = ray;
-            sq_index += 1;
-        }
+        });
 
         dir_idx += 1;
     }
@@ -156,14 +224,8 @@ static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
 static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
     let mut result = [[0; Sq::NB]; Sq::NB];
 
-    let mut sq1_index = 0u8;
-
-    while sq1_index < 64 {
-        let sq1 = Sq::from_raw(sq1_index);
-        let mut sq2_index = 0u8;
-
-        while sq2_index < 64 {
-            let sq2 = Sq::from_raw(sq2_index);
+    for_each_square!(sq1 => {
+        for_each_square!(sq2 => {
             let bb2 = sq2.bitboard();
 
             let mut i = 0;
@@ -177,12 +239,8 @@ static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
                 }
                 i += 1;
             }
-
-            sq2_index += 1;
-        }
-
-        sq1_index += 1;
-    }
+        });
+    });
 
     result
 };
@@ -190,26 +248,14 @@ static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
 static BB_LINE_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
     let mut result = [[0; Sq::NB]; Sq::NB];
 
-    let mut sq1_index = 0u8;
-
-    while sq1_index < 64 {
-        let sq1 = Sq::from_raw(sq1_index);
+    for_each_square!(sq1 => {
         let bb1 = sq1.bitboard();
-        let mut sq2_index = 0u8;
-
-        while sq2_index < 64 {
-            let sq2 = Sq::from_raw(sq2_index);
+        for_each_square!(sq2 => {
             let bb2 = sq2.bitboard();
 
-            result[sq1_index as usize][sq2_index as usize] =
-                BB_BETWEEN_SQUARES[sq1_index as usize][sq2_index as usize] | bb1 | bb2;
-
-            sq2_index += 1;
-        }
-
-        sq1_index += 1;
-    }
+            result[sq1.as_index()][sq2.as_index()] = BB_BETWEEN_SQUARES[sq1.as_index()][sq2.as_index()] | bb1 | bb2;
+        });
+    });
 
     result
 };
-
