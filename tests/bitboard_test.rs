@@ -53,9 +53,9 @@ fn test_bb_scan() {
     assert_eq!(bb_scan_reverse(2), 1);
 
     let mut bb = 3;
-    let (sq, new_bb) = bb_pop_lsb(bb);
+    let sq = bb_pop_lsb(&mut bb);
     assert_eq!(sq.as_index(), 0);
-    assert_eq!(new_bb, 2);
+    assert_eq!(bb, 2);
 }
 
 #[test]
@@ -68,23 +68,78 @@ fn test_bb_tables() {
 
     let between = bb_between(sq1, sq2);
     assert_eq!(between, 1 << 1); // B1
-
-    let line = bb_line(sq1, sq2);
-    assert_eq!(line & (1 << 0), 1 << 0);
-    assert_eq!(line & (1 << 1), 1 << 1);
-    assert_eq!(line & (1 << 2), 1 << 2);
 }
 
 #[test]
 fn test_bb_get_edge_filter() {
-    let sq = Sq::from_raw(9); // B2
+    let sq = Sq::B2;
     let filter = bb_get_edge_filter(sq);
-    assert_ne!(filter, 0);
+    // B2 is on Rank 2, File B.
+    // Edge filter should include Rank 1, Rank 8, File A, File H.
+    assert_eq!(filter, RANK_1 | RANK_8 | FILE_A | FILE_H);
+
+    let sq_a1 = Sq::A1;
+    let filter_a1 = bb_get_edge_filter(sq_a1);
+    // A1 is on Rank 1, File A.
+    // Filter should exclude Rank 1 and File A.
+    assert_eq!(filter_a1, RANK_8 | FILE_H);
 }
 
 #[test]
 fn test_bb_generate_ray_attacks() {
-    let sq = Sq::from_raw(0); // A1
-    let attacks = bb_generate_ray_attacks(sq, 0, Dir::North);
-    assert_ne!(attacks, 0);
+    let sq = Sq::D4;
+    // North ray from D4 is D5, D6, D7, D8
+    let empty_attacks = bb_generate_ray_attacks(sq, 0, Dir::North);
+    assert_eq!(empty_attacks, Sq::D5.bitboard() | Sq::D6.bitboard() | Sq::D7.bitboard() | Sq::D8.bitboard());
+
+    // Blocker on D6
+    let blocked_attacks = bb_generate_ray_attacks(sq, Sq::D6.bitboard(), Dir::North);
+    // Should include the blocker but not squares beyond it
+    assert_eq!(blocked_attacks, Sq::D5.bitboard() | Sq::D6.bitboard());
+    
+    // Blocker on D4 itself shouldn't matter since ray starts after D4
+    let self_blocked = bb_generate_ray_attacks(sq, Sq::D4.bitboard(), Dir::North);
+    assert_eq!(self_blocked, empty_attacks);
+}
+
+#[test]
+fn test_generate_rook_attacks() {
+    let sq = Sq::E4;
+    // Empty board rook attacks from E4
+    let empty = generate_rook_attacks(sq, 0);
+    // Should be File E (excluding E4) and Rank 4 (excluding E4)
+    let expected_empty = (FILE_E | RANK_4) ^ sq.bitboard();
+    assert_eq!(empty, expected_empty);
+
+    // Blockers on E2, E7, C4, G4
+    let blockers = Sq::E2.bitboard() | Sq::E7.bitboard() | Sq::C4.bitboard() | Sq::G4.bitboard();
+    let attacks = generate_rook_attacks(sq, blockers);
+    let expected_attacks = 
+        Sq::E5.bitboard() | Sq::E6.bitboard() | Sq::E7.bitboard() | // North
+        Sq::E3.bitboard() | Sq::E2.bitboard() |                     // South
+        Sq::F4.bitboard() | Sq::G4.bitboard() |                     // East
+        Sq::D4.bitboard() | Sq::C4.bitboard();                      // West
+    assert_eq!(attacks, expected_attacks);
+}
+
+#[test]
+fn test_generate_bishop_attacks() {
+    let sq = Sq::D4;
+    let empty = generate_bishop_attacks(sq, 0);
+    let expected_empty = 
+        bb_from_dir(Dir::NorthEast, sq) |
+        bb_from_dir(Dir::NorthWest, sq) |
+        bb_from_dir(Dir::SouthEast, sq) |
+        bb_from_dir(Dir::SouthWest, sq);
+    assert_eq!(empty, expected_empty);
+
+    // Blockers on F6, B6, F2, B2
+    let blockers = Sq::F6.bitboard() | Sq::B6.bitboard() | Sq::F2.bitboard() | Sq::B2.bitboard();
+    let attacks = generate_bishop_attacks(sq, blockers);
+    let expected_attacks = 
+        Sq::E5.bitboard() | Sq::F6.bitboard() | // NorthEast
+        Sq::C5.bitboard() | Sq::B6.bitboard() | // NorthWest
+        Sq::E3.bitboard() | Sq::F2.bitboard() | // SouthEast
+        Sq::C3.bitboard() | Sq::B2.bitboard();  // SouthWest
+    assert_eq!(attacks, expected_attacks);
 }

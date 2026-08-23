@@ -152,10 +152,10 @@ pub const fn bb_scan_reverse(bb: u64) -> u8 {
 }
 
 #[inline]
-pub const fn bb_pop_lsb(mut bb: u64) -> (Sq, u64) {
+pub const fn bb_pop_lsb(bb: &mut u64) -> Sq {
     let sq = Sq::from_raw(bb.trailing_zeros() as u8);
-    bb &= bb.wrapping_sub(1);
-    (sq, bb)
+    *bb &= bb.wrapping_sub(1);
+    sq
 }
 
 #[inline(always)]
@@ -169,8 +169,8 @@ pub const fn bb_between(sq1: Sq, sq2: Sq) -> u64 {
 }
 
 #[inline(always)]
-pub const fn bb_line(sq1: Sq, sq2: Sq) -> u64 {
-    BB_LINE_SQUARES[sq1.as_index()][sq2.as_index()]
+pub const fn bb_segment(sq1: Sq, sq2: Sq) -> u64 {
+    BB_SEGMENT[sq1.as_index()][sq2.as_index()]
 }
 
 pub const fn bb_get_edge_filter(sq: Sq) -> u64 {
@@ -233,7 +233,7 @@ static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
                 let dir = Dir::ALL[i];
                 let ray1 = bb_from_dir(dir, sq1);
                 if (ray1 & bb2) != 0 {
-                    let ray2 = bb_from_dir(dir.oppsite(), sq2);
+                    let ray2 = bb_from_dir(dir.opposite(), sq2);
                     result[sq1.as_index()][sq2.as_index()] = ray1 & ray2;
                     break;
                 }
@@ -245,7 +245,7 @@ static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
     result
 };
 
-static BB_LINE_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
+static BB_SEGMENT: [[u64; Sq::NB]; Sq::NB] = const {
     let mut result = [[0; Sq::NB]; Sq::NB];
 
     for_each_square!(sq1 => {
