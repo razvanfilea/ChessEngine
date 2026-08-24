@@ -1,20 +1,5 @@
 use chess_base::prelude::*;
 
-#[derive(Default)]
-pub struct BoardState {
-    z_key: u64,
-
-    king_attackers: u64,
-    king_blockers: [u64; Color::NB],
-    king_pinners: [u64; Color::NB],
-    possible_check_squares: [u64; Pieces::NB],
-
-    move_contents: u32,
-    castling_rights: u8,
-    en_passant_square: u8,
-    fifty_move_rule: u8,
-}
-
 #[derive(Clone)]
 pub struct Board {
     pub mailbox: [Option<ColoredPiece>; Sq::NB],

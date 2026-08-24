@@ -57,6 +57,18 @@ macro_rules! for_each_square {
     };
 }
 
+/// Iterates over every set bit in a bitboard as an `Sq`.
+#[macro_export]
+macro_rules! for_each_bit {
+    ($sq:pat in $bitboard:expr => $body:block) => {{
+        let mut _bb: u64 = $bitboard;
+        while _bb != 0 {
+            let $sq = $crate::bitboard::bb_pop_lsb(&mut _bb);
+            $body
+        }
+    }};
+}
+
 #[inline(always)]
 pub const fn sh_dir(dir: Dir, bb: u64) -> u64 {
     match dir {
