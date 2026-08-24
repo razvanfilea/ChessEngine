@@ -168,4 +168,21 @@ impl Board {
     pub fn occupied(&self) -> u64 {
         self.bit_colors[0] | self.bit_colors[1]
     }
+
+    pub fn legal(&self, mov: Move) {
+        // TODO:
+        // • If the move is a King move (from == king_sq):
+        //     1. Remove from from occupied: occ = (board.occupied() ^ from.bitboard()) | to.bitboard();
+        //     2. Ask: Is to attacked by any enemy piece using blockers occ?
+        //     3. If attacked → Illegal. If not attacked → Legal.
+        // • If the move is a Non-King piece:
+        //     1. Verify the piece is not pinned to the King (or if it is pinned, it only moves along the pin ray).
+        //     2. If en-passant, verify the special horizontal double-pawn pin.
+
+        // TODO: The transit squares (the square the King crosses and lands on) are not attacked by the enemy:
+        //   - White Kingside: !is_attacked(E1) && !is_attacked(F1) && !is_attacked(G1)
+        //   - White Queenside: !is_attacked(E1) && !is_attacked(D1) && !is_attacked(C1) (Note: b1 only needs to be empty, not unattacked)
+
+    }
+
 }

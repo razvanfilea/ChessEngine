@@ -41,7 +41,7 @@ pub struct MoveListPtr(pub *mut Move);
 
 impl MoveListPtr {
     #[inline(always)]
-    pub(super) const fn push(&mut self, from: Sq, to: Sq, flags: MoveFlags) {
+    pub const fn push(&mut self, from: Sq, to: Sq, flags: MoveFlags) {
         unsafe {
             self.0.write(Move::new(from, to, flags));
             self.0 = self.0.add(1);
@@ -49,7 +49,7 @@ impl MoveListPtr {
     }
 
     #[inline(always)]
-    pub(super) const fn push_promotions(&mut self, from: Sq, to: Sq, is_capture: bool) {
+    pub const fn push_promotions(&mut self, from: Sq, to: Sq, is_capture: bool) {
         let moves = if is_capture {
             [
                 Move::new(from, to, MoveFlags::PromoCaptureQueen),
