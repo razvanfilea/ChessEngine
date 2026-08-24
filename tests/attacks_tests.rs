@@ -1,5 +1,6 @@
 use chess_base::{bitboard, prelude::*};
 use lucky_chess::attacks::*;
+use lucky_chess::move_gen::{Black, White};
 
 #[test]
 fn test_pawn_moves() {
@@ -25,28 +26,28 @@ fn test_pawn_moves() {
 fn test_pawn_attacks() {
     // White pawn on E4 attacks D5 and F5
     let e4 = Sq::E4;
-    let white_attacks = pawn_attacks(e4, Color::White);
+    let white_attacks = pawn_attacks::<White>(e4);
     let expected_white = Sq::D5.bitboard() | Sq::F5.bitboard();
     assert_eq!(white_attacks, expected_white);
 
     // Black pawn on E4 attacks D3 and F3
-    let black_attacks = pawn_attacks(e4, Color::Black);
+    let black_attacks = pawn_attacks::<Black>(e4);
     let expected_black = Sq::D3.bitboard() | Sq::F3.bitboard();
     assert_eq!(black_attacks, expected_black);
 
     // Edge cases: pawns on A file (can only attack right)
     let a4 = Sq::A4;
-    let white_a4 = pawn_attacks(a4, Color::White);
+    let white_a4 = pawn_attacks::<White>(a4);
     assert_eq!(white_a4, Sq::B5.bitboard());
 
     // Pawns on H file (can only attack left)
     let h4 = Sq::H4;
-    let black_h4 = pawn_attacks(h4, Color::Black);
+    let black_h4 = pawn_attacks::<Black>(h4);
     assert_eq!(black_h4, Sq::G3.bitboard());
 
     // Edges of the board vertically
-    assert_eq!(pawn_attacks(Sq::A8, Color::White), 0);
-    assert_eq!(pawn_attacks(Sq::H1, Color::Black), 0);
+    assert_eq!(pawn_attacks::<White>(Sq::A8), 0);
+    assert_eq!(pawn_attacks::<Black>(Sq::H1), 0);
 }
 
 #[test]

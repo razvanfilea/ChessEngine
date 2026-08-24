@@ -90,13 +90,16 @@ fn test_bb_generate_ray_attacks() {
     let sq = Sq::D4;
     // North ray from D4 is D5, D6, D7, D8
     let empty_attacks = bb_generate_ray_attacks(sq, 0, Dir::North);
-    assert_eq!(empty_attacks, Sq::D5.bitboard() | Sq::D6.bitboard() | Sq::D7.bitboard() | Sq::D8.bitboard());
+    assert_eq!(
+        empty_attacks,
+        Sq::D5.bitboard() | Sq::D6.bitboard() | Sq::D7.bitboard() | Sq::D8.bitboard()
+    );
 
     // Blocker on D6
     let blocked_attacks = bb_generate_ray_attacks(sq, Sq::D6.bitboard(), Dir::North);
     // Should include the blocker but not squares beyond it
     assert_eq!(blocked_attacks, Sq::D5.bitboard() | Sq::D6.bitboard());
-    
+
     // Blocker on D4 itself shouldn't matter since ray starts after D4
     let self_blocked = bb_generate_ray_attacks(sq, Sq::D4.bitboard(), Dir::North);
     assert_eq!(self_blocked, empty_attacks);
@@ -114,11 +117,10 @@ fn test_generate_rook_attacks() {
     // Blockers on E2, E7, C4, G4
     let blockers = Sq::E2.bitboard() | Sq::E7.bitboard() | Sq::C4.bitboard() | Sq::G4.bitboard();
     let attacks = generate_rook_attacks(sq, blockers);
-    let expected_attacks = 
-        Sq::E5.bitboard() | Sq::E6.bitboard() | Sq::E7.bitboard() | // North
+    let expected_attacks = Sq::E5.bitboard() | Sq::E6.bitboard() | Sq::E7.bitboard() | // North
         Sq::E3.bitboard() | Sq::E2.bitboard() |                     // South
         Sq::F4.bitboard() | Sq::G4.bitboard() |                     // East
-        Sq::D4.bitboard() | Sq::C4.bitboard();                      // West
+        Sq::D4.bitboard() | Sq::C4.bitboard(); // West
     assert_eq!(attacks, expected_attacks);
 }
 
@@ -126,20 +128,18 @@ fn test_generate_rook_attacks() {
 fn test_generate_bishop_attacks() {
     let sq = Sq::D4;
     let empty = generate_bishop_attacks(sq, 0);
-    let expected_empty = 
-        bb_from_dir(Dir::NorthEast, sq) |
-        bb_from_dir(Dir::NorthWest, sq) |
-        bb_from_dir(Dir::SouthEast, sq) |
-        bb_from_dir(Dir::SouthWest, sq);
+    let expected_empty = bb_from_dir(Dir::NorthEast, sq)
+        | bb_from_dir(Dir::NorthWest, sq)
+        | bb_from_dir(Dir::SouthEast, sq)
+        | bb_from_dir(Dir::SouthWest, sq);
     assert_eq!(empty, expected_empty);
 
     // Blockers on F6, B6, F2, B2
     let blockers = Sq::F6.bitboard() | Sq::B6.bitboard() | Sq::F2.bitboard() | Sq::B2.bitboard();
     let attacks = generate_bishop_attacks(sq, blockers);
-    let expected_attacks = 
-        Sq::E5.bitboard() | Sq::F6.bitboard() | // NorthEast
+    let expected_attacks = Sq::E5.bitboard() | Sq::F6.bitboard() | // NorthEast
         Sq::C5.bitboard() | Sq::B6.bitboard() | // NorthWest
         Sq::E3.bitboard() | Sq::F2.bitboard() | // SouthEast
-        Sq::C3.bitboard() | Sq::B2.bitboard();  // SouthWest
+        Sq::C3.bitboard() | Sq::B2.bitboard(); // SouthWest
     assert_eq!(attacks, expected_attacks);
 }

@@ -159,17 +159,21 @@ impl Sq {
     }
 
     /// Shifts the square by the given direction without bounds checking.
-    /// 
+    ///
     /// # Safety
-    /// The caller must ensure that shifting this square in the given direction 
-    /// will not wrap around the files or fall off the board. 
+    /// The caller must ensure that shifting this square in the given direction
+    /// will not wrap around the files or fall off the board.
     #[inline(always)]
     pub const unsafe fn shift_unchecked(self, dir: Dir) -> Self {
         let offset = match dir {
-            Dir::North => 8, Dir::South => -8,
-            Dir::East => 1, Dir::West => -1,
-            Dir::NorthEast => 9, Dir::NorthWest => 7,
-            Dir::SouthEast => -7, Dir::SouthWest => -9,
+            Dir::North => 8,
+            Dir::South => -8,
+            Dir::East => 1,
+            Dir::West => -1,
+            Dir::NorthEast => 9,
+            Dir::NorthWest => 7,
+            Dir::SouthEast => -7,
+            Dir::SouthWest => -9,
         };
         unsafe { Self::from_raw_unchecked((self.0 as i8 + offset) as u8) }
     }

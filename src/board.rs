@@ -111,8 +111,8 @@ impl Board {
     pub fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
         self.mailbox[sq.as_index()] = Some(piece);
         let bitboard = sq.bitboard();
-        *self.colors_mut(piece.color) |= bitboard;
-        *self.pieces_mut(piece.piece) |= bitboard;
+        *self.colors_mut(piece.color()) |= bitboard;
+        *self.pieces_mut(piece.piece()) |= bitboard;
     }
 
     pub fn remove_piece(&mut self, sq: Sq) {
@@ -120,8 +120,8 @@ impl Board {
             return;
         };
         let bitboard = sq.bitboard();
-        *self.colors_mut(piece.color) &= !bitboard;
-        *self.pieces_mut(piece.piece) &= !bitboard;
+        *self.colors_mut(piece.color()) &= !bitboard;
+        *self.pieces_mut(piece.piece()) &= !bitboard;
     }
 
     #[inline(always)]
@@ -151,7 +151,7 @@ impl Board {
 
     #[inline(always)]
     pub fn colored_piece(&self, piece: ColoredPiece) -> u64 {
-        self.colors(piece.color) & self.pieces(piece.piece)
+        self.colors(piece.color()) & self.pieces(piece.piece())
     }
 
     #[inline(always)]

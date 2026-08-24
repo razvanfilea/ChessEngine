@@ -113,7 +113,7 @@ fn test_missing_trailing_fields() {
     assert_eq!(board.en_passant_target_sq, Sq::NONE);
     assert_eq!(board.half_move_clock, 0);
     assert_eq!(board.ply, 0);
-    assert_eq!(board.piece_at(Sq::E1).unwrap().piece, Pieces::King);
+    assert_eq!(board.piece_at(Sq::E1).unwrap().piece(), Pieces::King);
 
     // 2. Piece placement + side to move (Black)
     let fen_side = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b";

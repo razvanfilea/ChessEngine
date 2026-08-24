@@ -15,6 +15,8 @@ mod sliders_attack {
 
 use chess_base::{bitboard::*, prelude::*};
 
+use crate::move_gen::Player;
+
 pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
     let bb = sq.bitboard();
     let rank = sq.rank();
@@ -33,9 +35,9 @@ pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
     }
 }
 
-pub const fn pawn_attacks(sq: Sq, color: Color) -> u64 {
+pub const fn pawn_attacks<Us: Player>(sq: Sq) -> u64 {
     let bb = sq.bitboard();
-    if color.as_bool() {
+    if Us::COLOR.as_bool() {
         sh_north_west(bb) | sh_north_east(bb)
     } else {
         sh_south_west(bb) | sh_south_east(bb)

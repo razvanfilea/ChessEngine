@@ -16,14 +16,29 @@ impl Pieces {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct ColoredPiece {
-    pub piece: Pieces,
-    pub color: Color,
-}
+pub struct ColoredPiece(std::num::NonZeroU8);
 
 impl ColoredPiece {
-    pub fn new(piece: Pieces, color: Color) -> Self {
-        Self { piece, color }
+    const PIECE_MASK: u8 = 0b0111;
+    const COLOR_MASK: u8 = 0b1000;
+
+    #[inline(always)]
+    pub const fn new(piece: Pieces, color: Color) -> Self {
+        const { assert!(size_of::<Option<ColoredPiece>>() == 1) };
+        let val = (piece as u8 | ((color as u8) << 3)) + 1;
+        Self(unsafe { std::num::NonZeroU8::new_unchecked(val) })
+    }
+
+    #[inline(always)]
+    pub const fn piece(self) -> Pieces {
+        let val = self.0.get() - 1;
+        unsafe { std::mem::transmute(val & Self::PIECE_MASK) }
+    }
+
+    #[inline(always)]
+    pub fn color(self) -> Color {
+        let val = self.0.get() - 1;
+        Color::from((val & Self::COLOR_MASK) != 0)
     }
 
     pub fn parse(val: char) -> Option<Self> {
@@ -37,15 +52,12 @@ impl ColoredPiece {
             _ => return None,
         };
 
-        Some(Self {
-            piece,
-            color: Color::from(val.is_uppercase()),
-        })
+        Some(Self::new(piece, Color::from(val.is_uppercase())))
     }
 }
 
 impl PartialEq<Pieces> for ColoredPiece {
     fn eq(&self, other: &Pieces) -> bool {
-        self.piece == *other
+        self.piece() == *other
     }
 }
