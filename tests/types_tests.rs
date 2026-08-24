@@ -2,9 +2,18 @@ use chess_base::prelude::*;
 
 #[test]
 fn test_castling_rights() {
-    assert_eq!(CastlingRights::WHITE_ANY.bits(), CastlingRights::WHITE_00.bits() | CastlingRights::WHITE_000.bits());
-    assert_eq!(CastlingRights::BLACK_ANY.bits(), CastlingRights::BLACK_00.bits() | CastlingRights::BLACK_000.bits());
-    assert_eq!(CastlingRights::ALL.bits(), CastlingRights::WHITE_ANY.bits() | CastlingRights::BLACK_ANY.bits());
+    assert_eq!(
+        CastlingRights::WHITE_ANY.bits(),
+        CastlingRights::WHITE_00.bits() | CastlingRights::WHITE_000.bits()
+    );
+    assert_eq!(
+        CastlingRights::BLACK_ANY.bits(),
+        CastlingRights::BLACK_00.bits() | CastlingRights::BLACK_000.bits()
+    );
+    assert_eq!(
+        CastlingRights::ALL.bits(),
+        CastlingRights::WHITE_ANY.bits() | CastlingRights::BLACK_ANY.bits()
+    );
     assert_eq!(CastlingRights::default(), CastlingRights::empty());
 }
 

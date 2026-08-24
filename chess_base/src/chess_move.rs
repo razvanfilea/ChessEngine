@@ -13,7 +13,7 @@ impl Move {
         self.0 == 0
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn new(from: Sq, to: Sq, flags: MoveFlags) -> Self {
         Self(from.as_u8() as u16 | ((to.as_u8() as u16) << 6) | ((flags as u16) << 12))
     }
@@ -90,4 +90,3 @@ pub enum MoveFlags {
     PromoCaptureRook = 0b1110,
     PromoCaptureQueen = 0b1111,
 }
-

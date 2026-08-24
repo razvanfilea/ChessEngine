@@ -29,6 +29,7 @@ impl Not for Color {
 }
 
 impl From<bool> for Color {
+    #[inline(always)]
     fn from(value: bool) -> Self {
         if value { Color::White } else { Color::Black }
     }

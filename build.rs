@@ -32,15 +32,15 @@ fn main() {
     let mut f = File::create(&dest_path).unwrap();
 
     let mut table = Vec::with_capacity(107648);
-    let mut bishop_offsets = vec![0u16; 64];
-    let mut rook_offsets = vec![0u16; 64];
+    let mut bishop_offsets = vec![0u32; 64];
+    let mut rook_offsets = vec![0u32; 64];
     let mut bishop_masks = vec![0u64; 64];
     let mut rook_masks = vec![0u64; 64];
 
     let mut current_index = 0;
 
     for_each_square!(sq => {
-        rook_offsets[sq.as_index()] = current_index as u16;
+        rook_offsets[sq.as_index()] = current_index as u32;
         let mask = pattern::ROOK_XRAY_ATTACKS[sq.as_index()] & !bitboard::bb_get_edge_filter(sq);
         rook_masks[sq.as_index()] = mask;
         let combinations = 1usize << mask.count_ones();
@@ -52,7 +52,7 @@ fn main() {
     });
 
     for_each_square!(sq => {
-        bishop_offsets[sq.as_index()] = current_index as u16;
+        bishop_offsets[sq.as_index()] = current_index as u32;
         let mask = pattern::BISHOP_XRAY_ATTACKS[sq.as_index()] & !bitboard::bb_get_edge_filter(sq);
         bishop_masks[sq.as_index()] = mask;
         let combinations = 1usize << mask.count_ones();
@@ -72,13 +72,13 @@ fn main() {
     .unwrap();
     writeln!(
         f,
-        "pub const PEXT_BISHOP_OFFSETS: [u16; 64] = {:?};",
+        "pub const PEXT_BISHOP_OFFSETS: [u32; 64] = {:?};",
         bishop_offsets
     )
     .unwrap();
     writeln!(
         f,
-        "pub const PEXT_ROOK_OFFSETS: [u16; 64] = {:?};",
+        "pub const PEXT_ROOK_OFFSETS: [u32; 64] = {:?};",
         rook_offsets
     )
     .unwrap();

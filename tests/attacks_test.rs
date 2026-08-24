@@ -11,10 +11,12 @@ fn test_pawn_moves() {
     assert_ne!(moves_black, 0);
 }
 
+use lucky_chess::move_gen::White;
+
 #[test]
 fn test_pawn_attacks() {
     let sq = Sq::from_raw(9); // B2
-    let attacks = pawn_attacks(sq, Color::White);
+    let attacks = pawn_attacks::<White>(sq);
     assert_ne!(attacks, 0);
 }
 

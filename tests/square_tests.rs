@@ -178,13 +178,13 @@ fn test_sq_shift() {
     assert_eq!(Sq::A1.shift(Dir::North), Sq::A2);
     assert_eq!(Sq::H8.shift(Dir::South), Sq::H7);
     assert_eq!(Sq::E4.shift(Dir::NorthEast), Sq::F5);
-    
+
     // Edges (should not wrap around)
     assert_eq!(Sq::H1.shift(Dir::East), Sq::NONE);
     assert_eq!(Sq::A2.shift(Dir::West), Sq::NONE);
     assert_eq!(Sq::H8.shift(Dir::North), Sq::NONE);
     assert_eq!(Sq::A1.shift(Dir::SouthWest), Sq::NONE);
-    
+
     // Shift from NONE
     assert_eq!(Sq::NONE.shift(Dir::North), Sq::NONE);
 }

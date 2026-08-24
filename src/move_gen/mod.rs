@@ -1,123 +1,101 @@
-use std::mem::MaybeUninit;
-
 use chess_base::{bitboard::*, for_each_bit, prelude::*};
 
-use crate::board::Board;
+use crate::{
+    attacks::{self, bishop_attacks, knight_attacks, pawn_attacks, rook_attacks},
+    board::Board,
+};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum GenType {
-    All,
-    Captures,
-    Quiets,
+mod move_list;
+mod traits;
+
+pub use move_list::*;
+pub use traits::*;
+
+pub fn compute_checkers<Us: Player>(board: &Board) -> u64 {
+    let us = Us::COLOR;
+    let them = !us;
+
+    let king_bb = board.color_piece(Pieces::King, us);
+    let king_sq = Sq::from_raw(bb_scan_forward(king_bb));
+    let enemy = *board.colors(them);
+    let occupied = board.occupied();
+
+    let enemy_bischop = (board.pieces(Pieces::Bischop) | board.pieces(Pieces::Queen)) & enemy;
+    let enemy_rook = (board.pieces(Pieces::Rook) | board.pieces(Pieces::Queen)) & enemy;
+
+    (pawn_attacks::<Us>(king_sq) & board.color_piece(Pieces::Pawn, them))
+        | (knight_attacks(king_sq) & board.color_piece(Pieces::Knight, them))
+        | (bishop_attacks(king_sq, occupied) & enemy_bischop)
+        | (rook_attacks(king_sq, occupied) & enemy_rook)
 }
 
-pub trait Player {
-    const COLOR: Color;
-}
-pub struct White;
-impl Player for White {
-    const COLOR: Color = Color::White;
-}
-pub struct Black;
-impl Player for Black {
-    const COLOR: Color = Color::Black;
-}
+pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList {
+    let us = Us::COLOR;
+    let them = !us;
 
-pub trait MoveGenType {
-    const TYPE: GenType;
-}
-pub struct AllMoves;
-impl MoveGenType for AllMoves {
-    const TYPE: GenType = GenType::All;
-}
-pub struct GenCaptures;
-impl MoveGenType for GenCaptures {
-    const TYPE: GenType = GenType::Captures;
-}
-pub struct GenQuiets;
-impl MoveGenType for GenQuiets {
-    const TYPE: GenType = GenType::Quiets;
-}
-
-pub struct MoveList {
-    moves: [MaybeUninit<Move>; 256],
-    size: usize,
-}
-
-impl Default for MoveList {
-    fn default() -> Self {
-        Self {
-            moves: unsafe { MaybeUninit::uninit().assume_init() },
-            size: 0,
-        }
-    }
-}
-
-impl MoveList {
-    pub const fn as_ptr(&mut self) -> MoveListPtr {
-        MoveListPtr(self.current_ptr())
-    }
-
-    pub const fn update_size(&mut self, new_position: MoveListPtr) {
-        let size = unsafe { new_position.0.offset_from(self.current_ptr()) };
-        self.size = size as usize;
-    }
-
-    pub const fn as_slice(&self) -> &[Move] {
-        unsafe { core::slice::from_raw_parts(self.moves.as_ptr() as *const Move, self.size) }
-    }
-
-    const fn current_ptr(&mut self) -> *mut Move {
-        (unsafe { self.moves.as_mut_ptr().add(self.size) }) as *mut Move
-    }
-}
-
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct MoveListPtr(pub *mut Move);
-
-impl MoveListPtr {
-    #[inline(always)]
-    const fn push(&mut self, from: Sq, to: Sq, flags: MoveFlags) {
-        unsafe {
-            self.0.write(Move::new(from, to, flags));
-            self.0 = self.0.add(1);
-        }
-    }
-
-    #[inline(always)]
-    const fn push_promotions(&mut self, from: Sq, to: Sq, is_capture: bool) {
-        let moves = if is_capture {
-            [
-                Move::new(from, to, MoveFlags::PromoCaptureQueen),
-                Move::new(from, to, MoveFlags::PromoCaptureRook),
-                Move::new(from, to, MoveFlags::PromoCaptureBishop),
-                Move::new(from, to, MoveFlags::PromoCaptureKnight),
-            ]
-        } else {
-            [
-                Move::new(from, to, MoveFlags::PromoQueen),
-                Move::new(from, to, MoveFlags::PromoRook),
-                Move::new(from, to, MoveFlags::PromoBishop),
-                Move::new(from, to, MoveFlags::PromoKnight),
-            ]
-        };
-
-        unsafe {
-            let ptr = self.0 as *mut [Move; 4];
-            ptr.write(moves);
-            self.0 = self.0.add(4);
-        }
-    }
-}
-
-pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board) {
     let mut moves = MoveList::default();
-    generate_pawn_moves::<Us, Type>(board, moves.as_ptr());
+
+    let king_bb = board.color_piece(Pieces::King, us);
+    let king_sq = Sq::from_raw(bb_scan_forward(king_bb));
+    let checkers = compute_checkers::<Us>(board);
+
+    let mut moves_ptr = generate_king_moves::<Us, Type>(board, moves.as_ptr());
+
+    // Double check: Only king can move
+    if Type::EVASIONS && bb_several(checkers) {
+        moves.update_size(moves_ptr);
+        return moves;
+    }
+
+    let target_mask = if Type::EVASIONS {
+        let checker_sq = unsafe { Sq::from_raw_unchecked(bb_scan_forward(checkers)) };
+        checkers | bb_between(king_sq, checker_sq)
+    } else {
+        let mut mask = 0;
+        if Type::CAPTURES {
+            mask |= board.colors(them);
+        }
+        if Type::QUIETS {
+            mask |= !board.occupied();
+        }
+        mask
+    };
+
+    moves_ptr = generate_knight_moves::<Us, Type>(board, target_mask, moves_ptr);
+    moves_ptr = generate_pawn_moves::<Us, Type>(board, target_mask, moves_ptr);
+
+    moves.update_size(moves_ptr);
+    moves
 }
 
-pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(board: &Board, mut moves: MoveListPtr) -> MoveListPtr {
-    let move_type = Type::TYPE;
+pub fn generate_knight_moves<Us: Player, Type: MoveGenType>(
+    board: &Board,
+    target_mask: u64,
+    mut moves: MoveListPtr,
+) -> MoveListPtr {
+    let us = Us::COLOR;
+    let them = !us;
+
+    let knights = board.color_piece(Pieces::Knight, us);
+    let enemy = board.colors(them);
+
+    for_each_bit!(knight_sq in knights => {
+        let attacks = knight_attacks(knight_sq) & target_mask;
+
+        for_each_bit!(to in attacks => {
+            let bb = to.bitboard();
+            moves.push(knight_sq, to, if bb & enemy != 0 {MoveFlags::Capture} else {MoveFlags::Quiet });
+        });
+    });
+
+    moves
+}
+
+pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
+    board: &Board,
+    target_mask: u64,
+    mut moves: MoveListPtr,
+) -> MoveListPtr {
     let us = Us::COLOR;
     let them = !us;
     let forward = if us == Color::White {
@@ -140,10 +118,10 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(board: &Board, mut mov
     };
 
     let empty_squares = !board.occupied();
-    let enemies = board.colors(them);
+    let enemies = *board.colors(them) & target_mask;
     let pawns = board.color_piece(Pieces::Pawn, us);
 
-    if move_type != GenType::Quiets {
+    if Type::CAPTURES {
         let (left, right) = if Us::COLOR == Color::White {
             (sh_north_west(pawns), sh_north_east(pawns))
         } else {
@@ -152,7 +130,13 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(board: &Board, mut mov
 
         let en_passant_sq = board.en_passant_target_sq;
         if en_passant_sq != Sq::NONE {
-            let en_passant_bb = board.en_passant_target_sq.bitboard();
+            let captured_pawn_sq = unsafe { en_passant_sq.shift_unchecked(backward) };
+            let ep_mask = en_passant_sq.bitboard() | captured_pawn_sq.bitboard();
+            let en_passant_bb = if ep_mask & target_mask != 0 {
+                en_passant_sq.bitboard()
+            } else {
+                0
+            };
 
             if left & en_passant_bb != 0 {
                 let from = unsafe { en_passant_sq.shift_unchecked(backward_left) };
@@ -168,34 +152,65 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(board: &Board, mut mov
         let left = left & enemies;
         let right = right & enemies;
 
-        // Non-promotions
-        for_each_bit!(to in left & !last_rank => {
-            let from = unsafe { to.shift_unchecked(backward_left) };
-            moves.push(from, to, MoveFlags::Capture);
-        });
+        if Type::EVASIONS {
+            let left_non_promo = left & !last_rank;
+            if left_non_promo != 0 {
+                let to = unsafe { Sq::from_raw_unchecked(left_non_promo.trailing_zeros() as u8) };
+                let from = unsafe { to.shift_unchecked(backward_left) };
+                moves.push(from, to, MoveFlags::Capture);
+            }
 
-        for_each_bit!(to in right & !last_rank => {
-            let from = unsafe { to.shift_unchecked(backward_right) };
-            moves.push(from, to, MoveFlags::Capture);
-        });
+            let right_non_promo = right & !last_rank;
+            if right_non_promo != 0 {
+                let to = unsafe { Sq::from_raw_unchecked(right_non_promo.trailing_zeros() as u8) };
+                let from = unsafe { to.shift_unchecked(backward_right) };
+                moves.push(from, to, MoveFlags::Capture);
+            }
 
-        // Promotions
-        for_each_bit!(to in left & last_rank => {
-            let from = unsafe { to.shift_unchecked(backward_left) };
-            moves.push_promotions(from, to, true);
-        });
+            let left_promo = left & last_rank;
+            if left_promo != 0 {
+                let to = unsafe { Sq::from_raw_unchecked(left_promo.trailing_zeros() as u8) };
+                let from = unsafe { to.shift_unchecked(backward_left) };
+                moves.push_promotions(from, to, true);
+            }
 
-        for_each_bit!(to in right & last_rank => {
-            let from = unsafe { to.shift_unchecked(backward_right) };
-            moves.push_promotions(from, to, true);
-        });
+            let right_promo = right & last_rank;
+            if right_promo != 0 {
+                let to = unsafe { Sq::from_raw_unchecked(right_promo.trailing_zeros() as u8) };
+                let from = unsafe { to.shift_unchecked(backward_right) };
+                moves.push_promotions(from, to, true);
+            }
+        } else {
+            // Non-promotions
+            for_each_bit!(to in left & !last_rank => {
+                let from = unsafe { to.shift_unchecked(backward_left) };
+                moves.push(from, to, MoveFlags::Capture);
+            });
+
+            for_each_bit!(to in right & !last_rank => {
+                let from = unsafe { to.shift_unchecked(backward_right) };
+                moves.push(from, to, MoveFlags::Capture);
+            });
+
+            // Promotions
+            for_each_bit!(to in left & last_rank => {
+                let from = unsafe { to.shift_unchecked(backward_left) };
+                moves.push_promotions(from, to, true);
+            });
+
+            for_each_bit!(to in right & last_rank => {
+                let from = unsafe { to.shift_unchecked(backward_right) };
+                moves.push_promotions(from, to, true);
+            });
+        }
     }
 
-    if move_type != GenType::Captures {
+    if Type::QUIETS {
         let forward_pushed_pawn = sh_dir(forward, pawns) & empty_squares;
-        let promotion_pushes = forward_pushed_pawn & last_rank;
-        let pushes = forward_pushed_pawn & !last_rank;
-        let double_pushes = sh_dir(forward, forward_pushed_pawn & third_rank) & empty_squares;
+        let promotion_pushes = forward_pushed_pawn & last_rank & target_mask;
+        let pushes = forward_pushed_pawn & !last_rank & target_mask;
+        let double_pushes =
+            sh_dir(forward, forward_pushed_pawn & third_rank) & empty_squares & target_mask;
 
         for_each_bit!(to in promotion_pushes => {
             let from = unsafe { to.shift_unchecked(backward) };
@@ -216,3 +231,28 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(board: &Board, mut mov
     moves
 }
 
+pub fn generate_king_moves<Us: Player, Type: MoveGenType>(
+    board: &Board,
+    mut moves: MoveListPtr,
+) -> MoveListPtr {
+    moves
+}
+
+#[unsafe(no_mangle)]
+pub fn generate_pawn_evasions(
+    board: &Board,
+    target_mask: u64,
+    mut moves: MoveListPtr,
+) -> MoveListPtr {
+     generate_pawn_moves::<White, Evasions>(board, target_mask, moves)
+}
+
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub fn generate_pawn_non(
+    board: &Board,
+    target_mask: u64,
+    mut moves: MoveListPtr,
+) -> MoveListPtr {
+    generate_pawn_moves::<White, NonEvasions>(board, target_mask, moves)
+}
