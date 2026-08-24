@@ -91,4 +91,3 @@ pub enum MoveFlags {
     PromoCaptureQueen = 0b1111,
 }
 
-impl MoveFlags {}

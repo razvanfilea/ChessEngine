@@ -52,7 +52,7 @@ impl UciState {
                     self.board = new_board;
                 }
             }
-            UciCommand::Go(uci_search_options) => todo!(),
+            UciCommand::Go(_uci_search_options) => todo!(),
             UciCommand::Stop => todo!(),
             UciCommand::PonderHit => todo!(),
             UciCommand::Quit => return false,
