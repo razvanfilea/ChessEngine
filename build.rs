@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[path = "src/attacks/pattern.rs"]
 mod pattern;
 

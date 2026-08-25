@@ -1,8 +1,6 @@
 use chess_base::{bitboard::*, for_each_square, prelude::*};
 
-type AttacksBoard = [u64; Sq::NB];
-
-pub static KNIGHT_ATTACKS: AttacksBoard = const {
+pub static KNIGHT_ATTACKS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
 
     for_each_square!(sq => {
@@ -21,7 +19,7 @@ pub static KNIGHT_ATTACKS: AttacksBoard = const {
     result
 };
 
-pub static KING_ATTACKS: AttacksBoard = const {
+pub static KING_ATTACKS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
 
     for_each_square!(sq => {
@@ -40,7 +38,7 @@ pub static KING_ATTACKS: AttacksBoard = const {
     result
 };
 
-pub static BISHOP_XRAY_ATTACKS: AttacksBoard = const {
+pub static BISHOP_XRAY_ATTACKS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
 
     for_each_square!(sq => {
@@ -53,7 +51,7 @@ pub static BISHOP_XRAY_ATTACKS: AttacksBoard = const {
     result
 };
 
-pub static ROOK_XRAY_ATTACKS: AttacksBoard = const {
+pub static ROOK_XRAY_ATTACKS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
 
     for_each_square!(sq => {
