@@ -1,9 +1,7 @@
 use chess_base::{bitboard::*, for_each_bit, prelude::*};
 
 use crate::{
-    attacks::{
-        bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks,
-    },
+    attacks::{bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks},
     board::Board,
 };
 
@@ -13,7 +11,10 @@ mod traits;
 pub use move_list::*;
 pub use traits::*;
 
-pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board, mut moves: MoveListPtr) -> MoveListPtr {
+pub fn generate_moves<Us: Player, Type: MoveGenType>(
+    board: &Board,
+    mut moves: MoveListPtr,
+) -> MoveListPtr {
     let us = Us::COLOR;
     let them = !us;
 
