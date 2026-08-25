@@ -18,7 +18,7 @@ pub fn compute_checkers<Us: Player>(board: &Board) -> u64 {
     let them = !us;
 
     let king_bb = board.color_piece(Pieces::King, us);
-    let king_sq = Sq::from_raw(bb_scan_forward(king_bb));
+    let king_sq = unsafe { bb_scan_forward(king_bb) };
     let enemy = *board.colors(them);
     let occupied = board.occupied();
 
@@ -38,7 +38,7 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList 
     let mut moves = MoveList::default();
 
     let king_bb = board.color_piece(Pieces::King, us);
-    let king_sq = Sq::from_raw(bb_scan_forward(king_bb));
+    let king_sq = unsafe { bb_scan_forward(king_bb) };
     let checkers = compute_checkers::<Us>(board);
 
     if Type::EVASIONS && checkers == 0 {
@@ -54,7 +54,7 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList 
     }
 
     let target_mask = if Type::EVASIONS {
-        let checker_sq = unsafe { Sq::from_raw_unchecked(bb_scan_forward(checkers)) };
+        let checker_sq = unsafe { bb_scan_forward(checkers) };
         checkers | bb_between(king_sq, checker_sq)
     } else {
         let mut mask = 0;
@@ -176,7 +176,6 @@ pub fn generate_pieces_moves<Us: Player, Type: MoveGenType>(
     moves
 }
 
-
 pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
     board: &Board,
     target_mask: u64,
@@ -214,8 +213,7 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
             (sh_south_east(pawns), sh_south_west(pawns))
         };
 
-        let en_passant_sq = board.en_passant_target_sq;
-        if en_passant_sq != Sq::NONE {
+        if let Some(en_passant_sq) = board.en_passant_target_sq {
             let captured_pawn_sq = unsafe { en_passant_sq.shift_unchecked(backward) };
             let ep_mask = en_passant_sq.bitboard() | captured_pawn_sq.bitboard();
             let en_passant_bb = if ep_mask & target_mask != 0 {

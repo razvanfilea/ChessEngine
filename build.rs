@@ -40,9 +40,9 @@ fn main() {
     let mut current_index = 0;
 
     for_each_square!(sq => {
-        rook_offsets[sq.as_index()] = current_index as u32;
-        let mask = pattern::ROOK_XRAY_ATTACKS[sq.as_index()] & !bitboard::bb_get_edge_filter(sq);
-        rook_masks[sq.as_index()] = mask;
+        rook_offsets[sq as usize] = current_index as u32;
+        let mask = pattern::ROOK_XRAY_ATTACKS[sq as usize] & !bitboard::bb_get_edge_filter(sq);
+        rook_masks[sq as usize] = mask;
         let combinations = 1usize << mask.count_ones();
         for j in 0..combinations {
             let occupied = const_pdep(j as u64, mask);
@@ -52,9 +52,9 @@ fn main() {
     });
 
     for_each_square!(sq => {
-        bishop_offsets[sq.as_index()] = current_index as u32;
-        let mask = pattern::BISHOP_XRAY_ATTACKS[sq.as_index()] & !bitboard::bb_get_edge_filter(sq);
-        bishop_masks[sq.as_index()] = mask;
+        bishop_offsets[sq as usize] = current_index as u32;
+        let mask = pattern::BISHOP_XRAY_ATTACKS[sq as usize] & !bitboard::bb_get_edge_filter(sq);
+        bishop_masks[sq as usize] = mask;
         let combinations = 1usize << mask.count_ones();
         for j in 0..combinations {
             let occupied = const_pdep(j as u64, mask);

@@ -147,3 +147,43 @@ fn test_rook_xray_attacks() {
         bitboard::bb_from_dir(Dir::North, Sq::A1) | bitboard::bb_from_dir(Dir::East, Sq::A1);
     assert_eq!(a1_attacks, expected_a1);
 }
+
+#[test]
+fn test_bishop_attacks() {
+    let sq = Sq::D4;
+    // On empty board, bishop attacks match x-ray attacks and bitboard ray generation
+    assert_eq!(bishop_attacks(sq, 0), bishop_xray_attacks(sq));
+    assert_eq!(bishop_attacks(sq, 0), bitboard::generate_bishop_attacks(sq, 0));
+
+    // With blockers on F6, B6, F2, B2
+    let blockers = Sq::F6.bitboard() | Sq::B6.bitboard() | Sq::F2.bitboard() | Sq::B2.bitboard();
+    assert_eq!(
+        bishop_attacks(sq, blockers),
+        bitboard::generate_bishop_attacks(sq, blockers)
+    );
+}
+
+#[test]
+fn test_rook_attacks() {
+    let sq = Sq::E4;
+    // On empty board, rook attacks match x-ray attacks and bitboard ray generation
+    assert_eq!(rook_attacks(sq, 0), rook_xray_attacks(sq));
+    assert_eq!(rook_attacks(sq, 0), bitboard::generate_rook_attacks(sq, 0));
+
+    // With blockers on E2, E7, C4, G4
+    let blockers = Sq::E2.bitboard() | Sq::E7.bitboard() | Sq::C4.bitboard() | Sq::G4.bitboard();
+    assert_eq!(
+        rook_attacks(sq, blockers),
+        bitboard::generate_rook_attacks(sq, blockers)
+    );
+}
+
+#[test]
+fn test_queen_attacks() {
+    let sq = Sq::D4;
+    let blockers = Sq::D6.bitboard() | Sq::F6.bitboard() | Sq::B4.bitboard();
+    assert_eq!(
+        queen_attacks(sq, blockers),
+        bishop_attacks(sq, blockers) | rook_attacks(sq, blockers)
+    );
+}

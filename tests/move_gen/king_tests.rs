@@ -1,6 +1,6 @@
 use chess_base::prelude::*;
 use lucky_chess::board::Board;
-use lucky_chess::move_gen::{generate_moves, Black, Captures, NonEvasions, Quiets, White};
+use lucky_chess::move_gen::{Black, Captures, NonEvasions, Quiets, White, generate_moves};
 
 #[test]
 fn test_king_center_moves() {
