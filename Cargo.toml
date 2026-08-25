@@ -16,3 +16,9 @@ uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promo
 [build-dependencies]
 chess_base = { path = "chess_base" }
 
+[profile.release]
+codegen-units = 1
+lto = true
+
+[profile.dev]
+opt-level = 1

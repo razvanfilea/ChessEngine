@@ -2,6 +2,7 @@ use std::hint::assert_unchecked;
 
 use chess_base::{
     bitboard::{bb_between, bb_scan_forward},
+    get_castling_rights_mask,
     prelude::*,
 };
 
@@ -116,6 +117,7 @@ impl Board {
         Some(board)
     }
 
+    #[inline]
     fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
         self.mailbox[sq as usize] = Some(piece);
         let bitboard = sq.bitboard();
@@ -123,6 +125,19 @@ impl Board {
         *self.pieces_mut(piece.piece()) |= bitboard;
     }
 
+    #[inline(always)]
+    fn move_piece(&mut self, from: Sq, to: Sq) -> ColoredPiece {
+        let piece = unsafe { self.mailbox[from as usize].take().unwrap_unchecked() };
+        self.mailbox[to as usize] = Some(piece);
+
+        let move_bb = from.bitboard() ^ to.bitboard();
+        *self.colors_mut(piece.color()) ^= move_bb;
+        *self.pieces_mut(piece.piece()) ^= move_bb;
+
+        piece
+    }
+
+    #[inline]
     fn remove_piece(&mut self, sq: Sq) -> Option<ColoredPiece> {
         let piece = self.mailbox[sq as usize].take()?;
         let bitboard = sq.bitboard();
@@ -287,22 +302,76 @@ impl Board {
     pub fn make_move(&mut self, mov: Move) {
         let from = mov.from();
         let to = mov.to();
+        let flags = mov.flags();
+        let us = self.to_play;
+
         debug_assert!(self.piece_at(from).is_some());
 
-        let removed_piece = unsafe { self.remove_piece(mov.from()).unwrap_unchecked() };
-        let flags = mov.flags();
-        if flags == MoveFlags::EnPassant {
-            let captured_pawn_sq = unsafe {
-                to.shift_unchecked(if self.to_play == Color::White {
+        let is_capture = mov.is_capture();
+        if is_capture {
+            if flags == MoveFlags::EnPassant {
+                let captured_pawn_sq = unsafe {
+                    to.shift_unchecked(if us == Color::White {
+                        Dir::South
+                    } else {
+                        Dir::North
+                    })
+                };
+                self.remove_piece(captured_pawn_sq);
+            } else {
+                self.remove_piece(to);
+            }
+        }
+
+        let mut piece = self.move_piece(from, to);
+        let is_pawn = piece.piece() == Pieces::Pawn;
+
+        if mov.is_promotion() {
+            let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
+
+            self.remove_piece(to);
+            piece = ColoredPiece::new(promo_piece, us);
+            self.add_piece(to, piece);
+        }
+
+        if mov.is_castle() {
+            let (rook_from, rook_to) = if flags == MoveFlags::CastleKing {
+                if us == Color::White {
+                    (Sq::H1, Sq::F1)
+                } else {
+                    (Sq::H8, Sq::F8)
+                }
+            } else {
+                if us == Color::White {
+                    (Sq::A1, Sq::D1)
+                } else {
+                    (Sq::A8, Sq::D8)
+                }
+            };
+            self.move_piece(rook_from, rook_to);
+        }
+
+        self.castling_rights &= get_castling_rights_mask(from, to);
+
+        if flags == MoveFlags::DoublePawn {
+            self.en_passant_target_sq = Some(unsafe {
+                to.shift_unchecked(if us == Color::White {
                     Dir::South
                 } else {
                     Dir::North
                 })
-            };
-            self.remove_piece(captured_pawn_sq);
-            self.add_piece(to, removed_piece);
+            });
+        } else {
+            self.en_passant_target_sq = None;
         }
 
-        self.en_passant_target_sq = None;
+        if is_pawn || is_capture {
+            self.half_move_clock = 0;
+        } else {
+            self.half_move_clock += 1;
+        }
+
+        self.ply += 1;
+        self.to_play = !us;
     }
 }

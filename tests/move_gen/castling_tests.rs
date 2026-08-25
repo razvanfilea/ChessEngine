@@ -1,14 +1,12 @@
 use chess_base::prelude::*;
 use lucky_chess::board::Board;
-use lucky_chess::move_gen::{
-    Black, Captures, Evasions, NonEvasions, White, generate_moves,
-};
+use lucky_chess::move_gen::{Black, Captures, Evasions, NonEvasions, White, gen_moves};
 
 #[test]
 fn test_castling_white_and_black_full_rights() {
     // Both White and Black have full rights and empty paths
     let white_board = Board::from_fen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1").unwrap();
-    let white_moves = generate_moves::<White, NonEvasions>(&white_board);
+    let white_moves = gen_moves::<White, NonEvasions>(&white_board);
 
     let has_w_kingside = white_moves
         .as_slice()
@@ -29,7 +27,7 @@ fn test_castling_white_and_black_full_rights() {
     );
 
     let black_board = Board::from_fen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1").unwrap();
-    let black_moves = generate_moves::<Black, NonEvasions>(&black_board);
+    let black_moves = gen_moves::<Black, NonEvasions>(&black_board);
 
     let has_b_kingside = black_moves
         .as_slice()
@@ -54,7 +52,7 @@ fn test_castling_white_and_black_full_rights() {
 fn test_castling_blocked_by_friendly_piece() {
     // White: bishop on f1 blocks kingside, knight on d1 blocks queenside
     let board = Board::from_fen("r3k2r/8/8/8/8/8/8/R2NKB1R w KQkq - 0 1").unwrap();
-    let moves = generate_moves::<White, NonEvasions>(&board);
+    let moves = gen_moves::<White, NonEvasions>(&board);
 
     let has_kingside = moves
         .as_slice()
@@ -79,7 +77,7 @@ fn test_castling_blocked_by_friendly_piece() {
 fn test_castling_blocked_by_b1_square() {
     // White: knight on b1 blocks queenside path
     let board = Board::from_fen("r3k2r/8/8/8/8/8/8/RN2K2R w KQkq - 0 1").unwrap();
-    let moves = generate_moves::<White, NonEvasions>(&board);
+    let moves = gen_moves::<White, NonEvasions>(&board);
 
     let has_kingside = moves
         .as_slice()
@@ -101,7 +99,7 @@ fn test_castling_blocked_by_b1_square() {
 fn test_castling_partial_rights() {
     // White only has K right (kingside)
     let k_only = Board::from_fen("r3k2r/8/8/8/8/8/8/R3K2R w K - 0 1").unwrap();
-    let moves_k = generate_moves::<White, NonEvasions>(&k_only);
+    let moves_k = gen_moves::<White, NonEvasions>(&k_only);
     assert!(
         moves_k
             .as_slice()
@@ -117,7 +115,7 @@ fn test_castling_partial_rights() {
 
     // White only has Q right (queenside)
     let q_only = Board::from_fen("r3k2r/8/8/8/8/8/8/R3K2R w Q - 0 1").unwrap();
-    let moves_q = generate_moves::<White, NonEvasions>(&q_only);
+    let moves_q = gen_moves::<White, NonEvasions>(&q_only);
     assert!(
         !moves_q
             .as_slice()
@@ -133,7 +131,7 @@ fn test_castling_partial_rights() {
 
     // No rights
     let no_rights = Board::from_fen("r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1").unwrap();
-    let moves_none = generate_moves::<White, NonEvasions>(&no_rights);
+    let moves_none = gen_moves::<White, NonEvasions>(&no_rights);
     assert!(
         !moves_none
             .as_slice()
@@ -152,7 +150,7 @@ fn test_castling_partial_rights() {
 fn test_castling_not_generated_in_captures_or_evasions() {
     let board = Board::from_fen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1").unwrap();
 
-    let cap_moves = generate_moves::<White, Captures>(&board);
+    let cap_moves = gen_moves::<White, Captures>(&board);
     assert!(
         !cap_moves
             .as_slice()
@@ -160,7 +158,7 @@ fn test_castling_not_generated_in_captures_or_evasions() {
             .any(|m| m.flags() == MoveFlags::CastleKing || m.flags() == MoveFlags::CastleQueen)
     );
 
-    let eva_moves = generate_moves::<White, Evasions>(&board);
+    let eva_moves = gen_moves::<White, Evasions>(&board);
     assert!(
         !eva_moves
             .as_slice()

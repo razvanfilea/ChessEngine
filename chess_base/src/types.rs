@@ -1,5 +1,7 @@
 use bitflags::bitflags;
 
+use crate::Sq;
+
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
     pub struct CastlingRights: u8 {
@@ -12,6 +14,36 @@ bitflags! {
         const BLACK_ANY = Self::BLACK_00.bits() | Self::BLACK_000.bits();
         const ALL = Self::WHITE_ANY.bits() | Self::BLACK_ANY.bits();
     }
+}
+
+const CASTLING_RIGHTS_MASKS: [CastlingRights; Sq::NB] = {
+    let mut masks = [CastlingRights::ALL; Sq::NB];
+    masks[Sq::A1 as usize] = CastlingRights::from_bits_truncate(
+        CastlingRights::ALL.bits() & !CastlingRights::WHITE_000.bits(),
+    );
+    masks[Sq::E1 as usize] = CastlingRights::from_bits_truncate(
+        CastlingRights::ALL.bits() & !CastlingRights::WHITE_ANY.bits(),
+    );
+    masks[Sq::H1 as usize] = CastlingRights::from_bits_truncate(
+        CastlingRights::ALL.bits() & !CastlingRights::WHITE_00.bits(),
+    );
+    masks[Sq::A8 as usize] = CastlingRights::from_bits_truncate(
+        CastlingRights::ALL.bits() & !CastlingRights::BLACK_000.bits(),
+    );
+    masks[Sq::E8 as usize] = CastlingRights::from_bits_truncate(
+        CastlingRights::ALL.bits() & !CastlingRights::BLACK_ANY.bits(),
+    );
+    masks[Sq::H8 as usize] = CastlingRights::from_bits_truncate(
+        CastlingRights::ALL.bits() & !CastlingRights::BLACK_00.bits(),
+    );
+    masks
+};
+
+#[inline(always)]
+pub const fn get_castling_rights_mask(from: Sq, to: Sq) -> CastlingRights {
+    CastlingRights::from_bits_truncate(
+        CASTLING_RIGHTS_MASKS[from as usize].bits() & CASTLING_RIGHTS_MASKS[to as usize].bits(),
+    )
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

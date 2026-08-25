@@ -56,6 +56,13 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board, mut moves: M
     moves
 }
 
+pub fn gen_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList {
+    let mut moves = MoveList::default();
+    let ptr = generate_moves::<Us, Type>(board, moves.as_ptr());
+    moves.update_size(ptr);
+    moves
+}
+
 const KNIGHT: u8 = Pieces::Knight as u8;
 const BISHOP: u8 = Pieces::Bischop as u8;
 const ROOK: u8 = Pieces::Rook as u8;
