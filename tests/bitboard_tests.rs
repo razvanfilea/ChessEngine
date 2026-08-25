@@ -123,10 +123,6 @@ fn test_bb_from_dir() {
     let e4_sw = bb_from_dir(Dir::SouthWest, Sq::E4);
     let expected_sw = Sq::D3.bitboard() | Sq::C2.bitboard() | Sq::B1.bitboard();
     assert_eq!(e4_sw, expected_sw);
-
-    // For Sq::NONE it is index 64 which will panic because array is [64]. Let's make sure it doesn't happen.
-    // wait, bb_from_dir takes Sq and internally uses sq.as_index(). Using Sq::NONE is undefined/panics,
-    // which is standard for performance functions missing bounds check. We won't test that panic.
 }
 
 #[test]
@@ -158,4 +154,107 @@ fn test_bb_between() {
 
     // Same square -> 0
     assert_eq!(bb_between(Sq::A1, Sq::A1), 0);
+}
+
+#[test]
+fn test_bb_rank_and_file() {
+    assert_eq!(bb_rank(0), RANK_1);
+    assert_eq!(bb_file(0), FILE_A);
+}
+
+#[test]
+fn test_bb_properties() {
+    assert!(bb_several(3));
+    assert!(!bb_several(2));
+    assert!(!bb_several(0));
+
+    assert!(!bb_only_one(3));
+    assert!(bb_only_one(2));
+    assert!(!bb_only_one(0));
+}
+
+#[test]
+fn test_bb_scan() {
+    assert_eq!(unsafe { bb_scan_forward(2) }, Sq::B1);
+    assert_eq!(unsafe { bb_scan_reverse(2) }, Sq::B1);
+    assert_eq!(bb_scan_forward_opt(2), Some(Sq::B1));
+    assert_eq!(bb_scan_reverse_opt(2), Some(Sq::B1));
+    assert_eq!(bb_scan_forward_opt(0), None);
+    assert_eq!(bb_scan_reverse_opt(0), None);
+
+    let mut bb = 3;
+    let sq = unsafe { bb_pop_lsb(&mut bb) };
+    assert_eq!(sq, Sq::A1);
+    assert_eq!(bb, 2);
+
+    let sq_opt = bb_pop_lsb_opt(&mut bb);
+    assert_eq!(sq_opt, Some(Sq::B1));
+    assert_eq!(bb, 0);
+    assert_eq!(bb_pop_lsb_opt(&mut bb), None);
+}
+
+#[test]
+fn test_bb_get_edge_filter() {
+    let sq = Sq::B2;
+    let filter = bb_get_edge_filter(sq);
+    assert_eq!(filter, RANK_1 | RANK_8 | FILE_A | FILE_H);
+
+    let sq_a1 = Sq::A1;
+    let filter_a1 = bb_get_edge_filter(sq_a1);
+    assert_eq!(filter_a1, RANK_8 | FILE_H);
+}
+
+#[test]
+fn test_bb_generate_ray_attacks() {
+    let sq = Sq::D4;
+    // North ray from D4 is D5, D6, D7, D8
+    let empty_attacks = bb_generate_ray_attacks(sq, 0, Dir::North);
+    assert_eq!(
+        empty_attacks,
+        Sq::D5.bitboard() | Sq::D6.bitboard() | Sq::D7.bitboard() | Sq::D8.bitboard()
+    );
+
+    // Blocker on D6
+    let blocked_attacks = bb_generate_ray_attacks(sq, Sq::D6.bitboard(), Dir::North);
+    // Should include the blocker but not squares beyond it
+    assert_eq!(blocked_attacks, Sq::D5.bitboard() | Sq::D6.bitboard());
+
+    // Blocker on D4 itself shouldn't matter since ray starts after D4
+    let self_blocked = bb_generate_ray_attacks(sq, Sq::D4.bitboard(), Dir::North);
+    assert_eq!(self_blocked, empty_attacks);
+}
+
+#[test]
+fn test_generate_rook_attacks() {
+    let sq = Sq::E4;
+    let empty = generate_rook_attacks(sq, 0);
+    let expected_empty = (FILE_E | RANK_4) ^ sq.bitboard();
+    assert_eq!(empty, expected_empty);
+
+    let blockers = Sq::E2.bitboard() | Sq::E7.bitboard() | Sq::C4.bitboard() | Sq::G4.bitboard();
+    let attacks = generate_rook_attacks(sq, blockers);
+    let expected_attacks = Sq::E5.bitboard() | Sq::E6.bitboard() | Sq::E7.bitboard() |
+        Sq::E3.bitboard() | Sq::E2.bitboard() |
+        Sq::F4.bitboard() | Sq::G4.bitboard() |
+        Sq::D4.bitboard() | Sq::C4.bitboard();
+    assert_eq!(attacks, expected_attacks);
+}
+
+#[test]
+fn test_generate_bishop_attacks() {
+    let sq = Sq::D4;
+    let empty = generate_bishop_attacks(sq, 0);
+    let expected_empty = bb_from_dir(Dir::NorthEast, sq)
+        | bb_from_dir(Dir::NorthWest, sq)
+        | bb_from_dir(Dir::SouthEast, sq)
+        | bb_from_dir(Dir::SouthWest, sq);
+    assert_eq!(empty, expected_empty);
+
+    let blockers = Sq::F6.bitboard() | Sq::B6.bitboard() | Sq::F2.bitboard() | Sq::B2.bitboard();
+    let attacks = generate_bishop_attacks(sq, blockers);
+    let expected_attacks = Sq::E5.bitboard() | Sq::F6.bitboard() |
+        Sq::C5.bitboard() | Sq::B6.bitboard() |
+        Sq::E3.bitboard() | Sq::F2.bitboard() |
+        Sq::C3.bitboard() | Sq::B2.bitboard();
+    assert_eq!(attacks, expected_attacks);
 }

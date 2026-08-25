@@ -8,7 +8,7 @@ pub struct Board {
 
     pub castling_rights: CastlingRights,
     pub to_play: Color,
-    pub en_passant_target_sq: Sq,
+    pub en_passant_target_sq: Option<Sq>,
     pub half_move_clock: u8, // 50 move draw rule
     pub ply: u16,
 }
@@ -21,7 +21,7 @@ impl Default for Board {
             bit_pieces: [0; Pieces::NB],
             castling_rights: CastlingRights::empty(),
             to_play: Color::White,
-            en_passant_target_sq: Sq::NONE,
+            en_passant_target_sq: None,
             half_move_clock: 0,
             ply: 0,
         }
@@ -60,8 +60,9 @@ impl Board {
                 'p' | 'r' | 'n' | 'b' | 'q' | 'k' | 'P' | 'R' | 'N' | 'B' | 'Q' | 'K'
                     if rank >= 0 && file < 8 =>
                 {
-                    let sq = Sq::new(file, rank as u8);
-                    board.add_piece(sq, ColoredPiece::parse(ch).unwrap());
+                    // TODO: Add proper error handling
+                    let sq = Sq::new(file, rank as u8)?;
+                    board.add_piece(sq, ColoredPiece::parse(ch)?);
                     file += 1;
                 }
                 _ => {}
@@ -90,7 +91,7 @@ impl Board {
         if let Some(en_passant_sq) = en_passant {
             let sq = Sq::parse(en_passant_sq);
             let valid_rank = if board.to_play == Color::White { 5 } else { 2 };
-            if sq.is_valid() && sq.rank() == valid_rank {
+            if sq.filter(|sq| sq.rank() == valid_rank).is_some() {
                 board.en_passant_target_sq = sq;
             }
         }
@@ -109,14 +110,14 @@ impl Board {
     }
 
     pub fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
-        self.mailbox[sq.as_index()] = Some(piece);
+        self.mailbox[sq as usize] = Some(piece);
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color()) |= bitboard;
         *self.pieces_mut(piece.piece()) |= bitboard;
     }
 
     pub fn remove_piece(&mut self, sq: Sq) {
-        let Some(piece) = self.mailbox[sq.as_index()].take() else {
+        let Some(piece) = self.mailbox[sq as usize].take() else {
             return;
         };
         let bitboard = sq.bitboard();
@@ -156,7 +157,7 @@ impl Board {
 
     #[inline(always)]
     pub fn piece_at(&self, sq: Sq) -> Option<ColoredPiece> {
-        self.mailbox[sq.as_index()]
+        self.mailbox[sq as usize]
     }
 
     #[inline(always)]
@@ -182,7 +183,5 @@ impl Board {
         // TODO: The transit squares (the square the King crosses and lands on) are not attacked by the enemy:
         //   - White Kingside: !is_attacked(E1) && !is_attacked(F1) && !is_attacked(G1)
         //   - White Queenside: !is_attacked(E1) && !is_attacked(D1) && !is_attacked(C1) (Note: b1 only needs to be empty, not unattacked)
-
     }
-
 }

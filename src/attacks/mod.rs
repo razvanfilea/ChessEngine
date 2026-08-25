@@ -46,7 +46,12 @@ pub const fn pawn_attacks<Us: Player>(sq: Sq) -> u64 {
 
 #[inline(always)]
 pub const fn bishop_xray_attacks(sq: Sq) -> u64 {
-    BISHOP_XRAY_ATTACKS[sq.as_index()]
+    BISHOP_XRAY_ATTACKS[sq as usize]
+}
+
+#[inline(always)]
+pub const fn rook_xray_attacks(sq: Sq) -> u64 {
+    ROOK_XRAY_ATTACKS[sq as usize]
 }
 
 #[inline(always)]
@@ -65,16 +70,11 @@ pub fn queen_attacks(sq: Sq, blockers: u64) -> u64 {
 }
 
 #[inline(always)]
-pub const fn rook_xray_attacks(sq: Sq) -> u64 {
-    ROOK_XRAY_ATTACKS[sq.as_index()]
-}
-
-#[inline(always)]
 pub const fn knight_attacks(sq: Sq) -> u64 {
-    KNIGHT_ATTACKS[sq.as_index()]
+    KNIGHT_ATTACKS[sq as usize]
 }
 
 #[inline(always)]
 pub const fn king_attacks(sq: Sq) -> u64 {
-    KING_ATTACKS[sq.as_index()]
+    KING_ATTACKS[sq as usize]
 }

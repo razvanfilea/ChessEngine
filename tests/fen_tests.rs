@@ -8,7 +8,7 @@ fn test_start_pos() {
 
     assert_eq!(board.to_play, Color::White);
     assert_eq!(board.castling_rights, CastlingRights::ALL);
-    assert_eq!(board.en_passant_target_sq, Sq::NONE);
+    assert_eq!(board.en_passant_target_sq, None);
     assert_eq!(board.half_move_clock, 0);
     assert_eq!(board.ply, 0);
 
@@ -82,8 +82,8 @@ fn test_start_pos() {
 
     // Verify pawns
     for file in 0..8 {
-        let white_pawn = Sq::new(file, 1);
-        let black_pawn = Sq::new(file, 6);
+        let white_pawn = Sq::new(file, 1).unwrap();
+        let black_pawn = Sq::new(file, 6).unwrap();
         assert_eq!(
             board.piece_at(white_pawn),
             Some(ColoredPiece::new(Pieces::Pawn, Color::White))
@@ -97,7 +97,7 @@ fn test_start_pos() {
     // Verify empty squares in middle
     for rank in 2..=5 {
         for file in 0..8 {
-            let empty_sq = Sq::new(file, rank);
+            let empty_sq = Sq::new(file, rank).unwrap();
             assert_eq!(board.piece_at(empty_sq), None);
         }
     }
@@ -110,7 +110,7 @@ fn test_missing_trailing_fields() {
     let board = Board::from_fen(fen_epd).expect("Piece placement only should parse");
     assert_eq!(board.to_play, Color::White);
     assert_eq!(board.castling_rights, CastlingRights::empty());
-    assert_eq!(board.en_passant_target_sq, Sq::NONE);
+    assert_eq!(board.en_passant_target_sq, None);
     assert_eq!(board.half_move_clock, 0);
     assert_eq!(board.ply, 0);
     assert_eq!(board.piece_at(Sq::E1).unwrap().piece(), Pieces::King);
@@ -170,22 +170,22 @@ fn test_en_passant_squares() {
     // Valid: White to move, Black moved e7-e5 -> target is e6 (rank 5 in 0-indexed)
     let fen_white = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2";
     let board_white = Board::from_fen(fen_white).unwrap();
-    assert_eq!(board_white.en_passant_target_sq, Sq::E6);
+    assert_eq!(board_white.en_passant_target_sq, Some(Sq::E6));
 
     // Valid: Black to move, White moved d2-d4 -> target is d3 (rank 2 in 0-indexed)
     let fen_black = "rnbqkbnr/ppp1pppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1";
     let board_black = Board::from_fen(fen_black).unwrap();
-    assert_eq!(board_black.en_passant_target_sq, Sq::D3);
+    assert_eq!(board_black.en_passant_target_sq, Some(Sq::D3));
 
     // Invalid: White to move but EP square is rank 3 (illegal rank for White to move)
     let fen_invalid = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq e3 0 1";
     let board_invalid = Board::from_fen(fen_invalid).unwrap();
-    assert_eq!(board_invalid.en_passant_target_sq, Sq::NONE);
+    assert_eq!(board_invalid.en_passant_target_sq, None);
 
     // Explicit '-'
     let fen_none = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     let board_none = Board::from_fen(fen_none).unwrap();
-    assert_eq!(board_none.en_passant_target_sq, Sq::NONE);
+    assert_eq!(board_none.en_passant_target_sq, None);
 }
 
 #[test]
@@ -252,7 +252,7 @@ fn test_standard_chess_positions() {
     let empty = "8/8/8/8/8/8/8/8 w - - 0 1";
     let board = Board::from_fen(empty).unwrap();
     for sq in 0..64 {
-        assert_eq!(board.piece_at(Sq::from_raw(sq as u8)), None);
+        assert_eq!(board.piece_at(Sq::from_raw(sq as u8).unwrap()), None);
     }
 }
 
@@ -305,32 +305,26 @@ fn test_bitboards_accuracy_startpos() {
     assert_eq!(*board.pieces(Pieces::Pawn), 0x00FF_0000_0000_FF00);
 
     // Kings: E1 (bit 4) and E8 (bit 60)
-    let expected_kings = (1u64 << Sq::E1.as_u8()) | (1u64 << Sq::E8.as_u8());
+    let expected_kings = Sq::E1.bitboard() | Sq::E8.bitboard();
     assert_eq!(*board.pieces(Pieces::King), expected_kings);
 
     // Queens: D1 (bit 3) and D8 (bit 59)
-    let expected_queens = (1u64 << Sq::D1.as_u8()) | (1u64 << Sq::D8.as_u8());
+    let expected_queens = Sq::D1.bitboard() | Sq::D8.bitboard();
     assert_eq!(*board.pieces(Pieces::Queen), expected_queens);
 
     // Rooks: A1, H1, A8, H8
-    let expected_rooks = (1u64 << Sq::A1.as_u8())
-        | (1u64 << Sq::H1.as_u8())
-        | (1u64 << Sq::A8.as_u8())
-        | (1u64 << Sq::H8.as_u8());
+    let expected_rooks =
+        Sq::A1.bitboard() | Sq::H1.bitboard() | Sq::A8.bitboard() | Sq::H8.bitboard();
     assert_eq!(*board.pieces(Pieces::Rook), expected_rooks);
 
     // Knights: B1, G1, B8, G8
-    let expected_knights = (1u64 << Sq::B1.as_u8())
-        | (1u64 << Sq::G1.as_u8())
-        | (1u64 << Sq::B8.as_u8())
-        | (1u64 << Sq::G8.as_u8());
+    let expected_knights =
+        Sq::B1.bitboard() | Sq::G1.bitboard() | Sq::B8.bitboard() | Sq::G8.bitboard();
     assert_eq!(*board.pieces(Pieces::Knight), expected_knights);
 
     // Bishops: C1, F1, C8, F8
-    let expected_bishops = (1u64 << Sq::C1.as_u8())
-        | (1u64 << Sq::F1.as_u8())
-        | (1u64 << Sq::C8.as_u8())
-        | (1u64 << Sq::F8.as_u8());
+    let expected_bishops =
+        Sq::C1.bitboard() | Sq::F1.bitboard() | Sq::C8.bitboard() | Sq::F8.bitboard();
     assert_eq!(*board.pieces(Pieces::Bischop), expected_bishops);
 }
 

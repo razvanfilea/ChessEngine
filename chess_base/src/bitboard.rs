@@ -48,6 +48,7 @@ macro_rules! for_each_square {
     ($sq_name:ident => $body:block) => {
         let mut _i = 0u8;
         while _i < 64 {
+            // SAFETY: `_i` is strictly in 0..64.
             let $sq_name = unsafe { $crate::Sq::from_raw_unchecked(_i) };
 
             $body
@@ -63,7 +64,8 @@ macro_rules! for_each_bit {
     ($sq:pat in $bitboard:expr => $body:block) => {{
         let mut _bb: u64 = $bitboard;
         while _bb != 0 {
-            let $sq = $crate::bitboard::bb_pop_lsb(&mut _bb);
+            // SAFETY: `_bb != 0` is guaranteed by the while loop condition.
+            let $sq = unsafe { $crate::bitboard::bb_pop_lsb(&mut _bb) };
             $body
         }
     }};
@@ -153,18 +155,73 @@ pub const fn bb_only_one(bb: u64) -> bool {
     bb != 0 && !bb_several(bb)
 }
 
+/// Returns the least significant square set in the bitboard without bounds checking.
+///
+/// # Safety
+/// The caller must ensure that `bb` is non-zero (`bb != 0`).
 #[inline(always)]
-pub const fn bb_scan_forward(bb: u64) -> u8 {
-    bb.trailing_zeros() as u8
+pub const unsafe fn bb_scan_forward(bb: u64) -> Sq {
+    // SAFETY: The caller guarantees `bb != 0`, meaning `trailing_zeros()` is strictly < 64.
+    unsafe {
+        core::hint::assert_unchecked(bb != 0);
+        Sq::from_raw_unchecked(bb.trailing_zeros() as u8)
+    }
 }
 
+/// Returns the least significant square set in the bitboard, or `None` if the bitboard is empty.
 #[inline(always)]
-pub const fn bb_scan_reverse(bb: u64) -> u8 {
-    63 ^ bb.leading_zeros() as u8
+pub const fn bb_scan_forward_opt(bb: u64) -> Option<Sq> {
+    if bb != 0 {
+        // SAFETY: `bb != 0` check guarantees non-zero bitboard.
+        Some(unsafe { bb_scan_forward(bb) })
+    } else {
+        None
+    }
 }
 
+/// Returns the most significant square set in the bitboard without bounds checking.
+///
+/// # Safety
+/// The caller must ensure that `bb` is non-zero (`bb != 0`).
+#[inline(always)]
+pub const unsafe fn bb_scan_reverse(bb: u64) -> Sq {
+    // SAFETY: The caller guarantees `bb != 0`, meaning `leading_zeros()` is strictly < 64
+    // and `63 ^ leading_zeros()` is in `0..=63`.
+    unsafe {
+        core::hint::assert_unchecked(bb != 0);
+        Sq::from_raw_unchecked(63 ^ bb.leading_zeros() as u8)
+    }
+}
+
+/// Returns the most significant square set in the bitboard, or `None` if the bitboard is empty.
+#[inline(always)]
+pub const fn bb_scan_reverse_opt(bb: u64) -> Option<Sq> {
+    if bb != 0 {
+        // SAFETY: `bb != 0` check guarantees non-zero bitboard.
+        Some(unsafe { bb_scan_reverse(bb) })
+    } else {
+        None
+    }
+}
+
+/// Pops the least significant square set in the bitboard and clears its bit without bounds checking.
+///
+/// # Safety
+/// The caller must ensure that `*bb` is non-zero (`*bb != 0`).
 #[inline]
-pub const fn bb_pop_lsb(bb: &mut u64) -> Sq {
+pub const unsafe fn bb_pop_lsb(bb: &mut u64) -> Sq {
+    // SAFETY: The caller guarantees `*bb != 0`, so `trailing_zeros()` is strictly < 64.
+    unsafe {
+        core::hint::assert_unchecked(*bb != 0);
+        let sq = Sq::from_raw_unchecked(bb.trailing_zeros() as u8);
+        *bb &= bb.wrapping_sub(1);
+        sq
+    }
+}
+
+/// Pops the least significant square set in the bitboard, or returns `None` if the bitboard is empty.
+#[inline]
+pub const fn bb_pop_lsb_opt(bb: &mut u64) -> Option<Sq> {
     let sq = Sq::from_raw(bb.trailing_zeros() as u8);
     *bb &= bb.wrapping_sub(1);
     sq
@@ -172,17 +229,17 @@ pub const fn bb_pop_lsb(bb: &mut u64) -> Sq {
 
 #[inline(always)]
 pub const fn bb_from_dir(dir: Dir, sq: Sq) -> u64 {
-    BB_DIRECTIONS[dir as usize][sq.as_index()]
+    BB_DIRECTIONS[dir as usize][sq as usize]
 }
 
 #[inline(always)]
 pub const fn bb_between(sq1: Sq, sq2: Sq) -> u64 {
-    BB_BETWEEN_SQUARES[sq1.as_index()][sq2.as_index()]
+    BB_BETWEEN_SQUARES[sq1 as usize][sq2 as usize]
 }
 
 #[inline(always)]
 pub const fn bb_segment(sq1: Sq, sq2: Sq) -> u64 {
-    BB_SEGMENT[sq1.as_index()][sq2.as_index()]
+    BB_SEGMENT[sq1 as usize][sq2 as usize]
 }
 
 pub const fn bb_get_edge_filter(sq: Sq) -> u64 {
@@ -196,12 +253,14 @@ pub const fn bb_generate_ray_attacks(sq: Sq, occupied: u64, dir: Dir) -> u64 {
     let attacks = bb_from_dir(dir, sq);
     let blockers = attacks & occupied;
     let found_sq = if dir.is_forwards() {
-        bb_scan_forward(blockers | FORWARD_SENTINEL)
+        // SAFETY: Bitwise-OR with FORWARD_SENTINEL (bit 63 / H8) guarantees non-zero bitboard.
+        unsafe { bb_scan_forward(blockers | FORWARD_SENTINEL) }
     } else {
-        bb_scan_reverse(blockers | BACKWARD_SENTINEL)
+        // SAFETY: Bitwise-OR with BACKWARD_SENTINEL (bit 0 / A1) guarantees non-zero bitboard.
+        unsafe { bb_scan_reverse(blockers | BACKWARD_SENTINEL) }
     };
 
-    attacks ^ bb_from_dir(dir, unsafe { Sq::from_raw_unchecked(found_sq) })
+    attacks ^ bb_from_dir(dir, found_sq)
 }
 
 static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
@@ -224,7 +283,7 @@ static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
                 ray |= bb;
             }
 
-            result[dir as usize][sq.as_index()] = ray;
+            result[dir as usize][sq as usize] = ray;
         });
 
         dir_idx += 1;
@@ -246,7 +305,7 @@ static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
                 let ray1 = bb_from_dir(dir, sq1);
                 if (ray1 & bb2) != 0 {
                     let ray2 = bb_from_dir(dir.opposite(), sq2);
-                    result[sq1.as_index()][sq2.as_index()] = ray1 & ray2;
+                    result[sq1 as usize][sq2 as usize] = ray1 & ray2;
                     break;
                 }
                 i += 1;
@@ -265,7 +324,7 @@ static BB_SEGMENT: [[u64; Sq::NB]; Sq::NB] = const {
         for_each_square!(sq2 => {
             let bb2 = sq2.bitboard();
 
-            result[sq1.as_index()][sq2.as_index()] = BB_BETWEEN_SQUARES[sq1.as_index()][sq2.as_index()] | bb1 | bb2;
+            result[sq1 as usize][sq2 as usize] = BB_BETWEEN_SQUARES[sq1 as usize][sq2 as usize] | bb1 | bb2;
         });
     });
 

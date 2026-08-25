@@ -1,8 +1,8 @@
 use chess_base::prelude::*;
 use lucky_chess::board::Board;
 use lucky_chess::move_gen::{
-    generate_bishop_moves, Black, Captures, MoveGenType, MoveList, NonEvasions, Player, Quiets,
-    White,
+    Black, Captures, MoveGenType, MoveList, NonEvasions, Player, Quiets, White,
+    generate_bishop_moves,
 };
 
 fn get_moves<Us: Player, Type: MoveGenType>(board: &Board) -> Vec<(Sq, Sq, MoveFlags)> {
