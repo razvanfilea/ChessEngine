@@ -153,7 +153,10 @@ fn test_bishop_attacks() {
     let sq = Sq::D4;
     // On empty board, bishop attacks match x-ray attacks and bitboard ray generation
     assert_eq!(bishop_attacks(sq, 0), bishop_xray_attacks(sq));
-    assert_eq!(bishop_attacks(sq, 0), bitboard::generate_bishop_attacks(sq, 0));
+    assert_eq!(
+        bishop_attacks(sq, 0),
+        bitboard::generate_bishop_attacks(sq, 0)
+    );
 
     // With blockers on F6, B6, F2, B2
     let blockers = Sq::F6.bitboard() | Sq::B6.bitboard() | Sq::F2.bitboard() | Sq::B2.bitboard();

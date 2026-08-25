@@ -233,10 +233,15 @@ fn test_generate_rook_attacks() {
 
     let blockers = Sq::E2.bitboard() | Sq::E7.bitboard() | Sq::C4.bitboard() | Sq::G4.bitboard();
     let attacks = generate_rook_attacks(sq, blockers);
-    let expected_attacks = Sq::E5.bitboard() | Sq::E6.bitboard() | Sq::E7.bitboard() |
-        Sq::E3.bitboard() | Sq::E2.bitboard() |
-        Sq::F4.bitboard() | Sq::G4.bitboard() |
-        Sq::D4.bitboard() | Sq::C4.bitboard();
+    let expected_attacks = Sq::E5.bitboard()
+        | Sq::E6.bitboard()
+        | Sq::E7.bitboard()
+        | Sq::E3.bitboard()
+        | Sq::E2.bitboard()
+        | Sq::F4.bitboard()
+        | Sq::G4.bitboard()
+        | Sq::D4.bitboard()
+        | Sq::C4.bitboard();
     assert_eq!(attacks, expected_attacks);
 }
 
@@ -252,9 +257,13 @@ fn test_generate_bishop_attacks() {
 
     let blockers = Sq::F6.bitboard() | Sq::B6.bitboard() | Sq::F2.bitboard() | Sq::B2.bitboard();
     let attacks = generate_bishop_attacks(sq, blockers);
-    let expected_attacks = Sq::E5.bitboard() | Sq::F6.bitboard() |
-        Sq::C5.bitboard() | Sq::B6.bitboard() |
-        Sq::E3.bitboard() | Sq::F2.bitboard() |
-        Sq::C3.bitboard() | Sq::B2.bitboard();
+    let expected_attacks = Sq::E5.bitboard()
+        | Sq::F6.bitboard()
+        | Sq::C5.bitboard()
+        | Sq::B6.bitboard()
+        | Sq::E3.bitboard()
+        | Sq::F2.bitboard()
+        | Sq::C3.bitboard()
+        | Sq::B2.bitboard();
     assert_eq!(attacks, expected_attacks);
 }

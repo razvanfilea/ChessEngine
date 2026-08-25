@@ -105,8 +105,14 @@ fn test_custom_occupancy() {
     // White king on e4, black rook on e8, blocker on e6
     let board = Board::from_fen("4r3/8/4P3/8/4K3/8/8/8 w - - 0 1").unwrap();
     // With board occupancy, it's blocked
-    assert_eq!(board.generate_attackers(Sq::E4, Color::Black, board.occupied()), 0);
+    assert_eq!(
+        board.generate_attackers(Sq::E4, Color::Black, board.occupied()),
+        0
+    );
     // If e6 blocker is removed from occupied bitboard, e8 attacks e4
     let occ_without_e6 = board.occupied() ^ Sq::E6.bitboard();
-    assert_eq!(board.generate_attackers(Sq::E4, Color::Black, occ_without_e6), Sq::E8.bitboard());
+    assert_eq!(
+        board.generate_attackers(Sq::E4, Color::Black, occ_without_e6),
+        Sq::E8.bitboard()
+    );
 }

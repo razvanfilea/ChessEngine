@@ -366,7 +366,6 @@ fn test_perft_suite_positions() {
     assert_eq!(board6.ply, 18); // Move 10, White to play -> (10 - 1) * 2 = 18
 }
 
-
 #[test]
 fn test_all_en_passant_files() {
     // Test all files a-h for Black double-push (target rank 6 for White)

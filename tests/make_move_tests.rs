@@ -19,7 +19,11 @@ fn assert_board_invariants(board: &Board) {
         white_bb | black_bb,
         "Occupied bitboard does not equal white_bb | black_bb"
     );
-    assert_eq!(board.empty(), !board.occupied(), "Empty bitboard is not !occupied");
+    assert_eq!(
+        board.empty(),
+        !board.occupied(),
+        "Empty bitboard is not !occupied"
+    );
 
     // 3. Piece bitboards must be pairwise disjoint and their union must equal occupied
     let pawns = *board.pieces(Pieces::Pawn);
@@ -286,7 +290,7 @@ fn test_all_files_double_pawn_push_ep_square() {
 #[test]
 fn test_white_en_passant_capture() {
     // Setup position: White Pawn on e5, Black Pawn on d7
-    let fen = "rnbqkbnr/ppp1pppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2";
+    let fen = "rnbqkbnr/pppppppp/8/4P3/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2";
     let mut board = Board::from_fen(fen).unwrap();
     assert_board_invariants(&board);
 
@@ -309,11 +313,21 @@ fn test_white_en_passant_capture() {
         board.piece_at(Sq::D6),
         Some(ColoredPiece::new(Pieces::Pawn, Color::White))
     );
-    assert_eq!(board.piece_at(Sq::D5), None, "Captured pawn at d5 must be removed");
+    assert_eq!(
+        board.piece_at(Sq::D5),
+        None,
+        "Captured pawn at d5 must be removed"
+    );
 
     // Verify bitboards
-    assert_eq!(board.color_piece(Pieces::Pawn, Color::Black) & Sq::D5.bitboard(), 0);
-    assert_eq!(board.color_piece(Pieces::Pawn, Color::White) & Sq::D6.bitboard(), Sq::D6.bitboard());
+    assert_eq!(
+        board.color_piece(Pieces::Pawn, Color::Black) & Sq::D5.bitboard(),
+        0
+    );
+    assert_eq!(
+        board.color_piece(Pieces::Pawn, Color::White) & Sq::D6.bitboard(),
+        Sq::D6.bitboard()
+    );
 
     assert_eq!(board.en_passant_target_sq, None);
     assert_eq!(board.half_move_clock, 0);
@@ -347,11 +361,21 @@ fn test_black_en_passant_capture() {
         board.piece_at(Sq::F3),
         Some(ColoredPiece::new(Pieces::Pawn, Color::Black))
     );
-    assert_eq!(board.piece_at(Sq::F4), None, "Captured pawn at f4 must be removed");
+    assert_eq!(
+        board.piece_at(Sq::F4),
+        None,
+        "Captured pawn at f4 must be removed"
+    );
 
     // Verify bitboards
-    assert_eq!(board.color_piece(Pieces::Pawn, Color::White) & Sq::F4.bitboard(), 0);
-    assert_eq!(board.color_piece(Pieces::Pawn, Color::Black) & Sq::F3.bitboard(), Sq::F3.bitboard());
+    assert_eq!(
+        board.color_piece(Pieces::Pawn, Color::White) & Sq::F4.bitboard(),
+        0
+    );
+    assert_eq!(
+        board.color_piece(Pieces::Pawn, Color::Black) & Sq::F3.bitboard(),
+        Sq::F3.bitboard()
+    );
 
     assert_eq!(board.en_passant_target_sq, None);
     assert_eq!(board.half_move_clock, 0);
@@ -375,7 +399,10 @@ fn test_regular_piece_and_pawn_captures() {
         board.piece_at(Sq::E4),
         Some(ColoredPiece::new(Pieces::Knight, Color::White))
     );
-    assert_eq!(board.half_move_clock, 0, "Capture must reset half_move_clock");
+    assert_eq!(
+        board.half_move_clock, 0,
+        "Capture must reset half_move_clock"
+    );
     assert_eq!(board.to_play, Color::Black);
     assert_board_invariants(&board);
 
@@ -397,26 +424,23 @@ fn test_regular_piece_and_pawn_captures() {
 
 #[test]
 fn test_castling_rights_revocation_on_rook_capture() {
-    // 1. White captures Black Rook on a8 -> Black loses BLACK_000
-    let fen = "r3k2r/8/8/8/8/8/8/B3K2R w Kkq - 0 1";
+    // 1. White Bishop on a3 captures Black Rook on a8 -> Black loses BLACK_000
+    let fen = "r3k2r/8/8/8/8/B7/8/R3K2R w KQkq - 0 1";
     let mut board = Board::from_fen(fen).unwrap();
-    assert_eq!(
-        board.castling_rights,
-        CastlingRights::WHITE_00 | CastlingRights::BLACK_00 | CastlingRights::BLACK_000
-    );
+    assert_eq!(board.castling_rights, CastlingRights::ALL);
 
-    board.make_move(Move::new(Sq::A1, Sq::A8, MoveFlags::Capture));
+    board.make_move(Move::new(Sq::A3, Sq::A8, MoveFlags::Capture));
     assert_eq!(
         board.castling_rights,
-        CastlingRights::WHITE_00 | CastlingRights::BLACK_00,
+        CastlingRights::WHITE_ANY | CastlingRights::BLACK_00,
         "Black BLACK_000 right should be revoked when a8 rook is captured"
     );
     assert_board_invariants(&board);
 
-    // 2. White captures Black Rook on h8 -> Black loses BLACK_00
-    let fen2 = "r3k2r/8/8/8/8/8/8/R3K2B w KQkq - 0 1";
+    // 2. White Bishop on h3 captures Black Rook on h8 -> Black loses BLACK_00
+    let fen2 = "r3k2r/8/8/8/8/7B/8/R3K2R w KQkq - 0 1";
     let mut board2 = Board::from_fen(fen2).unwrap();
-    board2.make_move(Move::new(Sq::H1, Sq::H8, MoveFlags::Capture));
+    board2.make_move(Move::new(Sq::H3, Sq::H8, MoveFlags::Capture));
     assert_eq!(
         board2.castling_rights,
         CastlingRights::WHITE_ANY | CastlingRights::BLACK_000,
@@ -424,25 +448,25 @@ fn test_castling_rights_revocation_on_rook_capture() {
     );
     assert_board_invariants(&board2);
 
-    // 3. Black captures White Rook on a1 -> White loses WHITE_000
-    let fen3 = "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1";
+    // 3. Black Bishop on a6 captures White Rook on a1 -> White loses WHITE_000
+    let fen3 = "r3k2r/8/b7/8/8/8/8/R3K2R b KQkq - 0 1";
     let mut board3 = Board::from_fen(fen3).unwrap();
-    board3.make_move(Move::new(Sq::A8, Sq::A1, MoveFlags::Capture));
+    board3.make_move(Move::new(Sq::A6, Sq::A1, MoveFlags::Capture));
     assert_eq!(
         board3.castling_rights,
-        CastlingRights::WHITE_00 | CastlingRights::BLACK_00,
-        "White WHITE_000 right should be revoked when a1 rook is captured (and Black moved a8 rook)"
+        CastlingRights::WHITE_00 | CastlingRights::BLACK_ANY,
+        "White WHITE_000 right should be revoked when a1 rook is captured"
     );
     assert_board_invariants(&board3);
 
-    // 4. Black captures White Rook on h1 -> White loses WHITE_00
-    let fen4 = "r3k2b/8/8/8/8/8/8/R3K2R b KQkq - 0 1";
+    // 4. Black Bishop on h6 captures White Rook on h1 -> White loses WHITE_00
+    let fen4 = "r3k2r/8/7b/8/8/8/8/R3K2R b KQkq - 0 1";
     let mut board4 = Board::from_fen(fen4).unwrap();
-    board4.make_move(Move::new(Sq::H8, Sq::H1, MoveFlags::Capture));
+    board4.make_move(Move::new(Sq::H6, Sq::H1, MoveFlags::Capture));
     assert_eq!(
         board4.castling_rights,
-        CastlingRights::WHITE_000 | CastlingRights::BLACK_000,
-        "White WHITE_00 right should be revoked when h1 rook is captured (and Black moved h8 rook)"
+        CastlingRights::WHITE_000 | CastlingRights::BLACK_ANY,
+        "White WHITE_00 right should be revoked when h1 rook is captured"
     );
     assert_board_invariants(&board4);
 }
@@ -450,7 +474,8 @@ fn test_castling_rights_revocation_on_rook_capture() {
 #[test]
 fn test_castling_rights_revocation_on_king_and_rook_moves() {
     // 1. White King moves -> White loses all castling rights
-    let mut board = Board::start_pos();
+    let fen_r = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1";
+    let mut board = Board::from_fen(fen_r).unwrap();
     board.make_move(Move::new(Sq::E1, Sq::E2, MoveFlags::Quiet));
     assert_eq!(
         board.castling_rights,
@@ -460,16 +485,18 @@ fn test_castling_rights_revocation_on_king_and_rook_moves() {
     assert_board_invariants(&board);
 
     // 2. Black King moves -> Black loses all castling rights
-    board.make_move(Move::new(Sq::E8, Sq::E7, MoveFlags::Quiet));
+    let mut board_b = Board::from_fen(fen_r).unwrap();
+    board_b.to_play = Color::Black;
+    board_b.make_move(Move::new(Sq::E8, Sq::E7, MoveFlags::Quiet));
     assert_eq!(
-        board.castling_rights,
-        CastlingRights::empty(),
+        board_b.castling_rights,
+        CastlingRights::WHITE_ANY,
         "Black moving King from e8 must revoke all Black castling rights"
     );
-    assert_board_invariants(&board);
+    assert_board_invariants(&board_b);
 
     // 3. White Rook moving from a1 revokes WHITE_000
-    let mut board2 = Board::start_pos();
+    let mut board2 = Board::from_fen(fen_r).unwrap();
     board2.make_move(Move::new(Sq::A1, Sq::B1, MoveFlags::Quiet));
     assert_eq!(
         board2.castling_rights,
@@ -479,7 +506,7 @@ fn test_castling_rights_revocation_on_king_and_rook_moves() {
     assert_board_invariants(&board2);
 
     // 4. White Rook moving from h1 revokes WHITE_00
-    let mut board3 = Board::start_pos();
+    let mut board3 = Board::from_fen(fen_r).unwrap();
     board3.make_move(Move::new(Sq::H1, Sq::G1, MoveFlags::Quiet));
     assert_eq!(
         board3.castling_rights,
@@ -489,7 +516,7 @@ fn test_castling_rights_revocation_on_king_and_rook_moves() {
     assert_board_invariants(&board3);
 
     // 5. Black Rook moving from a8 revokes BLACK_000
-    let mut board4 = Board::start_pos();
+    let mut board4 = Board::from_fen(fen_r).unwrap();
     board4.to_play = Color::Black;
     board4.make_move(Move::new(Sq::A8, Sq::B8, MoveFlags::Quiet));
     assert_eq!(
@@ -500,7 +527,7 @@ fn test_castling_rights_revocation_on_king_and_rook_moves() {
     assert_board_invariants(&board4);
 
     // 6. Black Rook moving from h8 revokes BLACK_00
-    let mut board5 = Board::start_pos();
+    let mut board5 = Board::from_fen(fen_r).unwrap();
     board5.to_play = Color::Black;
     board5.make_move(Move::new(Sq::H8, Sq::G8, MoveFlags::Quiet));
     assert_eq!(
@@ -884,8 +911,14 @@ fn test_scholars_mate_sequence() {
     let board_expected = Board::from_fen(fen_expected).unwrap();
 
     assert_eq!(board.occupied(), board_expected.occupied());
-    assert_eq!(board.colors(Color::White), board_expected.colors(Color::White));
-    assert_eq!(board.colors(Color::Black), board_expected.colors(Color::Black));
+    assert_eq!(
+        board.colors(Color::White),
+        board_expected.colors(Color::White)
+    );
+    assert_eq!(
+        board.colors(Color::Black),
+        board_expected.colors(Color::Black)
+    );
     assert_eq!(board.castling_rights, board_expected.castling_rights);
     assert_eq!(board.to_play, board_expected.to_play);
     assert_eq!(board.half_move_clock, board_expected.half_move_clock);
@@ -961,4 +994,140 @@ fn test_perft_move_generation_invariants() {
             }
         }
     }
+}
+
+#[test]
+fn test_ruy_lopez_opening_sequence() {
+    let mut board = Board::start_pos();
+
+    // 1. e4 e5
+    board.make_move(Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn));
+    board.make_move(Move::new(Sq::E7, Sq::E5, MoveFlags::DoublePawn));
+
+    // 2. Nf3 Nc6
+    board.make_move(Move::new(Sq::G1, Sq::F3, MoveFlags::Quiet));
+    board.make_move(Move::new(Sq::B8, Sq::C6, MoveFlags::Quiet));
+
+    // 3. Bb5 a6
+    board.make_move(Move::new(Sq::F1, Sq::B5, MoveFlags::Quiet));
+    board.make_move(Move::new(Sq::A7, Sq::A6, MoveFlags::Quiet));
+
+    // 4. Ba4 Nf6
+    board.make_move(Move::new(Sq::B5, Sq::A4, MoveFlags::Quiet));
+    board.make_move(Move::new(Sq::G8, Sq::F6, MoveFlags::Quiet));
+
+    // 5. O-O Be7
+    board.make_move(Move::new(Sq::E1, Sq::G1, MoveFlags::CastleKing));
+    board.make_move(Move::new(Sq::F8, Sq::E7, MoveFlags::Quiet));
+
+    // 6. Re1 b5
+    board.make_move(Move::new(Sq::F1, Sq::E1, MoveFlags::Quiet));
+    board.make_move(Move::new(Sq::B7, Sq::B5, MoveFlags::DoublePawn));
+
+    // 7. Bb3 d6
+    board.make_move(Move::new(Sq::A4, Sq::B3, MoveFlags::Quiet));
+    board.make_move(Move::new(Sq::D7, Sq::D6, MoveFlags::Quiet));
+
+    // 8. c3 O-O
+    board.make_move(Move::new(Sq::C2, Sq::C3, MoveFlags::Quiet));
+    board.make_move(Move::new(Sq::E8, Sq::G8, MoveFlags::CastleKing));
+
+    assert_board_invariants(&board);
+
+    let fen_expected = "r1bq1rk1/2p1bppp/p1np1n2/1p2p3/4P3/1BP2N2/PP1P1PPP/RNBQR1K1 w - - 1 9";
+    let board_expected = Board::from_fen(fen_expected).unwrap();
+
+    assert_eq!(board.occupied(), board_expected.occupied());
+    assert_eq!(
+        board.colors(Color::White),
+        board_expected.colors(Color::White)
+    );
+    assert_eq!(
+        board.colors(Color::Black),
+        board_expected.colors(Color::Black)
+    );
+    assert_eq!(board.castling_rights, board_expected.castling_rights);
+    assert_eq!(board.to_play, board_expected.to_play);
+    assert_eq!(board.half_move_clock, board_expected.half_move_clock);
+    assert_eq!(board.ply, board_expected.ply);
+}
+
+#[test]
+fn test_edge_files_en_passant() {
+    // 1. A-file EP: White pawn on a5, Black plays b7-b5 -> a5xb6 e.p.
+    let fen_a = "rnbqkbnr/1ppppppp/8/P7/8/8/1PPPPPPP/RNBQKBNR b KQkq - 0 2";
+    let mut board_a = Board::from_fen(fen_a).unwrap();
+    board_a.make_move(Move::new(Sq::B7, Sq::B5, MoveFlags::DoublePawn));
+    assert_eq!(board_a.en_passant_target_sq, Some(Sq::B6));
+
+    board_a.make_move(Move::new(Sq::A5, Sq::B6, MoveFlags::EnPassant));
+    assert_eq!(board_a.piece_at(Sq::A5), None);
+    assert_eq!(board_a.piece_at(Sq::B5), None, "Captured b5 pawn removed");
+    assert_eq!(
+        board_a.piece_at(Sq::B6),
+        Some(ColoredPiece::new(Pieces::Pawn, Color::White))
+    );
+    assert_board_invariants(&board_a);
+
+    // 2. H-file EP: Black pawn on h4, White plays g2-g4 -> h4xg3 e.p.
+    let fen_h = "rnbqkbnr/pppppp1p/8/8/7p/8/PPPPPPP1/RNBQKBNR w KQkq - 0 2";
+    let mut board_h = Board::from_fen(fen_h).unwrap();
+    board_h.make_move(Move::new(Sq::G2, Sq::G4, MoveFlags::DoublePawn));
+    assert_eq!(board_h.en_passant_target_sq, Some(Sq::G3));
+
+    board_h.make_move(Move::new(Sq::H4, Sq::G3, MoveFlags::EnPassant));
+    assert_eq!(board_h.piece_at(Sq::H4), None);
+    assert_eq!(board_h.piece_at(Sq::G4), None, "Captured g4 pawn removed");
+    assert_eq!(
+        board_h.piece_at(Sq::G3),
+        Some(ColoredPiece::new(Pieces::Pawn, Color::Black))
+    );
+    assert_board_invariants(&board_h);
+}
+
+#[test]
+fn test_perft_suite_exact_counts() {
+    use lucky_chess::perft::perft;
+
+    // Start position counts
+    let start_pos = Board::start_pos();
+    assert_eq!(perft(&start_pos, 1), 20);
+    assert_eq!(perft(&start_pos, 2), 400);
+    assert_eq!(perft(&start_pos, 3), 8902);
+
+    // Kiwipete (Position 2)
+    let kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+    let kiwipete_board = Board::from_fen(kiwipete).unwrap();
+    assert_eq!(perft(&kiwipete_board, 1), 48);
+    assert_eq!(perft(&kiwipete_board, 2), 2039);
+
+    // Position 3
+    let pos3 = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
+    let pos3_board = Board::from_fen(pos3).unwrap();
+    assert_eq!(perft(&pos3_board, 1), 14);
+    assert_eq!(perft(&pos3_board, 2), 191);
+
+    // Position 4 (Talkchess)
+    let pos4 = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
+    let pos4_board = Board::from_fen(pos4).unwrap();
+    assert_eq!(perft(&pos4_board, 1), 6);
+    assert_eq!(perft(&pos4_board, 2), 264);
+
+    // Position 4 (Mirrored)
+    let pos4_mirrored = "r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1";
+    let pos4_mirrored_board = Board::from_fen(pos4_mirrored).unwrap();
+    assert_eq!(perft(&pos4_mirrored_board, 1), 6);
+    assert_eq!(perft(&pos4_mirrored_board, 2), 264);
+
+    // Position 5
+    let pos5 = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
+    let pos5_board = Board::from_fen(pos5).unwrap();
+    assert_eq!(perft(&pos5_board, 1), 44);
+    assert_eq!(perft(&pos5_board, 2), 1486);
+
+    // Position 6
+    let pos6 = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10";
+    let pos6_board = Board::from_fen(pos6).unwrap();
+    assert_eq!(perft(&pos6_board, 1), 46);
+    assert_eq!(perft(&pos6_board, 2), 2079);
 }
