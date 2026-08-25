@@ -49,6 +49,11 @@ impl Move {
     }
 
     #[inline(always)]
+    pub const fn is_castle(self) -> bool {
+        !self.is_promotion() && (self.flags_bits() & 0b0010) != 0
+    }
+
+    #[inline(always)]
     pub const fn promotion_piece(self) -> Option<Pieces> {
         if self.is_promotion() {
             match self.flags_bits() & 0b0011 {

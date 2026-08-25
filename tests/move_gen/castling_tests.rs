@@ -1,7 +1,7 @@
 use chess_base::prelude::*;
 use lucky_chess::board::Board;
 use lucky_chess::move_gen::{
-    Black, Captures, Evasions, NonEvasions, Quiets, White, generate_moves,
+    Black, Captures, Evasions, NonEvasions, White, generate_moves,
 };
 
 #[test]

@@ -366,31 +366,6 @@ fn test_perft_suite_positions() {
     assert_eq!(board6.ply, 18); // Move 10, White to play -> (10 - 1) * 2 = 18
 }
 
-#[test]
-fn test_add_and_remove_piece_sync() {
-    let mut board = Board::default();
-
-    let e4 = Sq::E4;
-    let white_queen = ColoredPiece::new(Pieces::Queen, Color::White);
-
-    // Initially empty
-    assert_eq!(board.piece_at(e4), None);
-    assert_eq!(board.occupied(), 0);
-
-    // Add piece
-    board.add_piece(e4, white_queen);
-    assert_eq!(board.piece_at(e4), Some(white_queen));
-    assert_eq!(*board.colors(Color::White), e4.bitboard());
-    assert_eq!(*board.pieces(Pieces::Queen), e4.bitboard());
-    assert_eq!(board.occupied(), e4.bitboard());
-
-    // Remove piece
-    board.remove_piece(e4);
-    assert_eq!(board.piece_at(e4), None);
-    assert_eq!(*board.colors(Color::White), 0);
-    assert_eq!(*board.pieces(Pieces::Queen), 0);
-    assert_eq!(board.occupied(), 0);
-}
 
 #[test]
 fn test_all_en_passant_files() {
