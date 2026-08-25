@@ -243,8 +243,8 @@ pub const fn bb_between(sq1: Sq, sq2: Sq) -> u64 {
 }
 
 #[inline(always)]
-pub const fn bb_segment(sq1: Sq, sq2: Sq) -> u64 {
-    BB_SEGMENT[sq1 as usize][sq2 as usize]
+pub const fn bb_line(sq1: Sq, sq2: Sq) -> u64 {
+    BB_LINE[sq1 as usize][sq2 as usize]
 }
 
 pub const fn bb_get_edge_filter(sq: Sq) -> u64 {
@@ -321,15 +321,23 @@ static BB_BETWEEN_SQUARES: [[u64; Sq::NB]; Sq::NB] = const {
     result
 };
 
-static BB_SEGMENT: [[u64; Sq::NB]; Sq::NB] = const {
+static BB_LINE: [[u64; Sq::NB]; Sq::NB] = const {
     let mut result = [[0; Sq::NB]; Sq::NB];
 
     for_each_square!(sq1 => {
-        let bb1 = sq1.bitboard();
         for_each_square!(sq2 => {
             let bb2 = sq2.bitboard();
-
-            result[sq1 as usize][sq2 as usize] = BB_BETWEEN_SQUARES[sq1 as usize][sq2 as usize] | bb1 | bb2;
+            let mut i = 0;
+            while i < Dir::ALL.len() {
+                let dir = Dir::ALL[i];
+                let ray1 = bb_from_dir(dir, sq1);
+                if (ray1 & bb2) != 0 {
+                    let ray_opp = bb_from_dir(dir.opposite(), sq1);
+                    result[sq1 as usize][sq2 as usize] = ray1 | ray_opp | sq1.bitboard();
+                    break;
+                }
+                i += 1;
+            }
         });
     });
 
