@@ -30,6 +30,10 @@ impl MoveList {
         unsafe { core::slice::from_raw_parts(self.moves.as_ptr() as *const Move, self.size) }
     }
 
+    pub const fn size(&self) -> usize {
+        self.size
+    }
+
     const fn current_ptr(&mut self) -> *mut Move {
         (unsafe { self.moves.as_mut_ptr().add(self.size) }) as *mut Move
     }

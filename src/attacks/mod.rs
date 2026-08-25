@@ -15,7 +15,7 @@ mod sliders_attack {
 
 use chess_base::{bitboard::*, prelude::*};
 
-use crate::move_gen::Player;
+use crate::move_gen::{Black, Player, White};
 
 pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
     let bb = sq.bitboard();
@@ -32,6 +32,16 @@ pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
         } else {
             sh_south(bb)
         }
+    }
+}
+
+#[inline]
+pub fn pawn_attacks_color(sq: Sq, color: Color) -> u64 {
+    // TODO: Maybe swtich this to a lookup table as well
+    if color == Color::White {
+        pawn_attacks::<White>(sq)
+    } else {
+        pawn_attacks::<Black>(sq)
     }
 }
 

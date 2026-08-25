@@ -2,7 +2,7 @@ use chess_base::{bitboard::*, for_each_bit, prelude::*};
 
 use crate::{
     attacks::{
-        bishop_attacks, king_attacks, knight_attacks, pawn_attacks, queen_attacks, rook_attacks,
+        bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks,
     },
     board::Board,
 };
@@ -13,43 +13,22 @@ mod traits;
 pub use move_list::*;
 pub use traits::*;
 
-pub fn compute_checkers<Us: Player>(board: &Board) -> u64 {
+pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board, mut moves: MoveListPtr) -> MoveListPtr {
     let us = Us::COLOR;
     let them = !us;
 
     let king_bb = board.color_piece(Pieces::King, us);
     let king_sq = unsafe { bb_scan_forward(king_bb) };
-    let enemy = *board.colors(them);
-    let occupied = board.occupied();
-
-    let enemy_bischop = (board.pieces(Pieces::Bischop) | board.pieces(Pieces::Queen)) & enemy;
-    let enemy_rook = (board.pieces(Pieces::Rook) | board.pieces(Pieces::Queen)) & enemy;
-
-    (pawn_attacks::<Us>(king_sq) & board.color_piece(Pieces::Pawn, them))
-        | (knight_attacks(king_sq) & board.color_piece(Pieces::Knight, them))
-        | (bishop_attacks(king_sq, occupied) & enemy_bischop)
-        | (rook_attacks(king_sq, occupied) & enemy_rook)
-}
-
-pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList {
-    let us = Us::COLOR;
-    let them = !us;
-
-    let mut moves = MoveList::default();
-
-    let king_bb = board.color_piece(Pieces::King, us);
-    let king_sq = unsafe { bb_scan_forward(king_bb) };
-    let checkers = compute_checkers::<Us>(board);
+    let checkers = board.generate_attackers(king_sq, them, board.occupied());
 
     if Type::EVASIONS && checkers == 0 {
         return moves;
     }
 
-    let mut moves_ptr = generate_king_moves::<Us, Type>(board, king_sq, moves.as_ptr());
+    moves = generate_king_moves::<Us, Type>(board, king_sq, moves);
 
     // Double check: Only king can move
     if Type::EVASIONS && bb_several(checkers) {
-        moves.update_size(moves_ptr);
         return moves;
     }
 
@@ -67,14 +46,13 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList 
         mask
     };
 
-    moves_ptr = generate_pieces_moves::<Us, Type>(board, target_mask, moves_ptr);
-    moves_ptr = generate_pawn_moves::<Us, Type>(board, target_mask, moves_ptr);
+    moves = generate_pieces_moves::<Us, Type>(board, target_mask, moves);
+    moves = generate_pawn_moves::<Us, Type>(board, target_mask, moves);
 
     if Type::QUIETS && !Type::EVASIONS {
-        moves_ptr = generate_castling_moves::<Us>(board, moves_ptr);
+        moves = generate_castling_moves::<Us>(board, moves);
     }
 
-    moves.update_size(moves_ptr);
     moves
 }
 
@@ -385,13 +363,11 @@ pub fn generate_castling_moves<Us: Player>(board: &Board, mut moves: MoveListPtr
 
 #[unsafe(no_mangle)]
 pub fn generate_evasions(board: &Board, moves: MoveListPtr) -> MoveListPtr {
-    generate_moves::<White, Evasions>(board);
-    moves
+    generate_moves::<White, Evasions>(board, moves)
 }
 
 #[inline(never)]
 #[unsafe(no_mangle)]
 pub fn generate_non(board: &Board, moves: MoveListPtr) -> MoveListPtr {
-    generate_moves::<White, NonEvasions>(board);
-    moves
+    generate_moves::<White, NonEvasions>(board, moves)
 }

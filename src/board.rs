@@ -1,4 +1,11 @@
-use chess_base::prelude::*;
+use std::hint::assert_unchecked;
+
+use chess_base::{
+    bitboard::{bb_between, bb_scan_forward},
+    prelude::*,
+};
+
+use crate::attacks::*;
 
 #[derive(Clone)]
 pub struct Board {
@@ -109,20 +116,20 @@ impl Board {
         Some(board)
     }
 
-    pub fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
+    fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
         self.mailbox[sq as usize] = Some(piece);
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color()) |= bitboard;
         *self.pieces_mut(piece.piece()) |= bitboard;
     }
 
-    pub fn remove_piece(&mut self, sq: Sq) {
-        let Some(piece) = self.mailbox[sq as usize].take() else {
-            return;
-        };
+    fn remove_piece(&mut self, sq: Sq) -> Option<ColoredPiece> {
+        let piece = self.mailbox[sq as usize].take()?;
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color()) &= !bitboard;
         *self.pieces_mut(piece.piece()) &= !bitboard;
+
+        Some(piece)
     }
 
     #[inline(always)]
@@ -170,18 +177,132 @@ impl Board {
         self.bit_colors[0] | self.bit_colors[1]
     }
 
-    pub fn legal(&self, mov: Move) {
-        // TODO:
-        // • If the move is a King move (from == king_sq):
-        //     1. Remove from from occupied: occ = (board.occupied() ^ from.bitboard()) | to.bitboard();
-        //     2. Ask: Is to attacked by any enemy piece using blockers occ?
-        //     3. If attacked → Illegal. If not attacked → Legal.
-        // • If the move is a Non-King piece:
-        //     1. Verify the piece is not pinned to the King (or if it is pinned, it only moves along the pin ray).
-        //     2. If en-passant, verify the special horizontal double-pawn pin.
+    #[inline(always)]
+    pub fn king_sq(&self, color: Color) -> Sq {
+        let king_bb = self.color_piece(Pieces::King, color);
+        unsafe { bb_scan_forward(king_bb) }
+    }
 
-        // TODO: The transit squares (the square the King crosses and lands on) are not attacked by the enemy:
-        //   - White Kingside: !is_attacked(E1) && !is_attacked(F1) && !is_attacked(G1)
-        //   - White Queenside: !is_attacked(E1) && !is_attacked(D1) && !is_attacked(C1) (Note: b1 only needs to be empty, not unattacked)
+    pub fn legal(&self, mov: Move) -> bool {
+        let occupied = self.occupied();
+        let from = mov.from();
+        let to = mov.to();
+        let from_bb = from.bitboard();
+        let to_bb = to.bitboard();
+        let flags = mov.flags();
+        let us = self.to_play;
+        let them = !us;
+
+        let moved_piece = self.piece_at(mov.from());
+        unsafe {
+            assert_unchecked(moved_piece.is_some());
+        }
+        if moved_piece.map(|p| p.piece()) == Some(Pieces::King) {
+            if mov.is_castle() {
+                let path = if flags == MoveFlags::CastleKing {
+                    if self.to_play == Color::White {
+                        [Sq::E1, Sq::F1, Sq::G1]
+                    } else {
+                        [Sq::E8, Sq::F8, Sq::G8]
+                    }
+                } else {
+                    if self.to_play == Color::White {
+                        [Sq::E1, Sq::D1, Sq::C1]
+                    } else {
+                        [Sq::E8, Sq::D8, Sq::C8]
+                    }
+                };
+
+                for sq in path {
+                    if self.generate_attackers(sq, them, occupied) != 0 {
+                        return false;
+                    }
+                }
+            }
+
+            return self.generate_attackers(to, them, (occupied ^ from_bb) | to_bb) == 0;
+        }
+
+        let mut occ = occupied ^ from_bb;
+
+        if flags == MoveFlags::EnPassant {
+            let captured_pawn_sq = unsafe {
+                to.shift_unchecked(if us == Color::White {
+                    Dir::South
+                } else {
+                    Dir::North
+                })
+            };
+            occ ^= captured_pawn_sq.bitboard();
+        }
+
+        let king_sq = self.king_sq(us);
+        let attackers = self.generate_attackers(king_sq, them, occ);
+
+        let enemy_sliders =
+            self.pieces(Pieces::Queen) | self.pieces(Pieces::Rook) | self.pieces(Pieces::Bischop);
+        let slider_attackers = attackers & enemy_sliders;
+
+        if slider_attackers != 0 {
+            // If removing this piece exposed the King to 2+ sliders, no single move can fix it.
+            if (slider_attackers & (slider_attackers - 1)) != 0 {
+                return false;
+            }
+
+            // The piece is pinned (or blocking a check).
+            let pinner_sq = unsafe { bb_scan_forward(slider_attackers) };
+
+            // The piece is only legally allowed to move to the pinner's square,
+            // or anywhere strictly between the pinner and the King.
+            let legal_ray = pinner_sq.bitboard() | bb_between(king_sq, pinner_sq);
+
+            return (to_bb & legal_ray) != 0;
+        }
+
+        true
+    }
+
+    pub fn generate_attackers(
+        &self,
+        attacked_sq: Sq,
+        attacking_color: Color,
+        occupied: u64,
+    ) -> u64 {
+        let enemy = *self.colors(attacking_color);
+
+        let enemy_bischop = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
+        let enemy_rook = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
+
+        let enemy_pawns = self.pieces(Pieces::Pawn) & enemy;
+        let enemy_knights = self.pieces(Pieces::Knight) & enemy;
+        let enemy_kings = self.pieces(Pieces::King) & enemy;
+
+        (pawn_attacks_color(attacked_sq, !attacking_color) & enemy_pawns)
+            | (knight_attacks(attacked_sq) & enemy_knights)
+            | (bishop_attacks(attacked_sq, occupied) & enemy_bischop)
+            | (rook_attacks(attacked_sq, occupied) & enemy_rook)
+            | (king_attacks(attacked_sq) & enemy_kings)
+    }
+
+    pub fn make_move(&mut self, mov: Move) {
+        let from = mov.from();
+        let to = mov.to();
+        debug_assert!(self.piece_at(from).is_some());
+
+        let removed_piece = unsafe { self.remove_piece(mov.from()).unwrap_unchecked() };
+        let flags = mov.flags();
+        if flags == MoveFlags::EnPassant {
+            let captured_pawn_sq = unsafe {
+                to.shift_unchecked(if self.to_play == Color::White {
+                    Dir::South
+                } else {
+                    Dir::North
+                })
+            };
+            self.remove_piece(captured_pawn_sq);
+            self.add_piece(to, removed_piece);
+        }
+
+        self.en_passant_target_sq = None;
     }
 }

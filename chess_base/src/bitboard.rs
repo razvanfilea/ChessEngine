@@ -228,6 +228,11 @@ pub const fn bb_pop_lsb_opt(bb: &mut u64) -> Option<Sq> {
 }
 
 #[inline(always)]
+pub const fn bb_flip_vertically(bb: u64) -> u64 {
+    bb.swap_bytes()
+}
+
+#[inline(always)]
 pub const fn bb_from_dir(dir: Dir, sq: Sq) -> u64 {
     BB_DIRECTIONS[dir as usize][sq as usize]
 }
