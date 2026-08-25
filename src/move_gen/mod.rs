@@ -20,22 +20,21 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(
 
     let king_bb = board.color_piece(Pieces::King, us);
     let king_sq = unsafe { bb_scan_forward(king_bb) };
-    let checkers = board.generate_attackers(king_sq, them, board.occupied());
 
-    if Type::EVASIONS && checkers == 0 {
+    if Type::EVASIONS && board.checkers == 0 {
         return moves;
     }
 
     moves = generate_king_moves::<Us, Type>(board, king_sq, moves);
 
     // Double check: Only king can move
-    if Type::EVASIONS && bb_several(checkers) {
+    if Type::EVASIONS && bb_several(board.checkers) {
         return moves;
     }
 
     let target_mask = if Type::EVASIONS {
-        let checker_sq = unsafe { bb_scan_forward(checkers) };
-        checkers | bb_between(king_sq, checker_sq)
+        let checker_sq = unsafe { bb_scan_forward(board.checkers) };
+        board.checkers | bb_between(king_sq, checker_sq)
     } else {
         let mut mask = 0;
         if Type::CAPTURES {

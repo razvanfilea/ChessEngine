@@ -1,8 +1,8 @@
 use std::hint::assert_unchecked;
 
 use chess_base::{
-    bitboard::{bb_between, bb_scan_forward},
-    get_castling_rights_mask,
+    bitboard::{bb_between, bb_line, bb_only_one, bb_scan_forward},
+    for_each_bit, get_castling_rights_mask,
     prelude::*,
 };
 
@@ -13,6 +13,8 @@ pub struct Board {
     pub mailbox: [Option<ColoredPiece>; Sq::NB],
     pub bit_colors: [u64; Color::NB],
     pub bit_pieces: [u64; Pieces::NB],
+    pub checkers: u64,
+    pub pinned: u64,
 
     pub castling_rights: CastlingRights,
     pub to_play: Color,
@@ -27,6 +29,8 @@ impl Default for Board {
             mailbox: [None; Sq::NB],
             bit_colors: [0; Color::NB],
             bit_pieces: [0; Pieces::NB],
+            checkers: 0,
+            pinned: 0,
             castling_rights: CastlingRights::empty(),
             to_play: Color::White,
             en_passant_target_sq: None,
@@ -114,7 +118,47 @@ impl Board {
         board.ply =
             (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
 
+        if board.color_piece(Pieces::King, board.to_play) != 0 {
+            board.set_checkers();
+            board.set_pinned()
+        }
+
         Some(board)
+    }
+
+    fn set_checkers(&mut self) {
+        self.checkers =
+            self.generate_attackers(self.king_sq(self.to_play), !self.to_play, self.occupied());
+    }
+
+    fn set_pinned(&mut self) {
+        let us = self.to_play;
+        let king_sq = self.king_sq(us);
+
+        let enemy = *self.colors(!us);
+        let our = *self.colors(us);
+        let occupied = self.occupied();
+
+        let enemy_rooks = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
+        let enemy_bishops = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
+
+        // generate attacks stopping ONLY at enemy pieces
+        let potential_pinners = (rook_attacks(king_sq, enemy) & enemy_rooks)
+            | (bishop_attacks(king_sq, enemy) & enemy_bishops);
+
+        let mut pinned = 0;
+
+        for_each_bit!(pinner_sq in potential_pinners => {
+            let ray = bb_between(king_sq, pinner_sq);
+            let blockers_on_ray = ray & occupied;
+
+            // If there is exactly one piece on the ray and it's ours
+            if bb_only_one(blockers_on_ray) {
+                pinned |= blockers_on_ray & our;
+            }
+        });
+
+        self.pinned = pinned;
     }
 
     #[inline]
@@ -198,6 +242,28 @@ impl Board {
         unsafe { bb_scan_forward(king_bb) }
     }
 
+    pub fn generate_attackers(
+        &self,
+        attacked_sq: Sq,
+        attacking_color: Color,
+        occupied: u64,
+    ) -> u64 {
+        let enemy = *self.colors(attacking_color);
+
+        let enemy_bischop = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
+        let enemy_rook = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
+
+        let enemy_pawns = self.pieces(Pieces::Pawn) & enemy;
+        let enemy_knights = self.pieces(Pieces::Knight) & enemy;
+        let enemy_kings = self.pieces(Pieces::King) & enemy;
+
+        (pawn_attacks_color(attacked_sq, !attacking_color) & enemy_pawns)
+            | (knight_attacks(attacked_sq) & enemy_knights)
+            | (bishop_attacks(attacked_sq, occupied) & enemy_bischop)
+            | (rook_attacks(attacked_sq, occupied) & enemy_rook)
+            | (king_attacks(attacked_sq) & enemy_kings)
+    }
+
     pub fn legal(&self, mov: Move) -> bool {
         let occupied = self.occupied();
         let from = mov.from();
@@ -238,8 +304,6 @@ impl Board {
             return self.generate_attackers(to, them, (occupied ^ from_bb) | to_bb) == 0;
         }
 
-        let mut occ = occupied ^ from_bb;
-
         if flags == MoveFlags::EnPassant {
             let captured_pawn_sq = unsafe {
                 to.shift_unchecked(if us == Color::White {
@@ -248,55 +312,23 @@ impl Board {
                     Dir::North
                 })
             };
-            occ ^= captured_pawn_sq.bitboard();
+            let occ = ((occupied ^ from_bb) ^ captured_pawn_sq.bitboard()) | to_bb;
+            let king_sq = self.king_sq(us);
+            let attackers = self.generate_attackers(king_sq, them, occ);
+
+            // Mask out the captured pawn
+            return (attackers & !captured_pawn_sq.bitboard()) == 0;
         }
 
+        if from_bb & self.pinned == 0 {
+            return true;
+        }
+
+        // It can only move legally along the pin ray
         let king_sq = self.king_sq(us);
-        let attackers = self.generate_attackers(king_sq, them, occ);
+        let ray_mask = bb_line(king_sq, from);
 
-        let enemy_sliders =
-            self.pieces(Pieces::Queen) | self.pieces(Pieces::Rook) | self.pieces(Pieces::Bischop);
-        let slider_attackers = attackers & enemy_sliders;
-
-        if slider_attackers != 0 {
-            // If removing this piece exposed the King to 2+ sliders, no single move can fix it.
-            if (slider_attackers & (slider_attackers - 1)) != 0 {
-                return false;
-            }
-
-            // The piece is pinned (or blocking a check).
-            let pinner_sq = unsafe { bb_scan_forward(slider_attackers) };
-
-            // The piece is only legally allowed to move to the pinner's square,
-            // or anywhere strictly between the pinner and the King.
-            let legal_ray = pinner_sq.bitboard() | bb_between(king_sq, pinner_sq);
-
-            return (to_bb & legal_ray) != 0;
-        }
-
-        true
-    }
-
-    pub fn generate_attackers(
-        &self,
-        attacked_sq: Sq,
-        attacking_color: Color,
-        occupied: u64,
-    ) -> u64 {
-        let enemy = *self.colors(attacking_color);
-
-        let enemy_bischop = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
-        let enemy_rook = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
-
-        let enemy_pawns = self.pieces(Pieces::Pawn) & enemy;
-        let enemy_knights = self.pieces(Pieces::Knight) & enemy;
-        let enemy_kings = self.pieces(Pieces::King) & enemy;
-
-        (pawn_attacks_color(attacked_sq, !attacking_color) & enemy_pawns)
-            | (knight_attacks(attacked_sq) & enemy_knights)
-            | (bishop_attacks(attacked_sq, occupied) & enemy_bischop)
-            | (rook_attacks(attacked_sq, occupied) & enemy_rook)
-            | (king_attacks(attacked_sq) & enemy_kings)
+        (to.bitboard() & ray_mask) != 0
     }
 
     pub fn make_move(&mut self, mov: Move) {
@@ -373,5 +405,7 @@ impl Board {
 
         self.ply += 1;
         self.to_play = !us;
+        self.set_checkers();
+        self.set_pinned();
     }
 }
