@@ -434,7 +434,7 @@ impl Board {
     }
 
     /// Safety: it's the callers responsibility to make sure the UndoInfo and the Move match
-    pub fn undo_move(&mut self, mov: Move, undo: &UndoInfo) {
+    pub fn undo_move(&mut self, mov: Move, undo: UndoInfo) {
         let from = mov.from();
         let to = mov.to();
         let flags = mov.flags();
