@@ -74,8 +74,6 @@ pub enum Sq {
 impl Sq {
     pub const NB: usize = 64;
 
-    /// Branchless constructor from 0-indexed (file, rank).
-    /// Clamps directly to `Sq::NONE` (64) if out of bounds.
     #[inline]
     pub const fn new(file: u8, rank: u8) -> Option<Self> {
         const { assert!(size_of::<Option<Self>>() == 1) }
@@ -101,7 +99,7 @@ impl Sq {
     /// Construct directly without bounds checks.
     ///
     /// # Safety
-    /// `val` must be <= 64.
+    /// `val` must be < 64.
     #[inline(always)]
     pub const unsafe fn from_raw_unchecked(val: u8) -> Self {
         unsafe {
@@ -152,7 +150,6 @@ impl Sq {
     }
 
     /// Generates the corresponding bitboard (bit 0 for A1, bit 63 for H8).
-    /// Returns 0 for `Sq::NONE`.
     #[inline(always)]
     pub const fn bitboard(self) -> u64 {
         1u64 << self as u8
@@ -168,7 +165,7 @@ impl Sq {
         rank.min(7 - rank)
     }
 
-    pub const fn distance(self, other: Self) -> u8 {
+    pub const fn distance_to(self, other: Self) -> u8 {
         let rank_dist = self.rank().abs_diff(other.rank());
         let file_dist = self.file().abs_diff(other.file());
         if rank_dist > file_dist {
@@ -178,7 +175,14 @@ impl Sq {
         }
     }
 
-    pub const fn manhattan_distance(self, other: Self) -> u8 {
+    #[inline]
+    pub const fn on_diagonal_with(self, other: Self) -> bool {
+        let rank_dist = self.rank().abs_diff(other.rank());
+        let file_dist = self.file().abs_diff(other.file());
+        rank_dist == file_dist
+    }
+
+    pub const fn manhattan_distance_to(self, other: Self) -> u8 {
         self.rank().abs_diff(other.rank()) + self.file().abs_diff(other.file())
     }
 

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::hint::assert_unchecked;
 
 use chess_base::{
@@ -8,7 +9,7 @@ use chess_base::{
 
 use crate::attacks::*;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Board {
     pub mailbox: [Option<ColoredPiece>; Sq::NB],
     pub bit_colors: [u64; Color::NB],
@@ -38,6 +39,16 @@ impl Default for Board {
             ply: 0,
         }
     }
+}
+
+#[derive(Clone, Copy)]
+pub struct UndoInfo {
+    pub captured_piece: Option<ColoredPiece>,
+    pub castling_rights: CastlingRights,
+    pub en_passant_target_sq: Option<Sq>,
+    pub half_move_clock: u8,
+    pub checkers: u64,
+    pub pinned: u64,
 }
 
 impl Board {
@@ -331,7 +342,7 @@ impl Board {
         (to.bitboard() & ray_mask) != 0
     }
 
-    pub fn make_move(&mut self, mov: Move) {
+    pub fn make_move(&mut self, mov: Move) -> UndoInfo {
         let from = mov.from();
         let to = mov.to();
         let flags = mov.flags();
@@ -340,7 +351,7 @@ impl Board {
         debug_assert!(self.piece_at(from).is_some());
 
         let is_capture = mov.is_capture();
-        if is_capture {
+        let captured_piece = if is_capture {
             if flags == MoveFlags::EnPassant {
                 let captured_pawn_sq = unsafe {
                     to.shift_unchecked(if us == Color::White {
@@ -349,11 +360,22 @@ impl Board {
                         Dir::North
                     })
                 };
-                self.remove_piece(captured_pawn_sq);
+                self.remove_piece(captured_pawn_sq)
             } else {
-                self.remove_piece(to);
+                self.remove_piece(to)
             }
-        }
+        } else {
+            None
+        };
+
+        let undo_info = UndoInfo {
+            captured_piece,
+            castling_rights: self.castling_rights,
+            en_passant_target_sq: self.en_passant_target_sq,
+            half_move_clock: self.half_move_clock,
+            checkers: self.checkers,
+            pinned: self.pinned,
+        };
 
         let mut piece = self.move_piece(from, to);
         let is_pawn = piece.piece() == Pieces::Pawn;
@@ -407,5 +429,116 @@ impl Board {
         self.to_play = !us;
         self.set_checkers();
         self.set_pinned();
+
+        undo_info
+    }
+
+    /// Safety: it's the callers responsibility to make sure the UndoInfo and the Move match
+    pub fn undo_move(&mut self, mov: Move, undo: &UndoInfo) {
+        let from = mov.from();
+        let to = mov.to();
+        let flags = mov.flags();
+        let us = !self.to_play;
+        let them = self.to_play;
+
+        debug_assert!(self.piece_at(to).is_some());
+
+        if mov.is_promotion() {
+            self.remove_piece(to);
+            self.add_piece(from, ColoredPiece::new(Pieces::Pawn, us));
+        } else {
+            self.move_piece(to, from);
+        }
+
+        if mov.is_castle() {
+            let (rook_from, rook_to) = if flags == MoveFlags::CastleKing {
+                if us == Color::White {
+                    (Sq::F1, Sq::H1)
+                } else {
+                    (Sq::F8, Sq::H8)
+                }
+            } else {
+                if us == Color::White {
+                    (Sq::D1, Sq::A1)
+                } else {
+                    (Sq::D8, Sq::A8)
+                }
+            };
+            self.move_piece(rook_from, rook_to);
+        }
+
+        let is_capture = mov.is_capture();
+        if is_capture {
+            debug_assert!(undo.captured_piece.is_some());
+            // Safety: this is a capture
+            let captured_piece = unsafe { undo.captured_piece.unwrap_unchecked() };
+            let captured_sq = if flags == MoveFlags::EnPassant {
+                unsafe {
+                    to.shift_unchecked(if us == Color::White {
+                        Dir::South
+                    } else {
+                        Dir::North
+                    })
+                }
+            } else {
+                to
+            };
+            self.add_piece(captured_sq, captured_piece);
+        }
+
+        self.castling_rights = undo.castling_rights;
+        self.en_passant_target_sq = undo.en_passant_target_sq;
+        self.half_move_clock = undo.half_move_clock;
+        self.checkers = undo.checkers;
+        self.pinned = undo.pinned;
+
+        self.ply -= 1;
+        self.to_play = us;
+    }
+}
+
+impl fmt::Debug for Board {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "  +---+---+---+---+---+---+---+---+")?;
+        for rank in (0..8u8).rev() {
+            write!(f, "{} |", rank + 1)?;
+            for file in 0..8u8 {
+                let sq = Sq::new(file, rank).unwrap();
+                let ch = match self.mailbox[sq as usize] {
+                    Some(cp) => match (cp.piece(), cp.color()) {
+                        (Pieces::Pawn, Color::White) => 'P',
+                        (Pieces::Knight, Color::White) => 'N',
+                        (Pieces::Bischop, Color::White) => 'B',
+                        (Pieces::Rook, Color::White) => 'R',
+                        (Pieces::Queen, Color::White) => 'Q',
+                        (Pieces::King, Color::White) => 'K',
+                        (Pieces::Pawn, Color::Black) => 'p',
+                        (Pieces::Knight, Color::Black) => 'n',
+                        (Pieces::Bischop, Color::Black) => 'b',
+                        (Pieces::Rook, Color::Black) => 'r',
+                        (Pieces::Queen, Color::Black) => 'q',
+                        (Pieces::King, Color::Black) => 'k',
+                    },
+                    None => ' ',
+                };
+                write!(f, " {} |", ch)?;
+            }
+            writeln!(f)?;
+            writeln!(f, "  +---+---+---+---+---+---+---+---+")?;
+        }
+        writeln!(f, "    a   b   c   d   e   f   g   h")?;
+        writeln!(f)?;
+        writeln!(f, "Side to move: {:?}", self.to_play)?;
+        writeln!(f, "Castling:     {:?}", self.castling_rights)?;
+        writeln!(
+            f,
+            "En passant:   {}",
+            match self.en_passant_target_sq {
+                Some(sq) => format!("{}", sq),
+                None => "-".to_string(),
+            }
+        )?;
+        writeln!(f, "Half-move:    {}", self.half_move_clock)?;
+        write!(f, "Ply:          {}", self.ply)
     }
 }

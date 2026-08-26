@@ -19,6 +19,7 @@ chess_base = { path = "chess_base" }
 [profile.release]
 codegen-units = 1
 lto = true
+debug = true
 
 [profile.dev]
 opt-level = 1

@@ -57,6 +57,7 @@ impl ColoredPiece {
 }
 
 impl PartialEq<Pieces> for ColoredPiece {
+    #[inline(always)]
     fn eq(&self, other: &Pieces) -> bool {
         self.piece() == *other
     }

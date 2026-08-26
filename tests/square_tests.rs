@@ -97,22 +97,22 @@ fn test_sq_distance_to_edge() {
 #[test]
 fn test_sq_distance() {
     // Chebyshev distance
-    assert_eq!(Sq::A1.distance(Sq::B2), 1);
-    assert_eq!(Sq::A1.distance(Sq::H8), 7);
-    assert_eq!(Sq::A1.distance(Sq::A8), 7);
-    assert_eq!(Sq::A1.distance(Sq::H1), 7);
+    assert_eq!(Sq::A1.distance_to(Sq::B2), 1);
+    assert_eq!(Sq::A1.distance_to(Sq::H8), 7);
+    assert_eq!(Sq::A1.distance_to(Sq::A8), 7);
+    assert_eq!(Sq::A1.distance_to(Sq::H1), 7);
 
-    assert_eq!(Sq::E4.distance(Sq::E4), 0);
+    assert_eq!(Sq::E4.distance_to(Sq::E4), 0);
 }
 
 #[test]
 fn test_sq_manhattan_distance() {
-    assert_eq!(Sq::A1.manhattan_distance(Sq::B2), 2);
-    assert_eq!(Sq::A1.manhattan_distance(Sq::H8), 14);
-    assert_eq!(Sq::A1.manhattan_distance(Sq::A8), 7);
-    assert_eq!(Sq::A1.manhattan_distance(Sq::H1), 7);
+    assert_eq!(Sq::A1.manhattan_distance_to(Sq::B2), 2);
+    assert_eq!(Sq::A1.manhattan_distance_to(Sq::H8), 14);
+    assert_eq!(Sq::A1.manhattan_distance_to(Sq::A8), 7);
+    assert_eq!(Sq::A1.manhattan_distance_to(Sq::H1), 7);
 
-    assert_eq!(Sq::E4.manhattan_distance(Sq::E4), 0);
+    assert_eq!(Sq::E4.manhattan_distance_to(Sq::E4), 0);
 }
 
 #[test]
