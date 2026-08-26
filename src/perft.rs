@@ -35,7 +35,7 @@ pub fn perft(board: &mut Board, depth: u8) -> u64 {
 
         let undo_info = board.make_move(*mov);
         nodes += perft(board, depth - 1);
-        board.undo_move(*mov, &undo_info);
+        board.undo_move(*mov, undo_info);
     }
 
     nodes
