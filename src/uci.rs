@@ -1,8 +1,9 @@
 use std::io::{self, BufRead};
 
+use chess_base::prelude::*;
 use uci_parser::UciCommand;
 
-use crate::board::Board;
+use crate::{board::Board, move_gen::MoveGenerator, search::search};
 
 pub struct UciState {
     board: Board,
@@ -19,9 +20,17 @@ impl Default for UciState {
 impl UciState {
     pub fn uci_loop(&mut self) -> bool {
         let mut input_string = String::new();
-        io::stdin().lock().read_line(&mut input_string).unwrap();
+        match io::stdin().lock().read_line(&mut input_string) {
+            Ok(0) | Err(_) => return false, // EOF or pipe closed -> exit
+            Ok(_) => {}
+        }
 
-        let command = match input_string.parse::<UciCommand>() {
+        let trimmed = input_string.trim();
+        if trimmed.is_empty() {
+            return true;
+        }
+
+        let command = match trimmed.parse::<UciCommand>() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Failed to parse: {e}");
@@ -33,31 +42,83 @@ impl UciState {
             UciCommand::Uci => {
                 println!("id name lucky_chess 1.0\nid author Razvan\nuciok");
             }
-            UciCommand::Debug(_) => todo!(),
+            UciCommand::Debug(_) => {}
             UciCommand::IsReady => {
                 println!("readyok")
             }
-            UciCommand::SetOption { name, value } => todo!(),
-            UciCommand::Register { name, code } => todo!(),
+            UciCommand::SetOption { name, value } => {}
+            UciCommand::Register { name, code } => {}
             UciCommand::UciNewGame => {
                 self.board = Board::start_pos();
             }
             UciCommand::Position { fen, moves } => {
-                if let Some(fen) = fen {
+                self.board = if let Some(fen) = fen {
                     let Some(new_board) = Board::from_fen(&fen) else {
                         eprintln!("Invalid FEN");
                         return true;
                     };
+                    new_board
+                } else {
+                    Board::start_pos()
+                };
 
-                    self.board = new_board;
+                for uci_move in moves {
+                    if let Some(mov) = self.find_move(uci_move) {
+                        self.board.make_move(mov);
+                    } else {
+                        eprintln!("Illegal or unrecognized move in position command");
+                        break;
+                    }
                 }
             }
-            UciCommand::Go(_uci_search_options) => todo!(),
-            UciCommand::Stop => todo!(),
-            UciCommand::PonderHit => todo!(),
+            UciCommand::Go(opts) => {
+                let depth = opts.depth.unwrap_or(5) as i16;
+                let best = search(self.board.clone(), depth);
+                println!("bestmove {}", format_move(best))
+            }
+            UciCommand::Stop => {}
+            UciCommand::PonderHit => {}
             UciCommand::Quit => return false,
         }
 
         true
     }
+
+    fn find_move(&mut self, uci_move: uci_parser::types::UciMove) -> Option<Move> {
+        let mut generator = MoveGenerator::default();
+        let from_sq = Sq::new(uci_move.src.0 as u8, uci_move.src.1 as u8)?;
+        let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
+
+        while let Some(mov) = generator.next(&self.board) {
+            if mov.from() == from_sq && mov.to() == to_sq && self.board.legal(mov) {
+                // Check promotion match if applicable
+                if let Some(target_promo) = uci_move.promote {
+                    let promo_piece = match target_promo {
+                        uci_parser::types::Piece::Queen => Pieces::Queen,
+                        uci_parser::types::Piece::Rook => Pieces::Rook,
+                        uci_parser::types::Piece::Bishop => Pieces::Bischop,
+                        uci_parser::types::Piece::Knight => Pieces::Knight,
+                        _ => return None,
+                    };
+                    if mov.promotion_piece() == Some(promo_piece) {
+                        return Some(mov);
+                    }
+                } else if !mov.is_promotion() {
+                    return Some(mov);
+                }
+            }
+        }
+        None
+    }
+}
+
+fn format_move(mov: Move) -> String {
+    let promo = match mov.promotion_piece() {
+        Some(Pieces::Queen) => "q",
+        Some(Pieces::Rook) => "r",
+        Some(Pieces::Bischop) => "b",
+        Some(Pieces::Knight) => "n",
+        _ => "",
+    };
+    format!("{}{}{promo}", mov.from(), mov.to())
 }
