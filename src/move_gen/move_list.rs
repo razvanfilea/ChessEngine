@@ -26,12 +26,24 @@ impl MoveList {
         self.size = size as usize;
     }
 
+    #[inline(always)]
+    pub const fn clear(&mut self) {
+        self.size = 0;
+    }
+
     pub const fn as_slice(&self) -> &[Move] {
         unsafe { core::slice::from_raw_parts(self.moves.as_ptr() as *const Move, self.size) }
     }
 
-    pub const fn size(&self) -> usize {
+    #[inline(always)]
+    pub const fn len(&self) -> usize {
         self.size
+    }
+
+    #[must_use]
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     const fn current_ptr(&mut self) -> *mut Move {
