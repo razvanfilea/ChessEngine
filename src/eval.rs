@@ -2,6 +2,8 @@ use chess_base::prelude::*;
 
 use crate::board::Board;
 
+pub const INFINITY: i16 = 30_000;
+
 pub fn eval_board(board: &Board) -> i16 {
     let pawns = (board.color_piece(Pieces::Pawn, Color::White).count_ones() as i16
         - board.color_piece(Pieces::Pawn, Color::Black).count_ones() as i16)

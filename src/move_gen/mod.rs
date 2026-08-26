@@ -25,10 +25,18 @@ pub struct MoveGenerator {
     list: MoveList,
     stage: GenStage,
     list_index: usize,
+    quiescence: bool,
     pub generated_count: usize,
 }
 
 impl MoveGenerator {
+    pub fn quiescence() -> Self {
+        Self {
+            quiescence: true,
+            ..Default::default()
+        }
+    }
+
     pub fn next(&mut self, board: &Board) -> Option<Move> {
         loop {
             if self.list_index < self.list.len() {
@@ -57,7 +65,11 @@ impl MoveGenerator {
                     self.list.update_size(ptr);
 
                     self.generated_count += self.list.len();
-                    self.stage = GenStage::Quiets;
+                    if self.quiescence {
+                        self.stage = GenStage::Done;
+                    } else {
+                        self.stage = GenStage::Quiets;
+                    }
                 }
                 GenStage::Quiets => {
                     let ptr = if board.to_play == Color::White {
