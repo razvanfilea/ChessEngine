@@ -29,7 +29,7 @@ pub fn search(mut board: Board, depth: i16) -> Move {
         board.undo_move(mov, undo);
     }
 
-    return best_move.unwrap();
+    best_move.unwrap()
 }
 
 pub fn nega_max(board: &mut Board, mut alpha: i16, beta: i16, depth: i16) -> i16 {
@@ -71,5 +71,5 @@ pub fn nega_max(board: &mut Board, mut alpha: i16, beta: i16, depth: i16) -> i16
         }
     }
 
-    return best_score;
+    best_score
 }

@@ -12,7 +12,7 @@ pub fn perft(board: &mut Board, depth: u8) -> u64 {
 
     let us = board.to_play;
 
-    let mut in_check = board.checkers != 0;
+    let in_check = board.checkers != 0;
     let mut moves = MoveList::default();
     let ptr = match (us, in_check) {
         (Color::White, true) => generate_moves::<White, Evasions>(board, moves.as_ptr()),

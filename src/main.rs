@@ -1,7 +1,7 @@
 use lucky_chess::uci::UciState;
 
 fn main() {
-    // lucky_chess::perft::perft_start(8);
+    // lucky_chess::perft::perft_start(7);
     // lucky_chess::perft::perft_kiwipete(5);
     // lucky_chess::perft::perft_pos3(6);
     // lucky_chess::perft::perft_pos4(5);
