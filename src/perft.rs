@@ -5,15 +5,14 @@ use crate::{
     move_gen::{Black, Evasions, MoveList, NonEvasions, White, generate_moves},
 };
 
-pub fn perft(board: &Board, depth: u8) -> u64 {
+pub fn perft(board: &mut Board, depth: u8) -> u64 {
     if depth == 0 {
         return 1;
     }
 
     let us = board.to_play;
-    let king_sq = board.king_sq(us);
-    let in_check = board.generate_attackers(king_sq, !us, board.occupied()) != 0;
 
+    let mut in_check = board.checkers != 0;
     let mut moves = MoveList::default();
     let ptr = match (us, in_check) {
         (Color::White, true) => generate_moves::<White, Evasions>(board, moves.as_ptr()),
@@ -34,9 +33,9 @@ pub fn perft(board: &Board, depth: u8) -> u64 {
             continue;
         }
 
-        let mut new_board = board.clone();
-        new_board.make_move(*mov);
-        nodes += perft(&new_board, depth - 1);
+        let undo_info = board.make_move(*mov);
+        nodes += perft(board, depth - 1);
+        board.undo_move(*mov, &undo_info);
     }
 
     nodes
@@ -46,7 +45,7 @@ pub fn run_perft(name: &str, fen: &str, expected: &[u64]) {
     use std::time::Instant;
     println!("--- {} ---", name);
     // Use start_pos() if fen is empty for the standard start position
-    let board = if fen.is_empty() {
+    let mut board = if fen.is_empty() {
         Board::start_pos()
     } else {
         Board::from_fen(fen).unwrap()
@@ -55,7 +54,7 @@ pub fn run_perft(name: &str, fen: &str, expected: &[u64]) {
     for (i, &expected_nodes) in expected.iter().enumerate() {
         let depth = (i + 1) as u8;
         let instant = Instant::now();
-        let nodes = perft(&board, depth);
+        let nodes = perft(&mut board, depth);
         let elapsed = instant.elapsed();
 
         println!("Depth {}: {} nodes - {:?}", depth, nodes, elapsed);
