@@ -4,6 +4,7 @@ use chess_base::prelude::*;
 use uci_parser::UciCommand;
 
 use crate::{board::Board, move_gen::MoveGenerator, search::search};
+use crate::eval::INFINITY;
 
 pub struct UciState {
     board: Board,
@@ -72,7 +73,7 @@ impl UciState {
                 }
             }
             UciCommand::Go(opts) => {
-                let depth = opts.depth.unwrap_or(5) as i16;
+                let depth = opts.depth.unwrap_or(12) as i16;
                 let best = search(self.board.clone(), depth);
                 println!("bestmove {}", format_move(best))
             }
@@ -112,7 +113,7 @@ impl UciState {
     }
 }
 
-fn format_move(mov: Move) -> String {
+pub fn format_move(mov: Move) -> String {
     let promo = match mov.promotion_piece() {
         Some(Pieces::Queen) => "q",
         Some(Pieces::Rook) => "r",
@@ -121,4 +122,22 @@ fn format_move(mov: Move) -> String {
         _ => "",
     };
     format!("{}{}{promo}", mov.from(), mov.to())
+}
+
+pub fn format_score(score: i16) -> String {
+    const MATE_THRESHOLD: i16 = 29_000;
+
+    if score > MATE_THRESHOLD {
+        // We are mating the opponent
+        let plies_to_mate = INFINITY - score;
+        let moves_to_mate = (plies_to_mate + 1) / 2;
+        format!("mate {moves_to_mate}")
+    } else if score < -MATE_THRESHOLD {
+        // Opponent is mating us
+        let plies_to_mate = INFINITY + score;
+        let moves_to_mate = (plies_to_mate + 1) / 2;
+        format!("mate -{moves_to_mate}")
+    } else {
+        format!("cp {score}")
+    }
 }
