@@ -1,9 +1,8 @@
-use std::os::linux::raw::stat;
-use std::time::Instant;
 use chess_base::Move;
+use std::time::Instant;
 
-use crate::{board::Board, eval::eval_board, move_gen::MoveGenerator};
 use crate::eval::INFINITY;
+use crate::{board::Board, eval::eval_board, move_gen::MoveGenerator};
 
 pub fn search(mut board: Board, max_depth: i16) -> Move {
     let start_time = Instant::now();
@@ -18,7 +17,9 @@ pub fn search(mut board: Board, max_depth: i16) -> Move {
         let mut alpha = -INFINITY;
         let beta = INFINITY;
 
-        if let Some(pv_move) = overall_best_move && board.legal(pv_move) {
+        if let Some(pv_move) = overall_best_move
+            && board.legal(pv_move)
+        {
             let undo = board.make_move(pv_move);
             let score = -nega_max(&mut board, -beta, -alpha, current_depth - 1);
             board.undo_move(pv_move, undo);
@@ -64,8 +65,12 @@ pub fn search(mut board: Board, max_depth: i16) -> Move {
 }
 
 fn nega_max(board: &mut Board, mut alpha: i16, beta: i16, depth: i16) -> i16 {
+    if board.ply > 0 && board.is_draw() {
+        return 0;
+    }
+
     if depth == 0 {
-        return quiesce(board, alpha, beta)
+        return quiesce(board, alpha, beta);
     }
 
     let mut moves = MoveGenerator::default();
@@ -122,7 +127,7 @@ fn quiesce(board: &mut Board, mut alpha: i16, beta: i16) -> i16 {
     let mut legal_moves = 0;
 
     while let Some(mov) = moves.next(board) {
-        if !in_check && (mov.is_capture() && !mov.is_promotion()) {
+        if !in_check && (!mov.is_capture() && !mov.is_promotion()) {
             continue;
         }
         if !board.legal(mov) {

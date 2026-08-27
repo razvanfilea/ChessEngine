@@ -1,7 +1,9 @@
 use chess_base::{bitboard::*, for_each_bit, prelude::*};
 
 use crate::{
-    attacks::{bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks}, board::Board, move_gen::MoveListPtr,
+    attacks::{bishop_attacks, king_attacks, knight_attacks, queen_attacks, rook_attacks},
+    board::Board,
+    move_gen::MoveListPtr,
 };
 
 use crate::move_gen::traits::*;
@@ -365,4 +367,3 @@ pub fn generate_castling_moves<Us: Player>(board: &Board, mut moves: MoveListPtr
 
     moves
 }
-
