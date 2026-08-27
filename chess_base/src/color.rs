@@ -20,6 +20,7 @@ impl Color {
 impl Not for Color {
     type Output = Color;
 
+    #[inline(always)]
     fn not(self) -> Self::Output {
         match self {
             Color::Black => Color::White,
