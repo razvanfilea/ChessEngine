@@ -1,8 +1,8 @@
+use chess_base::prelude::*;
 use std::io::{self, BufRead};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use chess_base::prelude::*;
 use uci_parser::UciCommand;
 
 use crate::eval::INFINITY;
@@ -109,10 +109,10 @@ impl UciState {
                 // Check promotion match if applicable
                 if let Some(target_promo) = uci_move.promote {
                     let promo_piece = match target_promo {
-                        uci_parser::types::Piece::Queen => Pieces::Queen,
-                        uci_parser::types::Piece::Rook => Pieces::Rook,
-                        uci_parser::types::Piece::Bishop => Pieces::Bischop,
-                        uci_parser::types::Piece::Knight => Pieces::Knight,
+                        uci_parser::types::Piece::Queen => Piece::Queen,
+                        uci_parser::types::Piece::Rook => Piece::Rook,
+                        uci_parser::types::Piece::Bishop => Piece::Bishop,
+                        uci_parser::types::Piece::Knight => Piece::Knight,
                         _ => return None,
                     };
                     if mov.promotion_piece() == Some(promo_piece) {
@@ -129,10 +129,10 @@ impl UciState {
 
 pub fn format_move(mov: Move) -> String {
     let promo = match mov.promotion_piece() {
-        Some(Pieces::Queen) => "q",
-        Some(Pieces::Rook) => "r",
-        Some(Pieces::Bischop) => "b",
-        Some(Pieces::Knight) => "n",
+        Some(Piece::Queen) => "q",
+        Some(Piece::Rook) => "r",
+        Some(Piece::Bishop) => "b",
+        Some(Piece::Knight) => "n",
         _ => "",
     };
     format!("{}{}{promo}", mov.from(), mov.to())

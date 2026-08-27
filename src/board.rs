@@ -5,8 +5,8 @@ use crate::attacks::*;
 use crate::zobrist::ZOBRIST_KEYS;
 use chess_base::bitboard::LIGHT_SQUARES;
 use chess_base::{
-    bitboard::{bb_between, bb_line, bb_only_one, bb_scan_forward},
-    for_each_bit, get_castling_rights_mask,
+    bitboard::{bb_between, bb_line, bb_lsb, bb_only_one},
+    for_each_bit,
     prelude::*,
 };
 
@@ -16,7 +16,7 @@ const MAX_GAME_PLAY: usize = 1024;
 pub struct Board {
     pub mailbox: [Option<ColoredPiece>; Sq::NB],
     pub bit_colors: [u64; Color::NB],
-    pub bit_pieces: [u64; Pieces::NB],
+    pub bit_pieces: [u64; Piece::NB],
     pub checkers: u64,
     pub pinned: u64,
 
@@ -34,7 +34,7 @@ impl Default for Board {
         Self {
             mailbox: [None; Sq::NB],
             bit_colors: [0; Color::NB],
-            bit_pieces: [0; Pieces::NB],
+            bit_pieces: [0; Piece::NB],
             checkers: 0,
             pinned: 0,
             hash: 0,
@@ -145,7 +145,7 @@ impl Board {
             board.hash ^= ZOBRIST_KEYS.en_passant(ep_sq);
         }
 
-        if board.color_piece(Pieces::King, board.to_play) != 0 {
+        if board.color_piece(Piece::King, board.to_play) != 0 {
             board.set_checkers();
             board.set_pinned()
         }
@@ -154,8 +154,8 @@ impl Board {
     }
 
     #[inline(always)]
-    pub fn colors(&self, color: Color) -> &u64 {
-        &self.bit_colors[color as usize]
+    pub fn colors(&self, color: Color) -> u64 {
+        self.bit_colors[color as usize]
     }
 
     #[inline(always)]
@@ -164,17 +164,17 @@ impl Board {
     }
 
     #[inline(always)]
-    pub fn pieces(&self, piece: Pieces) -> &u64 {
-        &self.bit_pieces[piece as usize]
+    pub fn pieces(&self, piece: Piece) -> u64 {
+        self.bit_pieces[piece as usize]
     }
 
     #[inline(always)]
-    pub fn pieces_mut(&mut self, piece: Pieces) -> &mut u64 {
+    pub fn pieces_mut(&mut self, piece: Piece) -> &mut u64 {
         &mut self.bit_pieces[piece as usize]
     }
 
     #[inline(always)]
-    pub fn color_piece(&self, piece: Pieces, color: Color) -> u64 {
+    pub fn color_piece(&self, piece: Piece, color: Color) -> u64 {
         self.colors(color) & self.pieces(piece)
     }
 
@@ -200,8 +200,8 @@ impl Board {
 
     #[inline(always)]
     pub fn king_sq(&self, color: Color) -> Sq {
-        let king_bb = self.color_piece(Pieces::King, color);
-        unsafe { bb_scan_forward(king_bb) }
+        let king_bb = self.color_piece(Piece::King, color);
+        unsafe { bb_lsb(king_bb) }
     }
 
     pub fn is_draw(&self) -> bool {
@@ -214,18 +214,18 @@ impl Board {
         attacking_color: Color,
         occupied: u64,
     ) -> u64 {
-        let enemy = *self.colors(attacking_color);
+        let enemy = self.colors(attacking_color);
 
-        let enemy_bischop = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
-        let enemy_rook = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
+        let enemy_bishop = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen)) & enemy;
+        let enemy_rook = (self.pieces(Piece::Rook) | self.pieces(Piece::Queen)) & enemy;
 
-        let enemy_pawns = self.pieces(Pieces::Pawn) & enemy;
-        let enemy_knights = self.pieces(Pieces::Knight) & enemy;
-        let enemy_kings = self.pieces(Pieces::King) & enemy;
+        let enemy_pawns = self.pieces(Piece::Pawn) & enemy;
+        let enemy_knights = self.pieces(Piece::Knight) & enemy;
+        let enemy_kings = self.pieces(Piece::King) & enemy;
 
         (pawn_attacks_color(attacked_sq, !attacking_color) & enemy_pawns)
             | (knight_attacks(attacked_sq) & enemy_knights)
-            | (bishop_attacks(attacked_sq, occupied) & enemy_bischop)
+            | (bishop_attacks(attacked_sq, occupied) & enemy_bishop)
             | (rook_attacks(attacked_sq, occupied) & enemy_rook)
             | (king_attacks(attacked_sq) & enemy_kings)
     }
@@ -244,7 +244,7 @@ impl Board {
         unsafe {
             assert_unchecked(moved_piece.is_some());
         }
-        if moved_piece.map(|p| p.piece()) == Some(Pieces::King) {
+        if moved_piece.map(|p| p.piece()) == Some(Piece::King) {
             if mov.is_castle() {
                 let path = if flags == MoveFlags::CastleKing {
                     if self.to_play == Color::White {
@@ -272,7 +272,7 @@ impl Board {
 
         if flags == MoveFlags::EnPassant {
             let captured_pawn_sq = unsafe {
-                to.shift_unchecked(if us == Color::White {
+                to.shift(if us == Color::White {
                     Dir::South
                 } else {
                     Dir::North
@@ -311,7 +311,7 @@ impl Board {
         let captured_piece = if is_capture {
             if flags == MoveFlags::EnPassant {
                 let captured_pawn_sq = unsafe {
-                    to.shift_unchecked(if us == Color::White {
+                    to.shift(if us == Color::White {
                         Dir::South
                     } else {
                         Dir::North
@@ -336,7 +336,7 @@ impl Board {
         };
 
         let mut piece = self.move_piece(from, to);
-        let is_pawn = piece.piece() == Pieces::Pawn;
+        let is_pawn = piece.piece() == Piece::Pawn;
 
         if mov.is_promotion() {
             let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
@@ -364,7 +364,7 @@ impl Board {
         }
 
         self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);
-        self.castling_rights &= get_castling_rights_mask(from, to);
+        self.castling_rights &= CastlingRights::mask_for_move(from, to);
         self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);
 
         if let Some(en_passsant) = self.en_passant_target_sq {
@@ -372,7 +372,7 @@ impl Board {
         }
         if flags == MoveFlags::DoublePawn {
             let target_sq = unsafe {
-                to.shift_unchecked(if us == Color::White {
+                to.shift(if us == Color::White {
                     Dir::South
                 } else {
                     Dir::North
@@ -410,7 +410,7 @@ impl Board {
 
         if mov.is_promotion() {
             self.remove_piece(to);
-            self.add_piece(from, ColoredPiece::new(Pieces::Pawn, us));
+            self.add_piece(from, ColoredPiece::new(Piece::Pawn, us));
         } else {
             self.move_piece(to, from);
         }
@@ -439,7 +439,7 @@ impl Board {
             let captured_piece = unsafe { undo.captured_piece.unwrap_unchecked() };
             let captured_sq = if flags == MoveFlags::EnPassant {
                 unsafe {
-                    to.shift_unchecked(if us == Color::White {
+                    to.shift(if us == Color::White {
                         Dir::South
                     } else {
                         Dir::North
@@ -459,6 +459,7 @@ impl Board {
         self.hash = undo.hash;
 
         self.ply -= 1;
+        self.hash_history[self.ply as usize] = 0;
         self.to_play = us;
     }
 }
@@ -475,12 +476,12 @@ impl Board {
         let us = self.to_play;
         let king_sq = self.king_sq(us);
 
-        let enemy = *self.colors(!us);
-        let our = *self.colors(us);
+        let enemy = self.colors(!us);
+        let our = self.colors(us);
         let occupied = self.occupied();
 
-        let enemy_rooks = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
-        let enemy_bishops = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
+        let enemy_rooks = (self.pieces(Piece::Rook) | self.pieces(Piece::Queen)) & enemy;
+        let enemy_bishops = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen)) & enemy;
 
         // generate attacks stopping ONLY at enemy pieces
         let potential_pinners = (rook_attacks(king_sq, enemy) & enemy_rooks)
@@ -539,15 +540,15 @@ impl Board {
     fn has_insufficient_material(&self) -> bool {
         // If there are pawns, rooks, or queens, mate is possible
         let majors_and_pawns =
-            self.pieces(Pieces::Pawn) | self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen);
+            self.pieces(Piece::Pawn) | self.pieces(Piece::Rook) | self.pieces(Piece::Queen);
 
         if majors_and_pawns != 0 {
             return false;
         }
 
-        let knights = self.pieces(Pieces::Knight);
-        let bishops = self.pieces(Pieces::Bischop);
-        let piece_count = (*knights | *bishops).count_ones();
+        let knights = self.pieces(Piece::Knight);
+        let bishops = self.pieces(Piece::Bishop);
+        let piece_count = (knights | bishops).count_ones();
 
         // King vs King
         if piece_count == 0 {
@@ -560,9 +561,9 @@ impl Board {
         }
 
         // King + Bishop vs King + Bishop on the same color squares
-        if piece_count == 2 && *knights == 0 {
-            let white_bishops = self.color_piece(Pieces::Bischop, Color::White);
-            let black_bishops = self.color_piece(Pieces::Bischop, Color::Black);
+        if piece_count == 2 && knights == 0 {
+            let white_bishops = self.color_piece(Piece::Bishop, Color::White);
+            let black_bishops = self.color_piece(Piece::Bishop, Color::Black);
             if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
                 let white_is_light = (white_bishops & LIGHT_SQUARES) != 0;
                 let black_is_light = (black_bishops & LIGHT_SQUARES) != 0;
@@ -603,18 +604,18 @@ impl fmt::Debug for Board {
                 let sq = Sq::new(file, rank).unwrap();
                 let ch = match self.mailbox[sq as usize] {
                     Some(cp) => match (cp.piece(), cp.color()) {
-                        (Pieces::Pawn, Color::White) => 'P',
-                        (Pieces::Knight, Color::White) => 'N',
-                        (Pieces::Bischop, Color::White) => 'B',
-                        (Pieces::Rook, Color::White) => 'R',
-                        (Pieces::Queen, Color::White) => 'Q',
-                        (Pieces::King, Color::White) => 'K',
-                        (Pieces::Pawn, Color::Black) => 'p',
-                        (Pieces::Knight, Color::Black) => 'n',
-                        (Pieces::Bischop, Color::Black) => 'b',
-                        (Pieces::Rook, Color::Black) => 'r',
-                        (Pieces::Queen, Color::Black) => 'q',
-                        (Pieces::King, Color::Black) => 'k',
+                        (Piece::Pawn, Color::White) => 'P',
+                        (Piece::Knight, Color::White) => 'N',
+                        (Piece::Bishop, Color::White) => 'B',
+                        (Piece::Rook, Color::White) => 'R',
+                        (Piece::Queen, Color::White) => 'Q',
+                        (Piece::King, Color::White) => 'K',
+                        (Piece::Pawn, Color::Black) => 'p',
+                        (Piece::Knight, Color::Black) => 'n',
+                        (Piece::Bishop, Color::Black) => 'b',
+                        (Piece::Rook, Color::Black) => 'r',
+                        (Piece::Queen, Color::Black) => 'q',
+                        (Piece::King, Color::Black) => 'k',
                     },
                     None => ' ',
                 };
@@ -639,4 +640,3 @@ impl fmt::Debug for Board {
         write!(f, "Ply:          {}", self.ply)
     }
 }
-

@@ -10,9 +10,9 @@ pub use generate::*;
 pub use move_list::*;
 pub use traits::*;
 
-// Indexed MVV_LVA[victim][attacker], both in `Pieces` enum order (P, N, B, R, Q, K).
+// Indexed MVV_LVA[victim][attacker], both in `Piece` enum order (P, N, B, R, Q, K).
 // Higher victim value and cheaper attacker => higher score.
-const MVV_LVA: [[u8; Pieces::NB]; Pieces::NB] = [
+const MVV_LVA: [[u8; Piece::NB]; Piece::NB] = [
     [15, 14, 13, 12, 11, 10], // victim P; attacker P, N, B, R, Q, K
     [25, 24, 23, 22, 21, 20], // victim N; attacker P, N, B, R, Q, K
     [35, 34, 33, 32, 31, 30], // victim B; attacker P, N, B, R, Q, K
@@ -144,7 +144,7 @@ impl MoveGenerator {
             let to_piece = board
                 .piece_at(mv.to())
                 .map(|p| p.piece())
-                .unwrap_or(Pieces::Pawn);
+                .unwrap_or(Piece::Pawn);
 
             self.score_list[i] =
                 MVV_LVA[to_piece as usize][board.piece_at(mv.from()).unwrap().piece() as usize];

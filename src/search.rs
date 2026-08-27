@@ -178,19 +178,22 @@ fn nega_max(
 
 fn quiesce(board: &mut Board, info: &mut SearchInfo, mut alpha: i16, beta: i16) -> i16 {
     let in_check = board.checkers != 0;
-    if !in_check {
-        let static_eval = eval_board(board);
 
+    // Stand-pat: not available while in check, since every evasion must be considered.
+    let mut best_score = if in_check {
+        -INFINITY
+    } else {
+        let static_eval = eval_board(board);
         if static_eval >= beta {
             return static_eval;
         }
         if static_eval > alpha {
             alpha = static_eval;
         }
-    }
+        static_eval
+    };
 
     let mut moves = MoveGenerator::quiescence();
-    let mut legal_moves = 0;
 
     while let Some(mov) = moves.next(board, info.get_killer_moves(board.ply)) {
         if !in_check && (!mov.is_capture() && !mov.is_promotion()) {
@@ -199,25 +202,24 @@ fn quiesce(board: &mut Board, info: &mut SearchInfo, mut alpha: i16, beta: i16) 
         if !board.legal(mov) {
             continue;
         }
-        legal_moves += 1;
+        info.nodes_searched += 1;
 
         let undo = board.make_move(mov);
         let score = -quiesce(board, info, -beta, -alpha);
         board.undo_move(mov, undo);
 
+        if score > best_score {
+            best_score = score;
+            if score > alpha {
+                alpha = score;
+            }
+        }
+
         if score >= beta {
-            info.nodes_searched += legal_moves;
-            return score;
-        }
-        if score > alpha {
-            alpha = score;
+            return best_score;
         }
     }
-    info.nodes_searched += legal_moves;
 
-    if in_check && legal_moves == 0 {
-        return -INFINITY;
-    }
-
-    alpha
+    // In check with no legal moves is checkmate; best_score is still -INFINITY here.
+    best_score
 }

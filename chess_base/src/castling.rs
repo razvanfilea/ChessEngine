@@ -16,7 +16,7 @@ bitflags! {
     }
 }
 
-const CASTLING_RIGHTS_MASKS: [CastlingRights; Sq::NB] = {
+static CASTLING_RIGHTS_MASKS: [CastlingRights; Sq::NB] = {
     let mut masks = [CastlingRights::ALL; Sq::NB];
     masks[Sq::A1 as usize] = CastlingRights::from_bits_truncate(
         CastlingRights::ALL.bits() & !CastlingRights::WHITE_000.bits(),
@@ -39,57 +39,13 @@ const CASTLING_RIGHTS_MASKS: [CastlingRights; Sq::NB] = {
     masks
 };
 
-#[inline(always)]
-pub const fn get_castling_rights_mask(from: Sq, to: Sq) -> CastlingRights {
-    CastlingRights::from_bits_truncate(
-        CASTLING_RIGHTS_MASKS[from as usize].bits() & CASTLING_RIGHTS_MASKS[to as usize].bits(),
-    )
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum Dir {
-    North,
-    South,
-    East,
-    West,
-    NorthEast,
-    NorthWest,
-    SouthEast,
-    SouthWest,
-}
-
-impl Dir {
-    pub const NB: usize = 8;
-
-    pub const ALL: [Self; Self::NB] = [
-        Dir::North,
-        Dir::South,
-        Dir::East,
-        Dir::West,
-        Dir::NorthEast,
-        Dir::NorthWest,
-        Dir::SouthEast,
-        Dir::SouthWest,
-    ];
-
-    pub const fn opposite(self) -> Self {
-        match self {
-            Dir::North => Dir::South,
-            Dir::South => Dir::North,
-            Dir::East => Dir::West,
-            Dir::West => Dir::East,
-            Dir::NorthEast => Dir::SouthWest,
-            Dir::NorthWest => Dir::SouthEast,
-            Dir::SouthEast => Dir::NorthWest,
-            Dir::SouthWest => Dir::NorthEast,
-        }
-    }
-
-    pub const fn is_forwards(self) -> bool {
-        match self {
-            Dir::North | Dir::East | Dir::NorthWest | Dir::NorthEast => true,
-            Dir::South | Dir::West | Dir::SouthEast | Dir::SouthWest => false,
-        }
+impl CastlingRights {
+    /// Returns the mask to AND with the current rights when a move travels
+    /// `from` -> `to`, clearing any rights invalidated by that move.
+    #[inline(always)]
+    pub const fn mask_for_move(from: Sq, to: Sq) -> CastlingRights {
+        CastlingRights::from_bits_truncate(
+            CASTLING_RIGHTS_MASKS[from as usize].bits() & CASTLING_RIGHTS_MASKS[to as usize].bits(),
+        )
     }
 }

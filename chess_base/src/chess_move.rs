@@ -1,6 +1,6 @@
 use std::hint::unreachable_unchecked;
 
-use crate::{Pieces, Sq};
+use crate::{Piece, Sq};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Move(u16);
@@ -16,11 +16,6 @@ impl Move {
     #[inline(always)]
     pub const fn new(from: Sq, to: Sq, flags: MoveFlags) -> Self {
         Self(from as u16 | ((to as u16) << 6) | ((flags as u16) << 12))
-    }
-
-    #[inline(always)]
-    pub const fn new_quiet(from: Sq, to: Sq) -> Self {
-        Self::new(from, to, MoveFlags::Quiet)
     }
 
     #[inline(always)]
@@ -54,13 +49,13 @@ impl Move {
     }
 
     #[inline(always)]
-    pub const fn promotion_piece(self) -> Option<Pieces> {
+    pub const fn promotion_piece(self) -> Option<Piece> {
         if self.is_promotion() {
             match self.flags_bits() & 0b0011 {
-                0 => Some(Pieces::Knight),
-                1 => Some(Pieces::Bischop),
-                2 => Some(Pieces::Rook),
-                3 => Some(Pieces::Queen),
+                0 => Some(Piece::Knight),
+                1 => Some(Piece::Bishop),
+                2 => Some(Piece::Rook),
+                3 => Some(Piece::Queen),
                 _ => unsafe {
                     debug_assert!(false, "unreachable promotion bits");
                     unreachable_unchecked()
@@ -71,6 +66,7 @@ impl Move {
         }
     }
 
+    #[inline(always)]
     const fn flags_bits(self) -> u8 {
         (self.0 >> 12) as u8
     }

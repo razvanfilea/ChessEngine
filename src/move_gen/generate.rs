@@ -15,8 +15,8 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(
     let us = Us::COLOR;
     let them = !us;
 
-    let king_bb = board.color_piece(Pieces::King, us);
-    let king_sq = unsafe { bb_scan_forward(king_bb) };
+    let king_bb = board.color_piece(Piece::King, us);
+    let king_sq = unsafe { bb_lsb(king_bb) };
 
     if Type::EVASIONS && board.checkers == 0 {
         return moves;
@@ -30,7 +30,7 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(
     }
 
     let target_mask = if Type::EVASIONS {
-        let checker_sq = unsafe { bb_scan_forward(board.checkers) };
+        let checker_sq = unsafe { bb_lsb(board.checkers) };
         board.checkers | bb_between(king_sq, checker_sq)
     } else {
         let mut mask = 0;
@@ -53,10 +53,10 @@ pub fn generate_moves<Us: Player, Type: MoveGenType>(
     moves
 }
 
-const KNIGHT: u8 = Pieces::Knight as u8;
-const BISHOP: u8 = Pieces::Bischop as u8;
-const ROOK: u8 = Pieces::Rook as u8;
-const QUEEN: u8 = Pieces::Queen as u8;
+const KNIGHT: u8 = Piece::Knight as u8;
+const BISHOP: u8 = Piece::Bishop as u8;
+const ROOK: u8 = Piece::Rook as u8;
+const QUEEN: u8 = Piece::Queen as u8;
 
 #[inline(always)]
 pub fn generate_piece_moves<const PIECE: u8, Us: Player, Type: MoveGenType>(
@@ -65,14 +65,14 @@ pub fn generate_piece_moves<const PIECE: u8, Us: Player, Type: MoveGenType>(
     mut moves: MoveListPtr,
 ) -> MoveListPtr {
     let us = Us::COLOR;
-    let enemy = *board.colors(!us);
+    let enemy = board.colors(!us);
     let occupied = board.occupied();
 
     let piece = match PIECE {
-        KNIGHT => Pieces::Knight,
-        BISHOP => Pieces::Bischop,
-        ROOK => Pieces::Rook,
-        QUEEN => Pieces::Queen,
+        KNIGHT => Piece::Knight,
+        BISHOP => Piece::Bishop,
+        ROOK => Piece::Rook,
+        QUEEN => Piece::Queen,
         _ => unsafe { std::hint::unreachable_unchecked() },
     };
 
@@ -177,8 +177,8 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
     };
 
     let empty_squares = !board.occupied();
-    let enemies = *board.colors(them) & target_mask;
-    let pawns = board.color_piece(Pieces::Pawn, us);
+    let enemies = board.colors(them) & target_mask;
+    let pawns = board.color_piece(Piece::Pawn, us);
 
     if Type::CAPTURES {
         let (left, right) = if Us::COLOR == Color::White {
@@ -188,7 +188,7 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
         };
 
         if let Some(en_passant_sq) = board.en_passant_target_sq {
-            let captured_pawn_sq = unsafe { en_passant_sq.shift_unchecked(backward) };
+            let captured_pawn_sq = unsafe { en_passant_sq.shift(backward) };
             let ep_mask = en_passant_sq.bitboard() | captured_pawn_sq.bitboard();
             let en_passant_bb = if ep_mask & target_mask != 0 {
                 en_passant_sq.bitboard()
@@ -197,12 +197,12 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
             };
 
             if left & en_passant_bb != 0 {
-                let from = unsafe { en_passant_sq.shift_unchecked(backward_left) };
+                let from = unsafe { en_passant_sq.shift(backward_left) };
                 moves.push(from, en_passant_sq, MoveFlags::EnPassant);
             }
 
             if right & en_passant_bb != 0 {
-                let from = unsafe { en_passant_sq.shift_unchecked(backward_right) };
+                let from = unsafe { en_passant_sq.shift(backward_right) };
                 moves.push(from, en_passant_sq, MoveFlags::EnPassant);
             }
         }
@@ -214,50 +214,50 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
             let left_non_promo = left & !last_rank;
             if left_non_promo != 0 {
                 let to = unsafe { Sq::from_raw_unchecked(left_non_promo.trailing_zeros() as u8) };
-                let from = unsafe { to.shift_unchecked(backward_left) };
+                let from = unsafe { to.shift(backward_left) };
                 moves.push(from, to, MoveFlags::Capture);
             }
 
             let right_non_promo = right & !last_rank;
             if right_non_promo != 0 {
                 let to = unsafe { Sq::from_raw_unchecked(right_non_promo.trailing_zeros() as u8) };
-                let from = unsafe { to.shift_unchecked(backward_right) };
+                let from = unsafe { to.shift(backward_right) };
                 moves.push(from, to, MoveFlags::Capture);
             }
 
             let left_promo = left & last_rank;
             if left_promo != 0 {
                 let to = unsafe { Sq::from_raw_unchecked(left_promo.trailing_zeros() as u8) };
-                let from = unsafe { to.shift_unchecked(backward_left) };
+                let from = unsafe { to.shift(backward_left) };
                 moves.push_promotions(from, to, true);
             }
 
             let right_promo = right & last_rank;
             if right_promo != 0 {
                 let to = unsafe { Sq::from_raw_unchecked(right_promo.trailing_zeros() as u8) };
-                let from = unsafe { to.shift_unchecked(backward_right) };
+                let from = unsafe { to.shift(backward_right) };
                 moves.push_promotions(from, to, true);
             }
         } else {
             // Non-promotions
             for_each_bit!(to in left & !last_rank => {
-                let from = unsafe { to.shift_unchecked(backward_left) };
+                let from = unsafe { to.shift(backward_left) };
                 moves.push(from, to, MoveFlags::Capture);
             });
 
             for_each_bit!(to in right & !last_rank => {
-                let from = unsafe { to.shift_unchecked(backward_right) };
+                let from = unsafe { to.shift(backward_right) };
                 moves.push(from, to, MoveFlags::Capture);
             });
 
             // Promotions
             for_each_bit!(to in left & last_rank => {
-                let from = unsafe { to.shift_unchecked(backward_left) };
+                let from = unsafe { to.shift(backward_left) };
                 moves.push_promotions(from, to, true);
             });
 
             for_each_bit!(to in right & last_rank => {
-                let from = unsafe { to.shift_unchecked(backward_right) };
+                let from = unsafe { to.shift(backward_right) };
                 moves.push_promotions(from, to, true);
             });
         }
@@ -271,17 +271,17 @@ pub fn generate_pawn_moves<Us: Player, Type: MoveGenType>(
             sh_dir(forward, forward_pushed_pawn & third_rank) & empty_squares & target_mask;
 
         for_each_bit!(to in promotion_pushes => {
-            let from = unsafe { to.shift_unchecked(backward) };
+            let from = unsafe { to.shift(backward) };
             moves.push_promotions(from, to, false);
         });
 
         for_each_bit!(to in pushes => {
-            let from = unsafe { to.shift_unchecked(backward) };
+            let from = unsafe { to.shift(backward) };
             moves.push(from, to, MoveFlags::Quiet);
         });
 
         for_each_bit!(to in double_pushes => {
-            let from = unsafe { to.shift_unchecked(backward).shift_unchecked(backward) };
+            let from = unsafe { to.shift(backward).shift(backward) };
             moves.push(from, to, MoveFlags::DoublePawn);
         });
     }
@@ -304,7 +304,7 @@ pub fn generate_king_moves<Us: Player, Type: MoveGenType>(
     if !Type::EVASIONS {
         let mut mask = 0;
         if Type::CAPTURES {
-            mask |= *board.colors(them);
+            mask |= board.colors(them);
         }
         if Type::QUIETS {
             mask |= !board.occupied();

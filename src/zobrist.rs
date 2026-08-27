@@ -32,7 +32,7 @@ impl RandomGenerator {
 }
 
 pub struct ZobristKeys {
-    pieces: [[[u64; Color::NB]; Pieces::NB]; Sq::NB],
+    pieces: [[[u64; Color::NB]; Piece::NB]; Sq::NB],
     side: u64,
     castling_rights: [u64; 16],
     en_passant: [u64; 8],
@@ -41,11 +41,11 @@ pub struct ZobristKeys {
 impl ZobristKeys {
     const fn new() -> Self {
         let mut generator = RandomGenerator::new();
-        let mut pieces = [[[0; Color::NB]; Pieces::NB]; Sq::NB];
+        let mut pieces = [[[0; Color::NB]; Piece::NB]; Sq::NB];
 
         for_each_square!(sq => {
             let mut i = 0;
-            while i < Pieces::NB {
+            while i < Piece::NB {
             pieces[sq as usize][i] = generator.random_array();
             i+=1;
             }
