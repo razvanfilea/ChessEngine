@@ -6,12 +6,14 @@ use std::thread::JoinHandle;
 use uci_parser::UciCommand;
 
 use crate::eval::INFINITY;
+use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::MoveGenerator, search::search};
 
 pub struct UciState {
     board: Board,
     search_thread: Option<JoinHandle<()>>,
     stop_requested: Arc<AtomicBool>,
+    tt: Arc<TranspositionTable>,
 }
 
 impl Default for UciState {
@@ -20,6 +22,7 @@ impl Default for UciState {
             board: Board::start_pos(),
             search_thread: None,
             stop_requested: Arc::default(),
+            tt: Arc::new(TranspositionTable::new(64)),
         }
     }
 }
@@ -47,13 +50,27 @@ impl UciState {
 
         match command {
             UciCommand::Uci => {
-                println!("id name lucky_chess 1.0\nid author Razvan\nuciok");
+                println!(
+                    r#"id name lucky_chess 1.0
+id author Razvan
+option name Hash type spin default 64 min 1 max 1024
+option name ClearHash type button
+uciok"#
+                );
             }
             UciCommand::Debug(_) => {}
             UciCommand::IsReady => {
                 println!("readyok")
             }
-            UciCommand::SetOption { .. } => {}
+            UciCommand::SetOption { name, value } => {
+                if name.eq_ignore_ascii_case("Hash") {
+                    if let Some(mb) = value.and_then(|v| v.parse().ok()) {
+                        self.tt = Arc::new(TranspositionTable::new(mb));
+                    }
+                } else if name.eq_ignore_ascii_case("ClearHash") {
+                    self.tt.clear();
+                }
+            }
             UciCommand::Register { .. } => println!("registration ok"),
             UciCommand::UciNewGame => {
                 self.board = Board::start_pos();
@@ -83,9 +100,18 @@ impl UciState {
                 let stop_requested = self.stop_requested.clone();
                 stop_requested.store(false, Ordering::Relaxed);
 
+                if let Some(thread) = self.search_thread.take() {
+                    let _ = thread.join();
+                }
+
+                if let Some(tt) = Arc::get_mut(&mut self.tt) {
+                    tt.new_search();
+                }
+                let tt = self.tt.clone();
+
                 self.search_thread = Some(std::thread::spawn(move || {
-                    let depth = opts.depth.unwrap_or(12) as u16;
-                    let best = search(board, depth, stop_requested);
+                    let depth = opts.depth.unwrap_or(12) as u8;
+                    let best = search(board, depth, stop_requested, &tt);
                     println!("bestmove {}", format_move(best))
                 }));
             }

@@ -3,6 +3,7 @@ use chess_base::prelude::*;
 use crate::board::Board;
 
 pub const INFINITY: i16 = 30_000;
+pub const MATE_THRESHOLD: i16 = 29_000;
 
 pub fn eval_board(board: &Board) -> i16 {
     let pawns = (board.color_piece(Piece::Pawn, Color::White).count_ones() as i16

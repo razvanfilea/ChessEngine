@@ -1,5 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::eval::MATE_THRESHOLD;
+
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum TTFlag {
@@ -31,14 +33,19 @@ impl TTEntry {
         (age, flag)
     }
 
-    pub fn to_bits(self) -> u64 {
+    #[inline(always)]
+    pub fn get_flag(&self) -> TTFlag {
+        self.get_age_flag().1
+    }
+
+    fn to_bits(self) -> u64 {
         (self.key as u64)
             | ((self.value as u16 as u64) << 32)
             | ((self.depth as u64) << 48)
             | ((self.flag_age as u64) << 56)
     }
 
-    pub fn from_bits(bits: u64) -> Self {
+    fn from_bits(bits: u64) -> Self {
         Self {
             key: bits as u32,
             value: (bits >> 32) as u16 as i16,
@@ -85,18 +92,19 @@ impl TranspositionTable {
         &self.entries[base..base + BUCKET_SIZE]
     }
 
-    pub fn probe(&self, hash: u64) -> Option<TTEntry> {
+    pub fn probe(&self, hash: u64, ply: u16) -> Option<TTEntry> {
         let key = hash as u32; // LOW bits, decorrelated from the index
         for slot in self.bucket(hash) {
-            let entry = TTEntry::from_bits(slot.load(Ordering::Relaxed));
+            let mut entry = TTEntry::from_bits(slot.load(Ordering::Relaxed));
             if entry.key == key {
+                entry.value = score_from_tt(entry.value, ply);
                 return Some(entry);
             }
         }
         None
     }
 
-    pub fn store(&self, hash: u64, value: i16, depth: u8, flag: TTFlag) {
+    pub fn store(&self, hash: u64, value: i16, ply: u16, depth: u8, flag: TTFlag) {
         let key = hash as u32;
         let bucket = self.bucket(hash);
 
@@ -130,7 +138,7 @@ impl TranspositionTable {
 
         let new = TTEntry {
             key,
-            value,
+            value: score_to_tt(value, ply),
             depth,
             flag_age: (self.age << 2) | flag as u8,
         };
@@ -142,5 +150,27 @@ impl TranspositionTable {
         let (age, _) = entry.get_age_flag();
         let age_diff = (self.age.wrapping_sub(age) & 0x3F) as i32;
         entry.depth as i32 - age_diff * 2
+    }
+}
+
+#[inline(always)]
+fn score_to_tt(score: i16, ply: u16) -> i16 {
+    if score > MATE_THRESHOLD {
+        score + ply as i16
+    } else if score < -MATE_THRESHOLD {
+        score - ply as i16
+    } else {
+        score
+    }
+}
+
+#[inline(always)]
+fn score_from_tt(score: i16, ply: u16) -> i16 {
+    if score > MATE_THRESHOLD {
+        score - ply as i16
+    } else if score < -MATE_THRESHOLD {
+        score + ply as i16
+    } else {
+        score
     }
 }
