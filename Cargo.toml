@@ -9,6 +9,15 @@ name = "lucky_chess"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "lucky_chess"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "lucky_chess_cli"
+path = "src/main.rs"
+
+
 [dependencies]
 chess_base = { path = "chess_base" }
 uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promotion-moves", "types", "parse-go-perft"] }

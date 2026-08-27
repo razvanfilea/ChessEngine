@@ -1,7 +1,7 @@
+use crate::time::Instant;
 use chess_base::Move;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 
 use crate::eval::INFINITY;
 use crate::transposition::{TTFlag, TranspositionTable};
@@ -87,64 +87,6 @@ impl<'a> Searcher<'a> {
             self.pv_table[ply][i + 1] = self.pv_table[ply + 1][i];
         }
         self.pv_length[ply] = copy_len + 1;
-    }
-
-    fn search_root(&mut self, max_depth: u8) -> Move {
-        let start_time = Instant::now();
-        let mut overall_best_move = None;
-
-        for current_depth in 1..=max_depth {
-            let mut best_move = None;
-            let mut best_score = -INFINITY;
-            let mut moves = MoveGenerator::default();
-
-            let mut alpha = -INFINITY;
-            let beta = INFINITY;
-
-            if let Some(pv_move) = overall_best_move
-                && self.board.legal(pv_move)
-            {
-                let undo = self.board.make_move(pv_move);
-                let score = -self.nega_max(-beta, -alpha, current_depth - 1);
-                self.board.undo_move(pv_move, undo);
-
-                best_move = Some(pv_move);
-                best_score = score;
-                alpha = score;
-                self.update_pv(0, pv_move);
-            }
-
-            while let Some(mov) = moves.next(&self.board, self.get_killer_moves()) {
-                if Some(mov) == overall_best_move || !self.board.legal(mov) {
-                    continue;
-                }
-
-                let undo = self.board.make_move(mov);
-                let score = -self.nega_max(-beta, -alpha, current_depth - 1);
-                self.board.undo_move(mov, undo);
-                if score > best_score {
-                    best_score = score;
-                    best_move = Some(mov);
-                    if score > alpha {
-                        alpha = score;
-                        self.update_pv(0, mov);
-                    }
-                }
-            }
-
-            if let Some(mov) = best_move {
-                overall_best_move = Some(mov);
-                self.store_tt(best_score, current_depth, TTFlag::Exact);
-            }
-
-            if self.stop_requested.load(Ordering::Relaxed) && overall_best_move.is_some() {
-                break;
-            }
-
-            self.print_uci_info(current_depth, best_score, start_time);
-        }
-
-        overall_best_move.unwrap_or_default()
     }
 
     fn nega_max(&mut self, mut alpha: i16, beta: i16, depth: u8) -> i16 {
@@ -288,7 +230,7 @@ impl<'a> Searcher<'a> {
         best_score
     }
 
-    fn print_uci_info(&self, depth: u8, score: i16, start_time: Instant) {
+    fn uci_info(&mut self, depth: u8, score: i16, start_time: Instant) -> String {
         let pv_str = self.pv_table[0][..self.pv_length[0]]
             .iter()
             .map(|&m| crate::uci::format_move(m))
@@ -297,11 +239,11 @@ impl<'a> Searcher<'a> {
 
         let elapsed = start_time.elapsed().as_millis().max(1);
         let nps = (self.nodes_searched as u128 * 1000 / elapsed) as u64;
-        println!(
+        format!(
             "info depth {depth} score {} time {elapsed} nps {nps} nodes {} pv {pv_str}",
             crate::uci::format_score(score),
             self.nodes_searched,
-        );
+        )
     }
 }
 
@@ -310,7 +252,63 @@ pub fn search(
     max_depth: u8,
     stop_requested: Arc<AtomicBool>,
     tt: &TranspositionTable,
+    mut on_info: impl FnMut(String),
 ) -> Move {
-    let mut searcher = Searcher::new(board, stop_requested, tt);
-    searcher.search_root(max_depth)
+    let mut search = Searcher::new(board, stop_requested, tt);
+    let start_time = Instant::now();
+    let mut overall_best_move = None;
+
+    for current_depth in 1..=max_depth {
+        let mut best_move = None;
+        let mut best_score = -INFINITY;
+        let mut moves = MoveGenerator::default();
+
+        let mut alpha = -INFINITY;
+        let beta = INFINITY;
+
+        if let Some(pv_move) = overall_best_move
+            && search.board.legal(pv_move)
+        {
+            let undo = search.board.make_move(pv_move);
+            let score = -search.nega_max(-beta, -alpha, current_depth - 1);
+            search.board.undo_move(pv_move, undo);
+
+            best_move = Some(pv_move);
+            best_score = score;
+            alpha = score;
+            search.update_pv(0, pv_move);
+        }
+
+        while let Some(mov) = moves.next(&search.board, search.get_killer_moves()) {
+            if Some(mov) == overall_best_move || !search.board.legal(mov) {
+                continue;
+            }
+
+            let undo = search.board.make_move(mov);
+            let score = -search.nega_max(-beta, -alpha, current_depth - 1);
+            search.board.undo_move(mov, undo);
+            if score > best_score {
+                best_score = score;
+                best_move = Some(mov);
+                if score > alpha {
+                    alpha = score;
+                    search.update_pv(0, mov);
+                }
+            }
+        }
+
+        if let Some(mov) = best_move {
+            overall_best_move = Some(mov);
+            search.store_tt(best_score, current_depth, TTFlag::Exact);
+        }
+
+        if search.stop_requested.load(Ordering::Relaxed) && overall_best_move.is_some() {
+            break;
+        }
+
+        let line = search.uci_info(current_depth, best_score, start_time);
+        on_info(line);
+    }
+
+    overall_best_move.unwrap_or_default()
 }
