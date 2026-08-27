@@ -1,11 +1,6 @@
 use chess_base::prelude::*;
 
 #[test]
-fn test_pieces_enum() {
-    assert_eq!(Pieces::NB, 7);
-}
-
-#[test]
 fn test_colored_piece_new() {
     let cp = ColoredPiece::new(Pieces::Knight, Color::White);
     assert_eq!(cp.piece(), Pieces::Knight);

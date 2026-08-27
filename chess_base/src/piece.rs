@@ -12,7 +12,7 @@ pub enum Pieces {
 }
 
 impl Pieces {
-    pub const NB: usize = 7;
+    pub const NB: usize = 6;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
