@@ -36,9 +36,9 @@ impl ColoredPiece {
     }
 
     #[inline(always)]
-    pub fn color(self) -> Color {
+    pub const fn color(self) -> Color {
         let val = self.0.get() - 1;
-        Color::from((val & Self::COLOR_MASK) != 0)
+        if val & Self::COLOR_MASK != 0 { Color::White } else { Color::Black }
     }
 
     pub fn parse(val: char) -> Option<Self> {

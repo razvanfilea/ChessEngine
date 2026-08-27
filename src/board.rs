@@ -2,6 +2,7 @@ use std::fmt;
 use std::hint::assert_unchecked;
 
 use crate::attacks::*;
+use crate::zobrist::ZOBRIST_KEYS;
 use chess_base::bitboard::LIGHT_SQUARES;
 use chess_base::{
     bitboard::{bb_between, bb_line, bb_only_one, bb_scan_forward},
@@ -55,6 +56,7 @@ pub struct UndoInfo {
     pub half_move_clock: u8,
     pub checkers: u64,
     pub pinned: u64,
+    pub hash: u64,
 }
 
 impl Board {
@@ -135,6 +137,14 @@ impl Board {
         board.ply =
             (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
 
+        if board.to_play == Color::White {
+            board.hash ^= ZOBRIST_KEYS.side();
+        }
+        board.hash ^= ZOBRIST_KEYS.castling(board.castling_rights);
+        if let Some(ep_sq) = board.en_passant_target_sq {
+            board.hash ^= ZOBRIST_KEYS.en_passant(ep_sq);
+        }
+
         if board.color_piece(Pieces::King, board.to_play) != 0 {
             board.set_checkers();
             board.set_pinned()
@@ -184,6 +194,7 @@ impl Board {
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color()) |= bitboard;
         *self.pieces_mut(piece.piece()) |= bitboard;
+        self.hash ^= ZOBRIST_KEYS.piece(sq, piece);
     }
 
     #[inline(always)]
@@ -194,6 +205,8 @@ impl Board {
         let move_bb = from.bitboard() ^ to.bitboard();
         *self.colors_mut(piece.color()) ^= move_bb;
         *self.pieces_mut(piece.piece()) ^= move_bb;
+        self.hash ^= ZOBRIST_KEYS.piece(from, piece);
+        self.hash ^= ZOBRIST_KEYS.piece(to, piece);
 
         piece
     }
@@ -204,6 +217,7 @@ impl Board {
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color()) &= !bitboard;
         *self.pieces_mut(piece.piece()) &= !bitboard;
+        self.hash ^= ZOBRIST_KEYS.piece(sq, piece);
 
         Some(piece)
     }
@@ -307,9 +321,10 @@ impl Board {
             return false;
         }
 
-        // Only check every 2 plies back, up to half_move_clock
-        for i in (2..=count.min(len - 1)).step_by(2) {
-            if self.hash_history[len - 1 - i] == current_hash {
+        // Only check every 2 plies back (same side to move), no further than the
+        // half-move clock -- any irreversible move resets it and bars repetition.
+        for i in (2..=count.min(len)).step_by(2) {
+            if self.hash_history[len - i] == current_hash {
                 return true;
             }
         }
@@ -414,6 +429,8 @@ impl Board {
         let to = mov.to();
         let flags = mov.flags();
         let us = self.to_play;
+        let original_hash = self.hash;
+        self.hash_history[self.ply as usize] = original_hash;
 
         debug_assert!(self.piece_at(from).is_some());
 
@@ -442,6 +459,7 @@ impl Board {
             half_move_clock: self.half_move_clock,
             checkers: self.checkers,
             pinned: self.pinned,
+            hash: original_hash,
         };
 
         let mut piece = self.move_piece(from, to);
@@ -472,16 +490,23 @@ impl Board {
             self.move_piece(rook_from, rook_to);
         }
 
+        self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);
         self.castling_rights &= get_castling_rights_mask(from, to);
+        self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);
 
+        if let Some(en_passsant) = self.en_passant_target_sq {
+            self.hash ^= ZOBRIST_KEYS.en_passant(en_passsant);
+        }
         if flags == MoveFlags::DoublePawn {
-            self.en_passant_target_sq = Some(unsafe {
+            let target_sq = unsafe {
                 to.shift_unchecked(if us == Color::White {
                     Dir::South
                 } else {
                     Dir::North
                 })
-            });
+            };
+            self.hash ^= ZOBRIST_KEYS.en_passant(target_sq);
+            self.en_passant_target_sq = Some(target_sq);
         } else {
             self.en_passant_target_sq = None;
         }
@@ -494,6 +519,7 @@ impl Board {
 
         self.ply += 1;
         self.to_play = !us;
+        self.hash ^= ZOBRIST_KEYS.side();
         self.set_checkers();
         self.set_pinned();
 
@@ -557,6 +583,7 @@ impl Board {
         self.half_move_clock = undo.half_move_clock;
         self.checkers = undo.checkers;
         self.pinned = undo.pinned;
+        self.hash = undo.hash;
 
         self.ply -= 1;
         self.to_play = us;
