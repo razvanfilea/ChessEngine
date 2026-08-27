@@ -1,13 +1,15 @@
 use std::fmt;
 use std::hint::assert_unchecked;
 
+use crate::attacks::*;
+use chess_base::bitboard::LIGHT_SQUARES;
 use chess_base::{
     bitboard::{bb_between, bb_line, bb_only_one, bb_scan_forward},
     for_each_bit, get_castling_rights_mask,
     prelude::*,
 };
 
-use crate::attacks::*;
+const MAX_GAME_PLAY: usize = 1024;
 
 #[derive(Clone, PartialEq)]
 pub struct Board {
@@ -17,11 +19,13 @@ pub struct Board {
     pub checkers: u64,
     pub pinned: u64,
 
+    pub hash: u64,
     pub castling_rights: CastlingRights,
     pub to_play: Color,
     pub en_passant_target_sq: Option<Sq>,
     pub half_move_clock: u8, // 50 move draw rule
     pub ply: u16,
+    pub hash_history: Box<[u64; MAX_GAME_PLAY]>,
 }
 
 impl Default for Board {
@@ -32,11 +36,13 @@ impl Default for Board {
             bit_pieces: [0; Pieces::NB],
             checkers: 0,
             pinned: 0,
+            hash: 0,
             castling_rights: CastlingRights::empty(),
             to_play: Color::White,
             en_passant_target_sq: None,
             half_move_clock: 0,
             ply: 0,
+            hash_history: Box::new([0; MAX_GAME_PLAY]),
         }
     }
 }
@@ -253,6 +259,67 @@ impl Board {
         unsafe { bb_scan_forward(king_bb) }
     }
 
+    #[inline(always)]
+    fn has_insufficient_material(&self) -> bool {
+        // If there are pawns, rooks, or queens, mate is possible
+        let majors_and_pawns =
+            self.pieces(Pieces::Pawn) | self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen);
+
+        if majors_and_pawns != 0 {
+            return false;
+        }
+
+        let knights = self.pieces(Pieces::Knight);
+        let bishops = self.pieces(Pieces::Bischop);
+        let piece_count = (*knights | *bishops).count_ones();
+
+        // King vs King
+        if piece_count == 0 {
+            return true;
+        }
+
+        // King + Minor vs King (K+N vs K or K+B vs K)
+        if piece_count == 1 {
+            return true;
+        }
+
+        // King + Bishop vs King + Bishop on the same color squares
+        if piece_count == 2 && *knights == 0 {
+            let white_bishops = self.color_piece(Pieces::Bischop, Color::White);
+            let black_bishops = self.color_piece(Pieces::Bischop, Color::Black);
+            if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
+                let white_is_light = (white_bishops & LIGHT_SQUARES) != 0;
+                let black_is_light = (black_bishops & LIGHT_SQUARES) != 0;
+                return white_is_light == black_is_light;
+            }
+        }
+
+        false
+    }
+
+    #[inline(always)]
+    fn is_repetition(&self) -> bool {
+        let current_hash = self.hash;
+        let count = self.half_move_clock as usize;
+        let len = self.ply as usize;
+
+        if len < 4 || count < 4 {
+            return false;
+        }
+
+        // Only check every 2 plies back, up to half_move_clock
+        for i in (2..=count.min(len - 1)).step_by(2) {
+            if self.hash_history[len - 1 - i] == current_hash {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn is_draw(&self) -> bool {
+        self.half_move_clock >= 100 || self.has_insufficient_material() || self.is_repetition()
+    }
+
     pub fn generate_attackers(
         &self,
         attacked_sq: Sq,
@@ -439,7 +506,6 @@ impl Board {
         let to = mov.to();
         let flags = mov.flags();
         let us = !self.to_play;
-        let them = self.to_play;
 
         debug_assert!(self.piece_at(to).is_some());
 

@@ -1,19 +1,25 @@
 use std::io::{self, BufRead};
-
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use chess_base::prelude::*;
 use uci_parser::UciCommand;
 
-use crate::{board::Board, move_gen::MoveGenerator, search::search};
 use crate::eval::INFINITY;
+use crate::{board::Board, move_gen::MoveGenerator, search::search};
 
 pub struct UciState {
     board: Board,
+    search_thread: Option<JoinHandle<()>>,
+    stop_requested: Arc<AtomicBool>,
 }
 
 impl Default for UciState {
     fn default() -> Self {
         Self {
             board: Board::start_pos(),
+            search_thread: None,
+            stop_requested: Arc::default(),
         }
     }
 }
@@ -47,8 +53,8 @@ impl UciState {
             UciCommand::IsReady => {
                 println!("readyok")
             }
-            UciCommand::SetOption { name, value } => {}
-            UciCommand::Register { name, code } => {}
+            UciCommand::SetOption { .. } => {}
+            UciCommand::Register { .. } => println!("registration ok"),
             UciCommand::UciNewGame => {
                 self.board = Board::start_pos();
             }
@@ -73,11 +79,17 @@ impl UciState {
                 }
             }
             UciCommand::Go(opts) => {
-                let depth = opts.depth.unwrap_or(12) as i16;
-                let best = search(self.board.clone(), depth);
-                println!("bestmove {}", format_move(best))
+                let board = self.board.clone();
+                self.stop_requested.store(false, Ordering::Relaxed);
+                self.search_thread = Some(std::thread::spawn(move || {
+                    let depth = opts.depth.unwrap_or(12) as i16;
+                    let best = search(board, depth);
+                    println!("bestmove {}", format_move(best))
+                }));
             }
-            UciCommand::Stop => {}
+            UciCommand::Stop => {
+                self.stop_requested.store(true, Ordering::Relaxed);
+            }
             UciCommand::PonderHit => {}
             UciCommand::Quit => return false,
         }

@@ -25,6 +25,9 @@ pub const RANK_7: u64 = 0x00FF_0000_0000_0000;
 pub const RANK_8: u64 = 0xFF00_0000_0000_0000;
 
 pub const EDGES: u64 = FILE_A | FILE_H | RANK_1 | RANK_8;
+pub const LIGHT_SQUARES: u64 = 0x55AA55AA55AA55AA;
+pub const DARK_SQUARES: u64 = !LIGHT_SQUARES;
+
 
 /// Iterates over all subsets of a bitboard mask.
 /// This is implemented as a macro so it can be used inside `const fn` and `const {}` blocks!
