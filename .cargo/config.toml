@@ -4,4 +4,12 @@ rustflags = [
     "-C", "link-arg=-fuse-ld=mold",
 ]
 
+[target.'cfg(target_family = "wasm")']
+rustflags = [
+    "-C", "debuginfo=0",
+    "-C", "strip=symbols",
+]
+
+[alias]
+build-wasm64 = "build --target wasm64-unknown-unknown -Z build-std=std,panic_abort"
 

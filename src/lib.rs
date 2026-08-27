@@ -1,9 +1,11 @@
 pub mod attacks;
 pub mod board;
 pub mod eval;
+pub mod ffi;
 pub mod move_gen;
 pub mod perft;
 pub mod search;
+pub mod time;
 pub mod transposition;
 pub mod uci;
 pub mod zobrist;

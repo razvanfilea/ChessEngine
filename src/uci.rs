@@ -1,40 +1,52 @@
 use chess_base::prelude::*;
-use std::io::{self, BufRead};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::JoinHandle;
 use uci_parser::UciCommand;
 
 use crate::eval::INFINITY;
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::MoveGenerator, search::search};
 
+pub type OutputCallback = Arc<dyn Fn(String) + Send + Sync>;
+
 pub struct UciState {
     board: Board,
-    search_thread: Option<JoinHandle<()>>,
+    #[cfg(not(target_family = "wasm"))]
+    search_thread: Option<std::thread::JoinHandle<()>>,
     stop_requested: Arc<AtomicBool>,
     tt: Arc<TranspositionTable>,
+    output_cb: OutputCallback,
 }
 
 impl Default for UciState {
     fn default() -> Self {
-        Self {
-            board: Board::start_pos(),
-            search_thread: None,
-            stop_requested: Arc::default(),
-            tt: Arc::new(TranspositionTable::new(64)),
-        }
+        Self::new(|line| println!("{line}"))
     }
 }
 
 impl UciState {
-    pub fn uci_loop(&mut self) -> bool {
-        let mut input_string = String::new();
-        match io::stdin().lock().read_line(&mut input_string) {
-            Ok(0) | Err(_) => return false, // EOF or pipe closed -> exit
-            Ok(_) => {}
+    pub fn new(output_cb: impl Fn(String) + Send + Sync + 'static) -> Self {
+        let default_tt_mb = if cfg!(miri) { 1 } else { 64 };
+        Self {
+            board: Board::start_pos(),
+            #[cfg(not(target_family = "wasm"))]
+            search_thread: None,
+            stop_requested: Arc::default(),
+            tt: Arc::new(TranspositionTable::new(default_tt_mb)),
+            output_cb: Arc::new(output_cb),
         }
+    }
 
+    #[inline(always)]
+    pub fn output_line(&self, line: impl Into<String>) {
+        (self.output_cb)(line.into());
+    }
+
+    pub fn stop(&mut self) {
+        self.stop_requested.store(true, Ordering::Relaxed);
+    }
+
+    pub fn process_command(&mut self, input_string: &str) -> bool {
         let trimmed = input_string.trim();
         if trimmed.is_empty() {
             return true;
@@ -50,17 +62,17 @@ impl UciState {
 
         match command {
             UciCommand::Uci => {
-                println!(
+                self.output_line(
                     r#"id name lucky_chess 1.0
 id author Razvan
 option name Hash type spin default 64 min 1 max 1024
 option name ClearHash type button
-uciok"#
+uciok"#,
                 );
             }
             UciCommand::Debug(_) => {}
             UciCommand::IsReady => {
-                println!("readyok")
+                self.output_line("readyok");
             }
             UciCommand::SetOption { name, value } => {
                 if name.eq_ignore_ascii_case("Hash") {
@@ -71,7 +83,7 @@ uciok"#
                     self.tt.clear();
                 }
             }
-            UciCommand::Register { .. } => println!("registration ok"),
+            UciCommand::Register { .. } => self.output_line("registration ok"),
             UciCommand::UciNewGame => {
                 self.board = Board::start_pos();
             }
@@ -96,33 +108,52 @@ uciok"#
                 }
             }
             UciCommand::Go(opts) => {
-                let board = self.board.clone();
-                let stop_requested = self.stop_requested.clone();
-                stop_requested.store(false, Ordering::Relaxed);
-
-                if let Some(thread) = self.search_thread.take() {
-                    let _ = thread.join();
-                }
-
-                if let Some(tt) = Arc::get_mut(&mut self.tt) {
-                    tt.new_search();
-                }
-                let tt = self.tt.clone();
-
-                self.search_thread = Some(std::thread::spawn(move || {
-                    let depth = opts.depth.unwrap_or(12) as u8;
-                    let best = search(board, depth, stop_requested, &tt);
-                    println!("bestmove {}", format_move(best))
-                }));
+                let depth = opts.depth.unwrap_or(12) as u8;
+                self.start_search(depth);
             }
             UciCommand::Stop => {
-                self.stop_requested.store(true, Ordering::Relaxed);
+                self.stop();
             }
             UciCommand::PonderHit => {}
             UciCommand::Quit => return false,
         }
 
         true
+    }
+
+    fn start_search(&mut self, depth: u8) {
+        let board = self.board.clone();
+        let stop_requested = self.stop_requested.clone();
+        stop_requested.store(false, Ordering::Relaxed);
+
+        if let Some(tt) = Arc::get_mut(&mut self.tt) {
+            tt.new_search();
+        }
+        let tt = self.tt.clone();
+        let output_cb = self.output_cb.clone();
+
+        let run_search = move || {
+            let on_info = |line: String| {
+                output_cb(line);
+            };
+
+            let best = search(board, depth, stop_requested, &tt, on_info);
+            let best_line = format!("bestmove {}", format_move(best));
+            output_cb(best_line);
+        };
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            if let Some(thread) = self.search_thread.take() {
+                let _ = thread.join();
+            }
+            self.search_thread = Some(std::thread::spawn(run_search));
+        }
+
+        #[cfg(target_family = "wasm")]
+        {
+            run_search();
+        }
     }
 
     fn find_move(&mut self, uci_move: uci_parser::types::UciMove) -> Option<Move> {
@@ -179,5 +210,19 @@ pub fn format_score(score: i16) -> String {
         format!("mate -{moves_to_mate}")
     } else {
         format!("cp {score}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_command_basic() {
+        let mut uci = UciState::new(|_| {});
+        assert!(uci.process_command("uci"));
+        assert!(uci.process_command("isready"));
+        assert!(uci.process_command("position startpos moves e2e4 e7e5"));
+        assert!(!uci.process_command("quit"));
     }
 }

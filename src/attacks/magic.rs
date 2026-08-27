@@ -1,5 +1,5 @@
-use chess_base::prelude::*;
 use chess_base::bitboard::*;
+use chess_base::prelude::*;
 
 pub const fn bishop_attacks(sq: Sq, blockers: u64) -> u64 {
     bb_bishop_attacks(sq, blockers)
