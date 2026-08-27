@@ -1,8 +1,9 @@
 use chess_base::prelude::*;
+use chess_base::bitboard::*;
 
 pub const fn bishop_attacks(sq: Sq, blockers: u64) -> u64 {
-    todo!()
+    bb_bishop_attacks(sq, blockers)
 }
 pub const fn rook_attacks(sq: Sq, blockers: u64) -> u64 {
-    todo!()
+    bb_rook_attacks(sq, blockers)
 }

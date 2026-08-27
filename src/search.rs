@@ -92,7 +92,6 @@ impl<'a> Searcher<'a> {
     fn search_root(&mut self, max_depth: u8) -> Move {
         let start_time = Instant::now();
         let mut overall_best_move = None;
-        let mut overall_best_score = -INFINITY;
 
         for current_depth in 1..=max_depth {
             let mut best_move = None;
@@ -135,30 +134,14 @@ impl<'a> Searcher<'a> {
 
             if let Some(mov) = best_move {
                 overall_best_move = Some(mov);
-                overall_best_score = best_score;
-                self.store_tt(overall_best_score, current_depth, TTFlag::Exact);
+                self.store_tt(best_score, current_depth, TTFlag::Exact);
             }
 
             if self.stop_requested.load(Ordering::Relaxed) && overall_best_move.is_some() {
                 break;
             }
 
-            let pv_str = self.pv_table[0][..self.pv_length[0]]
-                .iter()
-                .map(|&m| crate::uci::format_move(m))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            let time_ms = start_time.elapsed().as_millis();
-            let nps = (self.nodes_searched as u128 * 1000 / time_ms.max(1)) as u64;
-            println!(
-                "info depth {current_depth} score {} time {} nps {} nodes {} pv {}",
-                crate::uci::format_score(overall_best_score),
-                time_ms,
-                nps,
-                self.nodes_searched,
-                pv_str
-            );
+            self.print_uci_info(current_depth, best_score, start_time);
         }
 
         overall_best_move.unwrap_or_default()
@@ -303,6 +286,22 @@ impl<'a> Searcher<'a> {
 
         // In check with no legal moves is checkmate; best_score is still -INFINITY here.
         best_score
+    }
+
+    fn print_uci_info(&self, depth: u8, score: i16, start_time: Instant) {
+        let pv_str = self.pv_table[0][..self.pv_length[0]]
+            .iter()
+            .map(|&m| crate::uci::format_move(m))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let elapsed = start_time.elapsed().as_millis().max(1);
+        let nps = (self.nodes_searched as u128 * 1000 / elapsed) as u64;
+        println!(
+            "info depth {depth} score {} time {elapsed} nps {nps} nodes {} pv {pv_str}",
+            crate::uci::format_score(score),
+            self.nodes_searched,
+        );
     }
 }
 

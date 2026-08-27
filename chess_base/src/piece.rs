@@ -13,6 +13,15 @@ pub enum Piece {
 
 impl Piece {
     pub const NB: usize = 6;
+
+    pub const ALL: [Piece; Piece::NB] = [
+        Piece::Pawn,
+        Piece::Knight,
+        Piece::Bishop,
+        Piece::Rook,
+        Piece::Queen,
+        Piece::King,
+    ];
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
