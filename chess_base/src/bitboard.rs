@@ -1,4 +1,4 @@
-use crate::{square::Sq, types::Dir};
+use crate::{dir::Dir, square::Sq};
 
 // File masks
 pub const FILE_A: u64 = 0x0101_0101_0101_0101;
@@ -27,24 +27,6 @@ pub const RANK_8: u64 = 0xFF00_0000_0000_0000;
 pub const EDGES: u64 = FILE_A | FILE_H | RANK_1 | RANK_8;
 pub const LIGHT_SQUARES: u64 = 0x55AA55AA55AA55AA;
 pub const DARK_SQUARES: u64 = !LIGHT_SQUARES;
-
-
-/// Iterates over all subsets of a bitboard mask.
-/// This is implemented as a macro so it can be used inside `const fn` and `const {}` blocks!
-#[macro_export]
-macro_rules! for_subsets {
-    ($subset_name:ident in $mask:expr => $body:block) => {
-        let mut $subset_name = $mask;
-        loop {
-            $body
-
-            $subset_name = $subset_name.wrapping_sub(1) & $mask;
-            if $subset_name == $mask {
-                break;
-            }
-        }
-    };
-}
 
 #[macro_export]
 macro_rules! for_each_square {
@@ -163,7 +145,7 @@ pub const fn bb_only_one(bb: u64) -> bool {
 /// # Safety
 /// The caller must ensure that `bb` is non-zero (`bb != 0`).
 #[inline(always)]
-pub const unsafe fn bb_scan_forward(bb: u64) -> Sq {
+pub const unsafe fn bb_lsb(bb: u64) -> Sq {
     // SAFETY: The caller guarantees `bb != 0`, meaning `trailing_zeros()` is strictly < 64.
     unsafe {
         core::hint::assert_unchecked(bb != 0);
@@ -173,10 +155,10 @@ pub const unsafe fn bb_scan_forward(bb: u64) -> Sq {
 
 /// Returns the least significant square set in the bitboard, or `None` if the bitboard is empty.
 #[inline(always)]
-pub const fn bb_scan_forward_opt(bb: u64) -> Option<Sq> {
+pub const fn bb_lsb_opt(bb: u64) -> Option<Sq> {
     if bb != 0 {
         // SAFETY: `bb != 0` check guarantees non-zero bitboard.
-        Some(unsafe { bb_scan_forward(bb) })
+        Some(unsafe { bb_lsb(bb) })
     } else {
         None
     }
@@ -187,7 +169,7 @@ pub const fn bb_scan_forward_opt(bb: u64) -> Option<Sq> {
 /// # Safety
 /// The caller must ensure that `bb` is non-zero (`bb != 0`).
 #[inline(always)]
-pub const unsafe fn bb_scan_reverse(bb: u64) -> Sq {
+pub const unsafe fn bb_msb(bb: u64) -> Sq {
     // SAFETY: The caller guarantees `bb != 0`, meaning `leading_zeros()` is strictly < 64
     // and `63 ^ leading_zeros()` is in `0..=63`.
     unsafe {
@@ -198,10 +180,10 @@ pub const unsafe fn bb_scan_reverse(bb: u64) -> Sq {
 
 /// Returns the most significant square set in the bitboard, or `None` if the bitboard is empty.
 #[inline(always)]
-pub const fn bb_scan_reverse_opt(bb: u64) -> Option<Sq> {
+pub const fn bb_msb_opt(bb: u64) -> Option<Sq> {
     if bb != 0 {
         // SAFETY: `bb != 0` check guarantees non-zero bitboard.
-        Some(unsafe { bb_scan_reverse(bb) })
+        Some(unsafe { bb_msb(bb) })
     } else {
         None
     }
@@ -262,13 +244,27 @@ pub const fn bb_generate_ray_attacks(sq: Sq, occupied: u64, dir: Dir) -> u64 {
     let blockers = attacks & occupied;
     let found_sq = if dir.is_forwards() {
         // SAFETY: Bitwise-OR with FORWARD_SENTINEL (bit 63 / H8) guarantees non-zero bitboard.
-        unsafe { bb_scan_forward(blockers | FORWARD_SENTINEL) }
+        unsafe { bb_lsb(blockers | FORWARD_SENTINEL) }
     } else {
         // SAFETY: Bitwise-OR with BACKWARD_SENTINEL (bit 0 / A1) guarantees non-zero bitboard.
-        unsafe { bb_scan_reverse(blockers | BACKWARD_SENTINEL) }
+        unsafe { bb_msb(blockers | BACKWARD_SENTINEL) }
     };
 
     attacks ^ bb_from_dir(dir, found_sq)
+}
+
+pub const fn bb_bishop_attacks(sq: Sq, blockers: u64) -> u64 {
+    bb_generate_ray_attacks(sq, blockers, Dir::NorthWest)
+        | bb_generate_ray_attacks(sq, blockers, Dir::NorthEast)
+        | bb_generate_ray_attacks(sq, blockers, Dir::SouthWest)
+        | bb_generate_ray_attacks(sq, blockers, Dir::SouthEast)
+}
+
+pub const fn bb_rook_attacks(sq: Sq, blockers: u64) -> u64 {
+    bb_generate_ray_attacks(sq, blockers, Dir::North)
+        | bb_generate_ray_attacks(sq, blockers, Dir::West)
+        | bb_generate_ray_attacks(sq, blockers, Dir::East)
+        | bb_generate_ray_attacks(sq, blockers, Dir::South)
 }
 
 static BB_DIRECTIONS: [[u64; Sq::NB]; Dir::NB] = const {
@@ -346,18 +342,3 @@ static BB_LINE: [[u64; Sq::NB]; Sq::NB] = const {
 
     result
 };
-
-#[unsafe(no_mangle)]
-pub const fn generate_bishop_attacks(sq: Sq, blockers: u64) -> u64 {
-    bb_generate_ray_attacks(sq, blockers, Dir::NorthWest)
-        | bb_generate_ray_attacks(sq, blockers, Dir::NorthEast)
-        | bb_generate_ray_attacks(sq, blockers, Dir::SouthWest)
-        | bb_generate_ray_attacks(sq, blockers, Dir::SouthEast)
-}
-
-pub const fn generate_rook_attacks(sq: Sq, blockers: u64) -> u64 {
-    bb_generate_ray_attacks(sq, blockers, Dir::North)
-        | bb_generate_ray_attacks(sq, blockers, Dir::West)
-        | bb_generate_ray_attacks(sq, blockers, Dir::East)
-        | bb_generate_ray_attacks(sq, blockers, Dir::South)
-}

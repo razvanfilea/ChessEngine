@@ -47,7 +47,7 @@ fn main() {
         let combinations = 1usize << mask.count_ones();
         for j in 0..combinations {
             let occupied = const_pdep(j as u64, mask);
-            table.push(bitboard::generate_rook_attacks(sq, occupied));
+            table.push(bitboard::bb_rook_attacks(sq, occupied));
             current_index += 1;
         }
     });
@@ -59,7 +59,7 @@ fn main() {
         let combinations = 1usize << mask.count_ones();
         for j in 0..combinations {
             let occupied = const_pdep(j as u64, mask);
-            table.push(bitboard::generate_bishop_attacks(sq, occupied));
+            table.push(bitboard::bb_bishop_attacks(sq, occupied));
             current_index += 1;
         }
     });

@@ -1,16 +1,18 @@
 pub mod bitboard;
+mod castling;
 mod chess_move;
 mod color;
+mod dir;
 mod piece;
 mod square;
-mod types;
 
+pub use castling::*;
 pub use chess_move::*;
 pub use color::*;
+pub use dir::*;
 pub use piece::*;
 pub use square::*;
-pub use types::*;
 
 pub mod prelude {
-    pub use crate::{CastlingRights, Color, ColoredPiece, Dir, Move, MoveFlags, Pieces, Sq};
+    pub use crate::{CastlingRights, Color, ColoredPiece, Dir, Move, MoveFlags, Piece, Sq};
 }

@@ -48,15 +48,6 @@ fn test_sq_from_raw_unchecked() {
 }
 
 #[test]
-fn test_sq_as_index() {
-    assert_eq!(Sq::A1 as u8, 0);
-    assert_eq!(Sq::H8 as u8, 63);
-
-    assert_eq!(Sq::A1 as usize, 0);
-    assert_eq!(Sq::H8 as usize, 63);
-}
-
-#[test]
 fn test_sq_file_and_rank() {
     assert_eq!(Sq::A1.file(), 0);
     assert_eq!(Sq::A1.rank(), 0);
@@ -145,22 +136,9 @@ fn test_sq_fmt_debug_and_display() {
 
 #[test]
 fn test_sq_shift() {
-    assert_eq!(Sq::A1.shift(Dir::North), Some(Sq::A2));
-    assert_eq!(Sq::H8.shift(Dir::South), Some(Sq::H7));
-    assert_eq!(Sq::E4.shift(Dir::NorthEast), Some(Sq::F5));
-
-    // Edges (should not wrap around)
-    assert_eq!(Sq::H1.shift(Dir::East), None);
-    assert_eq!(Sq::A2.shift(Dir::West), None);
-    assert_eq!(Sq::H8.shift(Dir::North), None);
-    assert_eq!(Sq::A1.shift(Dir::SouthWest), None);
-}
-
-#[test]
-fn test_sq_shift_unchecked() {
     unsafe {
-        assert_eq!(Sq::A1.shift_unchecked(Dir::North), Sq::A2);
-        assert_eq!(Sq::H8.shift_unchecked(Dir::South), Sq::H7);
-        assert_eq!(Sq::E4.shift_unchecked(Dir::NorthEast), Sq::F5);
+        assert_eq!(Sq::A1.shift(Dir::North), Sq::A2);
+        assert_eq!(Sq::H8.shift(Dir::South), Sq::H7);
+        assert_eq!(Sq::E4.shift(Dir::NorthEast), Sq::F5);
     }
 }

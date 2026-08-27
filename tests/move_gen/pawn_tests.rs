@@ -8,12 +8,11 @@ fn get_moves<Us: Player, Type: MoveGenType>(board: &Board) -> Vec<(Sq, Sq, MoveF
     let mut moves = MoveList::default();
     let new_pos = generate_pawn_moves::<Us, Type>(board, !0, moves.as_ptr());
     moves.update_size(new_pos);
-    let slice = moves.as_slice();
-    let mut res = Vec::new();
-    for m in slice {
-        res.push((m.from(), m.to(), m.flags()));
-    }
-    res
+    moves
+        .as_slice()
+        .iter()
+        .map(|m| (m.from(), m.to(), m.flags()))
+        .collect()
 }
 
 #[test]
@@ -111,7 +110,7 @@ fn test_black_promotions() {
 fn test_black_promotion_captures() {
     let board = Board::from_fen("8/8/8/8/8/8/4p3/3Q4 b - - 0 1").unwrap();
     let moves = get_moves::<Black, NonEvasions>(&board);
-    assert_eq!(moves.len(), 8); // 4 pushes + 4 promo captures
+    assert_eq!(moves.len(), 8);
     assert!(moves.contains(&(Sq::E2, Sq::D1, MoveFlags::PromoCaptureQueen)));
     assert!(moves.contains(&(Sq::E2, Sq::D1, MoveFlags::PromoCaptureRook)));
     assert!(moves.contains(&(Sq::E2, Sq::D1, MoveFlags::PromoCaptureBishop)));
@@ -122,7 +121,7 @@ fn test_black_promotion_captures() {
 fn test_gen_captures_only() {
     let board = Board::from_fen("8/8/8/8/8/1p1p4/2P5/8 w - - 0 1").unwrap();
     let moves = get_moves::<White, Captures>(&board);
-    assert_eq!(moves.len(), 2); // Should NOT include pushes, only captures
+    assert_eq!(moves.len(), 2);
     assert!(moves.contains(&(Sq::C2, Sq::B3, MoveFlags::Capture)));
     assert!(moves.contains(&(Sq::C2, Sq::D3, MoveFlags::Capture)));
 }
@@ -131,7 +130,7 @@ fn test_gen_captures_only() {
 fn test_gen_quiets_only() {
     let board = Board::from_fen("8/8/8/8/8/1p1p4/2P5/8 w - - 0 1").unwrap();
     let moves = get_moves::<White, Quiets>(&board);
-    assert_eq!(moves.len(), 2); // Should NOT include captures, only pushes
+    assert_eq!(moves.len(), 2);
     assert!(moves.contains(&(Sq::C2, Sq::C3, MoveFlags::Quiet)));
     assert!(moves.contains(&(Sq::C2, Sq::C4, MoveFlags::DoublePawn)));
 }
@@ -140,13 +139,10 @@ fn test_gen_quiets_only() {
 fn test_pawn_capture_no_wrap_around() {
     let board = Board::from_fen("8/8/8/8/8/1p4p1/P6P/8 w - - 0 1").unwrap();
     let moves = get_moves::<White, NonEvasions>(&board);
-    // a2-a3, a2-a4, h2-h3, h2-h4 (4 pushes)
-    // a2xb3, h2xg3 (2 captures)
-    // total 6 moves
     assert_eq!(moves.len(), 6);
     assert!(moves.contains(&(Sq::A2, Sq::B3, MoveFlags::Capture)));
     assert!(moves.contains(&(Sq::H2, Sq::G3, MoveFlags::Capture)));
-    for m in moves {
+    for m in &moves {
         if m.0 == Sq::A2 && m.2 == MoveFlags::Capture {
             assert_eq!(m.1, Sq::B3);
         }
@@ -158,23 +154,15 @@ fn test_pawn_capture_no_wrap_around() {
 
 #[test]
 fn test_pawn_push_blocked_by_enemy() {
-    // Wait, pawn on a2, blocked by enemy pawn on a3
     let board = Board::from_fen("8/8/8/8/8/p7/P7/8 w - - 0 1").unwrap();
     let moves = get_moves::<White, NonEvasions>(&board);
-    assert_eq!(moves.len(), 0); // Blocked
+    assert_eq!(moves.len(), 0);
 }
 
 #[test]
 fn test_pawn_double_push_blocked() {
     let board = Board::from_fen("8/8/8/8/p7/8/P7/8 w - - 0 1").unwrap();
     let moves = get_moves::<White, NonEvasions>(&board);
-    assert_eq!(moves.len(), 1); // Only a2-a3 is possible, a2-a4 is blocked
+    assert_eq!(moves.len(), 1);
     assert!(moves.contains(&(Sq::A2, Sq::A3, MoveFlags::Quiet)));
-}
-
-#[test]
-fn test_pawn_double_push_blocked_on_first_square() {
-    let board = Board::from_fen("8/8/8/8/8/p7/P7/8 w - - 0 1").unwrap();
-    let moves = get_moves::<White, NonEvasions>(&board);
-    assert_eq!(moves.len(), 0); // Both a3 and a4 are blocked because a3 is occupied
 }

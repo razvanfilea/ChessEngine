@@ -1,20 +1,51 @@
 use chess_base::prelude::*;
 
 #[test]
-fn test_castling_rights() {
-    assert_eq!(
-        CastlingRights::WHITE_ANY.bits(),
-        CastlingRights::WHITE_00.bits() | CastlingRights::WHITE_000.bits()
-    );
-    assert_eq!(
-        CastlingRights::BLACK_ANY.bits(),
-        CastlingRights::BLACK_00.bits() | CastlingRights::BLACK_000.bits()
-    );
-    assert_eq!(
-        CastlingRights::ALL.bits(),
-        CastlingRights::WHITE_ANY.bits() | CastlingRights::BLACK_ANY.bits()
-    );
-    assert_eq!(CastlingRights::default(), CastlingRights::empty());
+fn test_castling_rights_mask_for_move() {
+    // Moving from/to E1 clears WHITE_ANY
+    let mask = CastlingRights::mask_for_move(Sq::E1, Sq::D2);
+    assert!(!mask.contains(CastlingRights::WHITE_00));
+    assert!(!mask.contains(CastlingRights::WHITE_000));
+    assert!(mask.contains(CastlingRights::BLACK_ANY));
+
+    // Moving from A1 clears WHITE_000
+    let mask = CastlingRights::mask_for_move(Sq::A1, Sq::A2);
+    assert!(mask.contains(CastlingRights::WHITE_00));
+    assert!(!mask.contains(CastlingRights::WHITE_000));
+    assert!(mask.contains(CastlingRights::BLACK_ANY));
+
+    // Moving from H1 clears WHITE_00
+    let mask = CastlingRights::mask_for_move(Sq::H1, Sq::H2);
+    assert!(!mask.contains(CastlingRights::WHITE_00));
+    assert!(mask.contains(CastlingRights::WHITE_000));
+    assert!(mask.contains(CastlingRights::BLACK_ANY));
+
+    // Moving from E8 clears BLACK_ANY
+    let mask = CastlingRights::mask_for_move(Sq::E8, Sq::D8);
+    assert!(mask.contains(CastlingRights::WHITE_ANY));
+    assert!(!mask.contains(CastlingRights::BLACK_00));
+    assert!(!mask.contains(CastlingRights::BLACK_000));
+
+    // Moving from A8 clears BLACK_000
+    let mask = CastlingRights::mask_for_move(Sq::A8, Sq::A7);
+    assert!(mask.contains(CastlingRights::WHITE_ANY));
+    assert!(mask.contains(CastlingRights::BLACK_00));
+    assert!(!mask.contains(CastlingRights::BLACK_000));
+
+    // Moving from H8 clears BLACK_00
+    let mask = CastlingRights::mask_for_move(Sq::H8, Sq::H7);
+    assert!(mask.contains(CastlingRights::WHITE_ANY));
+    assert!(!mask.contains(CastlingRights::BLACK_00));
+    assert!(mask.contains(CastlingRights::BLACK_000));
+
+    // Irrelevant square clears nothing
+    let mask = CastlingRights::mask_for_move(Sq::D4, Sq::D5);
+    assert_eq!(mask, CastlingRights::ALL);
+
+    // Target square also matters (capturing a rook on its home square)
+    let mask = CastlingRights::mask_for_move(Sq::D4, Sq::A1);
+    assert!(mask.contains(CastlingRights::WHITE_00));
+    assert!(!mask.contains(CastlingRights::WHITE_000));
 }
 
 #[test]

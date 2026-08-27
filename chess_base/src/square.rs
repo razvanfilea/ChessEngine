@@ -118,23 +118,13 @@ impl Sq {
         self as u8 >> 3
     }
 
-    #[inline(always)]
-    pub const fn shift(self, dir: Dir) -> Option<Self> {
-        let bb = crate::bitboard::sh_dir(dir, self.bitboard());
-        if bb == 0 {
-            None
-        } else {
-            Some(unsafe { Self::from_raw_unchecked(bb.trailing_zeros() as u8) })
-        }
-    }
-
     /// Shifts the square by the given direction without bounds checking.
     ///
     /// # Safety
     /// The caller must ensure that shifting this square in the given direction
     /// will not wrap around the files or fall off the board.
     #[inline(always)]
-    pub const unsafe fn shift_unchecked(self, dir: Dir) -> Self {
+    pub const unsafe fn shift(self, dir: Dir) -> Self {
         let offset = match dir {
             Dir::North => 8,
             Dir::South => -8,
