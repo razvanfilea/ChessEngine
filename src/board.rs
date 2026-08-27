@@ -153,75 +153,6 @@ impl Board {
         Some(board)
     }
 
-    fn set_checkers(&mut self) {
-        self.checkers =
-            self.generate_attackers(self.king_sq(self.to_play), !self.to_play, self.occupied());
-    }
-
-    fn set_pinned(&mut self) {
-        let us = self.to_play;
-        let king_sq = self.king_sq(us);
-
-        let enemy = *self.colors(!us);
-        let our = *self.colors(us);
-        let occupied = self.occupied();
-
-        let enemy_rooks = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
-        let enemy_bishops = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
-
-        // generate attacks stopping ONLY at enemy pieces
-        let potential_pinners = (rook_attacks(king_sq, enemy) & enemy_rooks)
-            | (bishop_attacks(king_sq, enemy) & enemy_bishops);
-
-        let mut pinned = 0;
-
-        for_each_bit!(pinner_sq in potential_pinners => {
-            let ray = bb_between(king_sq, pinner_sq);
-            let blockers_on_ray = ray & occupied;
-
-            // If there is exactly one piece on the ray and it's ours
-            if bb_only_one(blockers_on_ray) {
-                pinned |= blockers_on_ray & our;
-            }
-        });
-
-        self.pinned = pinned;
-    }
-
-    #[inline]
-    fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
-        self.mailbox[sq as usize] = Some(piece);
-        let bitboard = sq.bitboard();
-        *self.colors_mut(piece.color()) |= bitboard;
-        *self.pieces_mut(piece.piece()) |= bitboard;
-        self.hash ^= ZOBRIST_KEYS.piece(sq, piece);
-    }
-
-    #[inline(always)]
-    fn move_piece(&mut self, from: Sq, to: Sq) -> ColoredPiece {
-        let piece = unsafe { self.mailbox[from as usize].take().unwrap_unchecked() };
-        self.mailbox[to as usize] = Some(piece);
-
-        let move_bb = from.bitboard() ^ to.bitboard();
-        *self.colors_mut(piece.color()) ^= move_bb;
-        *self.pieces_mut(piece.piece()) ^= move_bb;
-        self.hash ^= ZOBRIST_KEYS.piece(from, piece);
-        self.hash ^= ZOBRIST_KEYS.piece(to, piece);
-
-        piece
-    }
-
-    #[inline]
-    fn remove_piece(&mut self, sq: Sq) -> Option<ColoredPiece> {
-        let piece = self.mailbox[sq as usize].take()?;
-        let bitboard = sq.bitboard();
-        *self.colors_mut(piece.color()) &= !bitboard;
-        *self.pieces_mut(piece.piece()) &= !bitboard;
-        self.hash ^= ZOBRIST_KEYS.piece(sq, piece);
-
-        Some(piece)
-    }
-
     #[inline(always)]
     pub fn colors(&self, color: Color) -> &u64 {
         &self.bit_colors[color as usize]
@@ -271,64 +202,6 @@ impl Board {
     pub fn king_sq(&self, color: Color) -> Sq {
         let king_bb = self.color_piece(Pieces::King, color);
         unsafe { bb_scan_forward(king_bb) }
-    }
-
-    #[inline(always)]
-    fn has_insufficient_material(&self) -> bool {
-        // If there are pawns, rooks, or queens, mate is possible
-        let majors_and_pawns =
-            self.pieces(Pieces::Pawn) | self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen);
-
-        if majors_and_pawns != 0 {
-            return false;
-        }
-
-        let knights = self.pieces(Pieces::Knight);
-        let bishops = self.pieces(Pieces::Bischop);
-        let piece_count = (*knights | *bishops).count_ones();
-
-        // King vs King
-        if piece_count == 0 {
-            return true;
-        }
-
-        // King + Minor vs King (K+N vs K or K+B vs K)
-        if piece_count == 1 {
-            return true;
-        }
-
-        // King + Bishop vs King + Bishop on the same color squares
-        if piece_count == 2 && *knights == 0 {
-            let white_bishops = self.color_piece(Pieces::Bischop, Color::White);
-            let black_bishops = self.color_piece(Pieces::Bischop, Color::Black);
-            if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
-                let white_is_light = (white_bishops & LIGHT_SQUARES) != 0;
-                let black_is_light = (black_bishops & LIGHT_SQUARES) != 0;
-                return white_is_light == black_is_light;
-            }
-        }
-
-        false
-    }
-
-    #[inline(always)]
-    fn is_repetition(&self) -> bool {
-        let current_hash = self.hash;
-        let count = self.half_move_clock as usize;
-        let len = self.ply as usize;
-
-        if len < 4 || count < 4 {
-            return false;
-        }
-
-        // Only check every 2 plies back (same side to move), no further than the
-        // half-move clock -- any irreversible move resets it and bars repetition.
-        for i in (2..=count.min(len)).step_by(2) {
-            if self.hash_history[len - i] == current_hash {
-                return true;
-            }
-        }
-        false
     }
 
     pub fn is_draw(&self) -> bool {
@@ -590,6 +463,137 @@ impl Board {
     }
 }
 
+impl Board {
+    #[inline]
+    fn set_checkers(&mut self) {
+        self.checkers =
+            self.generate_attackers(self.king_sq(self.to_play), !self.to_play, self.occupied());
+    }
+
+    #[inline]
+    fn set_pinned(&mut self) {
+        let us = self.to_play;
+        let king_sq = self.king_sq(us);
+
+        let enemy = *self.colors(!us);
+        let our = *self.colors(us);
+        let occupied = self.occupied();
+
+        let enemy_rooks = (self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen)) & enemy;
+        let enemy_bishops = (self.pieces(Pieces::Bischop) | self.pieces(Pieces::Queen)) & enemy;
+
+        // generate attacks stopping ONLY at enemy pieces
+        let potential_pinners = (rook_attacks(king_sq, enemy) & enemy_rooks)
+            | (bishop_attacks(king_sq, enemy) & enemy_bishops);
+
+        let mut pinned = 0;
+
+        for_each_bit!(pinner_sq in potential_pinners => {
+            let ray = bb_between(king_sq, pinner_sq);
+            let blockers_on_ray = ray & occupied;
+
+            // If there is exactly one piece on the ray and it's ours
+            if bb_only_one(blockers_on_ray) {
+                pinned |= blockers_on_ray & our;
+            }
+        });
+
+        self.pinned = pinned;
+    }
+
+    #[inline]
+    fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
+        self.mailbox[sq as usize] = Some(piece);
+        let bitboard = sq.bitboard();
+        *self.colors_mut(piece.color()) |= bitboard;
+        *self.pieces_mut(piece.piece()) |= bitboard;
+        self.hash ^= ZOBRIST_KEYS.piece(sq, piece);
+    }
+
+    #[inline(always)]
+    fn move_piece(&mut self, from: Sq, to: Sq) -> ColoredPiece {
+        let piece = unsafe { self.mailbox[from as usize].take().unwrap_unchecked() };
+        self.mailbox[to as usize] = Some(piece);
+
+        let move_bb = from.bitboard() ^ to.bitboard();
+        *self.colors_mut(piece.color()) ^= move_bb;
+        *self.pieces_mut(piece.piece()) ^= move_bb;
+        self.hash ^= ZOBRIST_KEYS.piece(from, piece);
+        self.hash ^= ZOBRIST_KEYS.piece(to, piece);
+
+        piece
+    }
+
+    #[inline]
+    fn remove_piece(&mut self, sq: Sq) -> Option<ColoredPiece> {
+        let piece = self.mailbox[sq as usize].take()?;
+        let bitboard = sq.bitboard();
+        *self.colors_mut(piece.color()) &= !bitboard;
+        *self.pieces_mut(piece.piece()) &= !bitboard;
+        self.hash ^= ZOBRIST_KEYS.piece(sq, piece);
+
+        Some(piece)
+    }
+
+    #[inline(always)]
+    fn has_insufficient_material(&self) -> bool {
+        // If there are pawns, rooks, or queens, mate is possible
+        let majors_and_pawns =
+            self.pieces(Pieces::Pawn) | self.pieces(Pieces::Rook) | self.pieces(Pieces::Queen);
+
+        if majors_and_pawns != 0 {
+            return false;
+        }
+
+        let knights = self.pieces(Pieces::Knight);
+        let bishops = self.pieces(Pieces::Bischop);
+        let piece_count = (*knights | *bishops).count_ones();
+
+        // King vs King
+        if piece_count == 0 {
+            return true;
+        }
+
+        // King + Minor vs King (K+N vs K or K+B vs K)
+        if piece_count == 1 {
+            return true;
+        }
+
+        // King + Bishop vs King + Bishop on the same color squares
+        if piece_count == 2 && *knights == 0 {
+            let white_bishops = self.color_piece(Pieces::Bischop, Color::White);
+            let black_bishops = self.color_piece(Pieces::Bischop, Color::Black);
+            if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
+                let white_is_light = (white_bishops & LIGHT_SQUARES) != 0;
+                let black_is_light = (black_bishops & LIGHT_SQUARES) != 0;
+                return white_is_light == black_is_light;
+            }
+        }
+
+        false
+    }
+
+    #[inline(always)]
+    fn is_repetition(&self) -> bool {
+        let current_hash = self.hash;
+        let count = self.half_move_clock as usize;
+        let len = self.ply as usize;
+
+        if len < 4 || count < 4 {
+            return false;
+        }
+
+        // Only check every 2 plies back (same side to move), no further than the
+        // half-move clock -- any irreversible move resets it and bars repetition.
+        for i in (2..=count.min(len)).step_by(2) {
+            if self.hash_history[len - i] == current_hash {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 impl fmt::Debug for Board {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "  +---+---+---+---+---+---+---+---+")?;
@@ -635,3 +639,4 @@ impl fmt::Debug for Board {
         write!(f, "Ply:          {}", self.ply)
     }
 }
+

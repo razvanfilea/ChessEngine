@@ -80,10 +80,12 @@ impl UciState {
             }
             UciCommand::Go(opts) => {
                 let board = self.board.clone();
-                self.stop_requested.store(false, Ordering::Relaxed);
+                let stop_requested = self.stop_requested.clone();
+                stop_requested.store(false, Ordering::Relaxed);
+
                 self.search_thread = Some(std::thread::spawn(move || {
-                    let depth = opts.depth.unwrap_or(12) as i16;
-                    let best = search(board, depth);
+                    let depth = opts.depth.unwrap_or(12) as u16;
+                    let best = search(board, depth, stop_requested);
                     println!("bestmove {}", format_move(best))
                 }));
             }
@@ -102,7 +104,7 @@ impl UciState {
         let from_sq = Sq::new(uci_move.src.0 as u8, uci_move.src.1 as u8)?;
         let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
 
-        while let Some(mov) = generator.next(&self.board) {
+        while let Some(mov) = generator.next(&self.board, [Move::default(); 2]) {
             if mov.from() == from_sq && mov.to() == to_sq && self.board.legal(mov) {
                 // Check promotion match if applicable
                 if let Some(target_promo) = uci_move.promote {

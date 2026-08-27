@@ -2,8 +2,9 @@ use std::mem::MaybeUninit;
 
 use chess_base::prelude::*;
 
+pub const MAX_MOVES: usize = 256;
 pub struct MoveList {
-    moves: [MaybeUninit<Move>; 256],
+    moves: [MaybeUninit<Move>; MAX_MOVES],
     size: usize,
 }
 
@@ -33,6 +34,10 @@ impl MoveList {
 
     pub const fn as_slice(&self) -> &[Move] {
         unsafe { core::slice::from_raw_parts(self.moves.as_ptr() as *const Move, self.size) }
+    }
+
+    pub const fn as_slice_mut(&mut self) -> &mut [Move] {
+        unsafe { core::slice::from_raw_parts_mut(self.moves.as_ptr() as *mut Move, self.size) }
     }
 
     #[inline(always)]
