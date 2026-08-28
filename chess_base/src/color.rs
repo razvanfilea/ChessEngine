@@ -35,3 +35,21 @@ impl From<bool> for Color {
         if value { Color::White } else { Color::Black }
     }
 }
+
+pub trait Player: 'static + Copy + Eq {
+    const COLOR: Color;
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub struct White;
+
+impl Player for White {
+    const COLOR: Color = Color::White;
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub struct Black;
+
+impl Player for Black {
+    const COLOR: Color = Color::Black;
+}

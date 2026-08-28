@@ -1,4 +1,4 @@
-use chess_base::prelude::*;
+pub use chess_base::{Black, Player, White};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GenType {
@@ -6,18 +6,6 @@ pub enum GenType {
     Quiets,
     NonEvasions,
     Evasions,
-}
-
-pub trait Player {
-    const COLOR: Color;
-}
-pub struct White;
-impl Player for White {
-    const COLOR: Color = Color::White;
-}
-pub struct Black;
-impl Player for Black {
-    const COLOR: Color = Color::Black;
 }
 
 pub trait MoveGenType {

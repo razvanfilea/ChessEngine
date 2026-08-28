@@ -1,6 +1,8 @@
 use std::fmt;
 use std::hint::assert_unchecked;
 
+pub mod fen;
+
 use crate::attacks::*;
 use crate::zobrist::ZOBRIST_KEYS;
 use chess_base::bitboard::LIGHT_SQUARES;
@@ -61,96 +63,17 @@ pub struct UndoInfo {
 
 impl Board {
     pub fn start_pos() -> Self {
-        Self::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1")
-            .expect("Initial position is valid")
+        fen::parse_fen(fen::START_POS_FEN).expect("Initial position is valid")
     }
 
+    #[inline(always)]
     pub fn from_fen(fen: &str) -> Option<Self> {
-        let mut board = Board::default();
+        fen::parse_fen(fen)
+    }
 
-        let mut tokens = fen.split_ascii_whitespace();
-        let piece_placement = tokens.next()?;
-        let side_to_move = tokens.next();
-        let castling = tokens.next();
-        let en_passant = tokens.next();
-        let half_move = tokens.next();
-        let full_move = tokens.next();
-
-        let mut rank: i8 = 7;
-        let mut file: u8 = 0;
-
-        for ch in piece_placement.chars() {
-            match ch {
-                '1'..='8' => {
-                    file += (ch as u8) - b'0';
-                }
-                '/' => {
-                    rank -= 1;
-                    file = 0;
-                }
-                'p' | 'r' | 'n' | 'b' | 'q' | 'k' | 'P' | 'R' | 'N' | 'B' | 'Q' | 'K'
-                    if rank >= 0 && file < 8 =>
-                {
-                    // TODO: Add proper error handling
-                    let sq = Sq::new(file, rank as u8)?;
-                    board.add_piece(sq, ColoredPiece::parse(ch)?);
-                    file += 1;
-                }
-                _ => {}
-            }
-        }
-
-        board.to_play = match side_to_move {
-            Some("b") | Some("B") => Color::Black,
-            _ => Color::White,
-        };
-
-        if let Some(castling_rights) = castling {
-            for ch in castling_rights.chars() {
-                let rights = match ch {
-                    'K' => CastlingRights::WHITE_00,
-                    'Q' => CastlingRights::WHITE_000,
-                    'k' => CastlingRights::BLACK_00,
-                    'q' => CastlingRights::BLACK_000,
-                    _ => CastlingRights::empty(),
-                };
-
-                board.castling_rights |= rights;
-            }
-        }
-
-        if let Some(en_passant_sq) = en_passant {
-            let sq = Sq::parse(en_passant_sq);
-            let valid_rank = if board.to_play == Color::White { 5 } else { 2 };
-            if sq.filter(|sq| sq.rank() == valid_rank).is_some() {
-                board.en_passant_target_sq = sq;
-            }
-        }
-
-        board.half_move_clock = half_move
-            .and_then(|val| val.parse::<u8>().ok())
-            .unwrap_or(0);
-
-        let counter = full_move
-            .and_then(|val| val.parse::<u16>().ok())
-            .unwrap_or(1);
-        board.ply =
-            (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
-
-        if board.to_play == Color::White {
-            board.hash ^= ZOBRIST_KEYS.side();
-        }
-        board.hash ^= ZOBRIST_KEYS.castling(board.castling_rights);
-        if let Some(ep_sq) = board.en_passant_target_sq {
-            board.hash ^= ZOBRIST_KEYS.en_passant(ep_sq);
-        }
-
-        if board.color_piece(Piece::King, board.to_play) != 0 {
-            board.set_checkers();
-            board.set_pinned()
-        }
-
-        Some(board)
+    #[inline(always)]
+    pub fn to_fen(&self) -> String {
+        fen::format_fen(self)
     }
 
     #[inline(always)]
@@ -466,13 +389,13 @@ impl Board {
 
 impl Board {
     #[inline]
-    fn set_checkers(&mut self) {
+    pub(super) fn set_checkers(&mut self) {
         self.checkers =
             self.generate_attackers(self.king_sq(self.to_play), !self.to_play, self.occupied());
     }
 
     #[inline]
-    fn set_pinned(&mut self) {
+    pub(super) fn set_pinned(&mut self) {
         let us = self.to_play;
         let king_sq = self.king_sq(us);
 
@@ -503,7 +426,7 @@ impl Board {
     }
 
     #[inline]
-    fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
+    pub(super) fn add_piece(&mut self, sq: Sq, piece: ColoredPiece) {
         self.mailbox[sq as usize] = Some(piece);
         let bitboard = sq.bitboard();
         *self.colors_mut(piece.color()) |= bitboard;
