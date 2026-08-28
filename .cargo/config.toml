@@ -6,10 +6,13 @@ rustflags = [
 
 [target.'cfg(target_family = "wasm")']
 rustflags = [
+    "-C", "opt-level=3",
+    "-C", "codegen-units=1",
     "-C", "debuginfo=0",
     "-C", "strip=symbols",
+    "-C", "panic=abort",
 ]
 
 [alias]
-build-wasm64 = "build --target wasm64-unknown-unknown -Z build-std=std,panic_abort"
+build-wasm64 = "build --target wasm64-unknown-unknown --lib --release -Z build-std=std,panic_abort"
 

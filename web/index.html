@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lucky Chess — WASM64</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Chessground latest styles -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/assets/chessground.base.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/assets/chessground.brown.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@lichess-org/chessground@10.1.1/assets/chessground.cburnett.css">
+</head>
+<body>
+  <div class="app-layout">
+    <header class="app-header">
+      <div class="logo">
+        <span class="logo-icon">♟</span>
+        <h1>Lucky Chess <span class="badge">WASM64</span></h1>
+      </div>
+      <div id="engine-status" class="status-indicator">
+        <span class="dot loading"></span>
+        <span id="status-text">Loading WASM64 engine...</span>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="board-wrapper">
+        <div id="board" class="cg-wrap"></div>
+      </div>
+
+      <aside class="sidebar">
+        <!-- Evaluation & Status Panel -->
+        <section class="panel eval-panel">
+          <div class="eval-header">
+            <span class="panel-title">Evaluation</span>
+            <span id="eval-score" class="eval-value">0.00</span>
+          </div>
+          <div class="eval-bar-bg">
+            <div id="eval-bar" class="eval-bar-fill" style="width: 50%;"></div>
+          </div>
+          <div class="engine-metrics">
+            <div><strong>Depth:</strong> <span id="metric-depth">-</span></div>
+            <div><strong>NPS:</strong> <span id="metric-nps">-</span></div>
+            <div><strong>Nodes:</strong> <span id="metric-nodes">-</span></div>
+          </div>
+          <div class="pv-line">
+            <strong>PV:</strong> <span id="metric-pv">-</span>
+          </div>
+        </section>
+
+        <!-- Game Controls Panel -->
+        <section class="panel controls-panel">
+          <div class="control-group">
+            <label for="player-color">Play as:</label>
+            <select id="player-color">
+              <option value="white" selected>White (vs Engine)</option>
+              <option value="black">Black (vs Engine)</option>
+              <option value="both">Analysis / 2 Player</option>
+            </select>
+          </div>
+
+          <div class="control-group">
+            <label for="search-depth">
+              Engine Depth: <span id="depth-val">8</span>
+            </label>
+            <input type="range" id="search-depth" min="1" max="15" value="8">
+          </div>
+
+          <div class="button-grid">
+            <button id="btn-new-game" class="btn btn-primary">New Game</button>
+            <button id="btn-flip" class="btn">Flip Board</button>
+            <button id="btn-undo" class="btn">Undo Move</button>
+            <button id="btn-engine-move" class="btn btn-accent">Engine Move</button>
+          </div>
+        </section>
+
+        <!-- Move History Panel -->
+        <section class="panel history-panel">
+          <div class="panel-title">Move History</div>
+          <div id="move-history" class="move-list"></div>
+        </section>
+
+        <!-- Collapsible UCI Console -->
+        <details class="panel uci-panel">
+          <summary class="panel-title">UCI Engine Logs</summary>
+          <div id="uci-log" class="console-log"></div>
+        </details>
+      </aside>
+    </main>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
