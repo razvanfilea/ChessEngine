@@ -1,0 +1,11 @@
+[package]
+name = "chess_cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "lucky_chess"
+path = "src/main.rs"
+
+[dependencies]
+chess_engine.workspace = true

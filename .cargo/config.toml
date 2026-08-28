@@ -14,5 +14,5 @@ rustflags = [
 ]
 
 [alias]
-build-wasm64 = "build --target wasm64-unknown-unknown --lib --release -Z build-std=std,panic_abort"
+build-wasm64 = "build -p chess_web --target wasm64-unknown-unknown --release -Z build-std=std,panic_abort"
 

@@ -1,0 +1,11 @@
+[package]
+name = "chess_web"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "lucky_chess"
+crate-type = ["cdylib"]
+
+[dependencies]
+chess_engine.workspace = true

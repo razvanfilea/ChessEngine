@@ -1,29 +1,22 @@
 [workspace]
+resolver = "2"
 members = [
-    ".",
-    "chess_base",
+    "chess_core",
+    "chess_engine",
+    "chess_cli",
+    "chess_web",
 ]
 
-[package]
-name = "lucky_chess"
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+authors = ["Razvan"]
 
-[lib]
-name = "lucky_chess"
-crate-type = ["cdylib", "rlib"]
-
-[[bin]]
-name = "lucky_chess_cli"
-path = "src/main.rs"
-
-
-[dependencies]
-chess_base = { path = "chess_base" }
+[workspace.dependencies]
+chess_core = { path = "chess_core" }
+chess_engine = { path = "chess_engine" }
+bitflags = "2.13.1"
 uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promotion-moves", "types", "parse-go-perft"] }
-
-[build-dependencies]
-chess_base = { path = "chess_base" }
 
 [profile.release]
 codegen-units = 1
