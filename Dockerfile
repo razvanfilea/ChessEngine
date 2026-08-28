@@ -7,12 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends binaryen && rm 
 RUN rustup component add rust-src
 
 WORKDIR /app
-COPY .cargo/ ./.cargo/
-COPY Cargo.toml Cargo.lock build.rs ./
-COPY src/ ./src/
-COPY chess_base/ ./chess_base/
+COPY . .
 
-# Build wasm64 using the cargo alias and optimize with wasm-opt
+# Build wasm64 and optimize with wasm-opt
 RUN cargo build-wasm64 && \
     wasm-opt -Oz --all-features target/wasm64-unknown-unknown/release/lucky_chess.wasm -o /app/lucky_chess.wasm
 
@@ -22,7 +19,7 @@ RUN cargo build-wasm64 && \
 FROM busybox:musl
 
 WORKDIR /www
-COPY web/ ./
+COPY chess_web/www/ ./
 COPY --from=wasm-builder /app/lucky_chess.wasm ./
 
 EXPOSE 8080

@@ -9,18 +9,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
-name = "chess_base"
+name = "chess_cli"
+version = "0.1.0"
+dependencies = [
+ "chess_engine",
+]
+
+[[package]]
+name = "chess_core"
 version = "0.1.0"
 dependencies = [
  "bitflags",
 ]
 
 [[package]]
-name = "lucky_chess"
+name = "chess_engine"
 version = "0.1.0"
 dependencies = [
- "chess_base",
+ "chess_core",
  "uci-parser",
+]
+
+[[package]]
+name = "chess_web"
+version = "0.1.0"
+dependencies = [
+ "chess_engine",
 ]
 
 [[package]]

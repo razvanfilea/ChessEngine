@@ -1,0 +1,11 @@
+[package]
+name = "chess_engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+chess_core.workspace = true
+uci-parser.workspace = true
+
+[build-dependencies]
+chess_core.workspace = true
