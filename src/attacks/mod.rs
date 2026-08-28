@@ -3,9 +3,6 @@ mod magic;
 #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
 mod pext;
 
-mod pattern;
-use pattern::*;
-
 mod sliders_attack {
     #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
     pub use super::magic::*;
@@ -13,54 +10,21 @@ mod sliders_attack {
     pub use super::pext::*;
 }
 
-use chess_base::{bitboard::*, prelude::*};
+use chess_base::{piece_tables::*, prelude::*};
 
-
-pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
-    let bb = sq.bitboard();
-    let rank = sq.rank();
-    if color.as_bool() {
-        if rank == 5 {
-            sh_north_north(bb)
-        } else {
-            sh_north(bb)
-        }
-    } else {
-        if rank == 2 {
-            sh_south_south(bb)
-        } else {
-            sh_south(bb)
-        }
-    }
-}
-
-#[inline]
-pub fn pawn_attacks_color(sq: Sq, color: Color) -> u64 {
-    // TODO: Maybe swtich this to a lookup table as well
-    if color == Color::White {
-        pawn_attacks::<White>(sq)
-    } else {
-        pawn_attacks::<Black>(sq)
-    }
-}
-
-pub const fn pawn_attacks<Us: Player>(sq: Sq) -> u64 {
-    let bb = sq.bitboard();
-    if Us::COLOR.as_bool() {
-        sh_north_west(bb) | sh_north_east(bb)
-    } else {
-        sh_south_west(bb) | sh_south_east(bb)
-    }
+#[inline(always)]
+pub fn pawn_attacks(sq: Sq, color: Color) -> u64 {
+    PAWN_ATTACKS[color as usize][sq as usize]
 }
 
 #[inline(always)]
 pub const fn bishop_xray_attacks(sq: Sq) -> u64 {
-    BISHOP_XRAY_ATTACKS[sq as usize]
+    BISHOP_RAYS[sq as usize]
 }
 
 #[inline(always)]
 pub const fn rook_xray_attacks(sq: Sq) -> u64 {
-    ROOK_XRAY_ATTACKS[sq as usize]
+    ROOK_RAYS[sq as usize]
 }
 
 #[inline(always)]

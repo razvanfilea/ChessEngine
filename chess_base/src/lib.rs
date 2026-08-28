@@ -5,6 +5,7 @@ mod color;
 mod dir;
 mod piece;
 mod square;
+pub mod piece_tables;
 
 pub use castling::*;
 pub use chess_move::*;

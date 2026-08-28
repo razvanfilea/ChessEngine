@@ -243,18 +243,23 @@ function updateMetrics(info) {
   if (info.nodes !== undefined) nodesEl.textContent = info.nodes.toLocaleString();
   if (info.pv) pvEl.textContent = info.pv;
 
+  const isBlackTurn = chess.turn() === 'b';
+
   if (info.scoreCp !== undefined) {
-    const score = (info.scoreCp / 100).toFixed(2);
-    const sign = info.scoreCp > 0 ? '+' : '';
+    const whiteScoreCp = isBlackTurn ? -info.scoreCp : info.scoreCp;
+    const score = (whiteScoreCp / 100).toFixed(2);
+    const sign = whiteScoreCp > 0 ? '+' : '';
     evalScoreEl.textContent = `${sign}${score}`;
 
     // Map centipawns to bar width percentage (50% is 0.00, clamped between 5% and 95%)
-    const clamped = Math.max(-1000, Math.min(1000, info.scoreCp));
+    const clamped = Math.max(-1000, Math.min(1000, whiteScoreCp));
     const percent = 50 + (clamped / 1000) * 45;
     evalBarEl.style.width = `${percent}%`;
   } else if (info.scoreMate !== undefined) {
-    evalScoreEl.textContent = `Mate in ${Math.abs(info.scoreMate)}`;
-    evalBarEl.style.width = info.scoreMate > 0 ? '98%' : '2%';
+    const whiteScoreMate = isBlackTurn ? -info.scoreMate : info.scoreMate;
+    const sign = whiteScoreMate > 0 ? '+' : '-';
+    evalScoreEl.textContent = `${sign}M${Math.abs(whiteScoreMate)}`;
+    evalBarEl.style.width = whiteScoreMate > 0 ? '98%' : '2%';
   }
 
   // Draw arrow on board for best move if available
