@@ -1,44 +1,27 @@
 use chess_base::{bitboard, prelude::*};
 use lucky_chess::attacks::*;
-use lucky_chess::move_gen::{Black, White};
-
-#[test]
-fn test_pawn_moves() {
-    let e4 = Sq::E4;
-    let white_moves = pawn_moves(e4, Color::White);
-    assert_eq!(white_moves, Sq::E5.bitboard());
-
-    let black_moves = pawn_moves(e4, Color::Black);
-    assert_eq!(black_moves, Sq::E3.bitboard());
-
-    let a8 = Sq::A8;
-    assert_eq!(pawn_moves(a8, Color::White), 0);
-
-    let a1 = Sq::A1;
-    assert_eq!(pawn_moves(a1, Color::Black), 0);
-}
 
 #[test]
 fn test_pawn_attacks() {
     let e4 = Sq::E4;
-    let white_attacks = pawn_attacks::<White>(e4);
+    let white_attacks = pawn_attacks(e4, Color::White);
     let expected_white = Sq::D5.bitboard() | Sq::F5.bitboard();
     assert_eq!(white_attacks, expected_white);
 
-    let black_attacks = pawn_attacks::<Black>(e4);
+    let black_attacks = pawn_attacks(e4, Color::Black);
     let expected_black = Sq::D3.bitboard() | Sq::F3.bitboard();
     assert_eq!(black_attacks, expected_black);
 
     let a4 = Sq::A4;
-    let white_a4 = pawn_attacks::<White>(a4);
+    let white_a4 = pawn_attacks(a4, Color::White);
     assert_eq!(white_a4, Sq::B5.bitboard());
 
     let h4 = Sq::H4;
-    let black_h4 = pawn_attacks::<Black>(h4);
+    let black_h4 = pawn_attacks(h4, Color::Black);
     assert_eq!(black_h4, Sq::G3.bitboard());
 
-    assert_eq!(pawn_attacks::<White>(Sq::A8), 0);
-    assert_eq!(pawn_attacks::<Black>(Sq::H1), 0);
+    assert_eq!(pawn_attacks(Sq::A8, Color::White), 0);
+    assert_eq!(pawn_attacks(Sq::H1, Color::Black), 0);
 }
 
 #[test]

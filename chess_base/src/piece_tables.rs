@@ -1,4 +1,20 @@
-use chess_base::{bitboard::*, for_each_square, prelude::*};
+use crate::{Color, Dir, Sq, bitboard::*, for_each_square};
+
+
+pub static PAWN_ATTACKS: [[u64; Sq::NB]; Color::NB] = const {
+    let mut result = [[0; Sq::NB]; Color::NB];
+
+    for_each_square!(sq => {
+        let bb = sq.bitboard();
+
+        result[Color::Black as usize][sq as usize] =
+            sh_south_west(bb) | sh_south_east(bb);
+        result[Color::White as usize][sq as usize] =
+            sh_north_west(bb) | sh_north_east(bb)
+    });
+
+    result
+};
 
 pub static KNIGHT_ATTACKS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
@@ -38,7 +54,7 @@ pub static KING_ATTACKS: [u64; Sq::NB] = const {
     result
 };
 
-pub static BISHOP_XRAY_ATTACKS: [u64; Sq::NB] = const {
+pub static BISHOP_RAYS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
 
     for_each_square!(sq => {
@@ -51,7 +67,7 @@ pub static BISHOP_XRAY_ATTACKS: [u64; Sq::NB] = const {
     result
 };
 
-pub static ROOK_XRAY_ATTACKS: [u64; Sq::NB] = const {
+pub static ROOK_RAYS: [u64; Sq::NB] = const {
     let mut result = [0; Sq::NB];
 
     for_each_square!(sq => {

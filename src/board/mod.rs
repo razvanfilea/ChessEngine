@@ -146,7 +146,7 @@ impl Board {
         let enemy_knights = self.pieces(Piece::Knight) & enemy;
         let enemy_kings = self.pieces(Piece::King) & enemy;
 
-        (pawn_attacks_color(attacked_sq, !attacking_color) & enemy_pawns)
+        (pawn_attacks(attacked_sq, !attacking_color) & enemy_pawns)
             | (knight_attacks(attacked_sq) & enemy_knights)
             | (bishop_attacks(attacked_sq, occupied) & enemy_bishop)
             | (rook_attacks(attacked_sq, occupied) & enemy_rook)

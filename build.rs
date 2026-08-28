@@ -1,7 +1,4 @@
-#[allow(dead_code)]
-#[path = "src/attacks/pattern.rs"]
-mod pattern;
-
+use chess_base::piece_tables::{BISHOP_RAYS, ROOK_RAYS};
 use chess_base::{bitboard, for_each_square};
 use std::env;
 use std::fs::File;
@@ -42,7 +39,7 @@ fn main() {
 
     for_each_square!(sq => {
         rook_offsets[sq as usize] = current_index as u32;
-        let mask = pattern::ROOK_XRAY_ATTACKS[sq as usize] & !bitboard::bb_get_edge_filter(sq);
+        let mask = ROOK_RAYS[sq as usize] & !bitboard::bb_get_edge_filter(sq);
         rook_masks[sq as usize] = mask;
         let combinations = 1usize << mask.count_ones();
         for j in 0..combinations {
@@ -54,7 +51,7 @@ fn main() {
 
     for_each_square!(sq => {
         bishop_offsets[sq as usize] = current_index as u32;
-        let mask = pattern::BISHOP_XRAY_ATTACKS[sq as usize] & !bitboard::bb_get_edge_filter(sq);
+        let mask = BISHOP_RAYS[sq as usize] & !bitboard::bb_get_edge_filter(sq);
         bishop_masks[sq as usize] = mask;
         let combinations = 1usize << mask.count_ones();
         for j in 0..combinations {
