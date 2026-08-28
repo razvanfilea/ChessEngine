@@ -15,7 +15,6 @@ mod sliders_attack {
 
 use chess_base::{bitboard::*, prelude::*};
 
-use crate::move_gen::{Black, Player, White};
 
 pub const fn pawn_moves(sq: Sq, color: Color) -> u64 {
     let bb = sq.bitboard();

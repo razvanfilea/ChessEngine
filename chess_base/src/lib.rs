@@ -14,5 +14,7 @@ pub use piece::*;
 pub use square::*;
 
 pub mod prelude {
-    pub use crate::{CastlingRights, Color, ColoredPiece, Dir, Move, MoveFlags, Piece, Sq};
+    pub use crate::{
+        Black, CastlingRights, Color, ColoredPiece, Dir, Move, MoveFlags, Piece, Player, Sq, White,
+    };
 }
