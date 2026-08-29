@@ -67,6 +67,16 @@ impl Move {
     }
 
     #[inline(always)]
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    #[inline(always)]
+    pub const unsafe fn from_bits_unchecked(val: u16) -> Self {
+        Self(val)
+    }
+
+    #[inline(always)]
     const fn flags_bits(self) -> u8 {
         (self.0 >> 12) as u8
     }
