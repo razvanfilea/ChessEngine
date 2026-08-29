@@ -56,6 +56,22 @@ macro_rules! for_each_bit {
     }};
 }
 
+/// Iterates over all subsets of a bitboard mask.
+#[macro_export]
+macro_rules! for_subsets {
+    ($subset_name:ident in $mask:expr => $body:block) => {
+        let mut $subset_name = $mask;
+            loop {
+                $body
+
+                $subset_name = $subset_name.wrapping_sub(1) & $mask;
+                if $subset_name == $mask {
+                    break;
+            }
+        }
+    };
+}
+
 #[inline(always)]
 pub const fn sh_dir(dir: Dir, bb: u64) -> u64 {
     match dir {
