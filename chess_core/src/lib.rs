@@ -6,6 +6,7 @@ mod dir;
 mod piece;
 mod square;
 pub mod piece_tables;
+pub mod prng;
 
 pub use castling::*;
 pub use chess_move::*;
