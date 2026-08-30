@@ -37,28 +37,25 @@ pub struct MoveGenerator {
     stage: GenStage,
     list_index: usize,
     quiescence: bool,
-    pub generated_count: usize,
+    tt_move: Move,
 }
 
-impl Default for MoveGenerator {
-    fn default() -> Self {
+impl MoveGenerator {
+    pub fn new(tt_move: Move) -> Self {
         Self {
             list: MoveList::default(),
             score_list: [0; MAX_MOVES],
             stage: GenStage::default(),
             list_index: 0,
             quiescence: false,
-            generated_count: 0,
+            tt_move,
         }
     }
-}
 
-impl MoveGenerator {
-    pub fn quiescence() -> Self {
-        Self {
-            quiescence: true,
-            ..Default::default()
-        }
+    pub fn quiescence(tt_move: Move) -> Self {
+        let mut move_gen = Self::new(tt_move);
+        move_gen.quiescence = true;
+        move_gen
     }
 
     pub fn next(&mut self, board: &Board, killer_moves: KillerMoves) -> Option<Move> {
@@ -78,6 +75,10 @@ impl MoveGenerator {
 
                 let mov = self.list.as_slice()[self.list_index];
                 self.list_index += 1;
+                if mov == self.tt_move {
+                    continue;
+                }
+
                 return Some(mov);
             }
 
@@ -91,6 +92,10 @@ impl MoveGenerator {
                     } else {
                         self.stage = GenStage::Captures;
                     }
+
+                    if board.pseudo_legal(self.tt_move) {
+                        return Some(self.tt_move);
+                    }
                 }
                 GenStage::Captures => {
                     let ptr = if board.to_play == Color::White {
@@ -100,7 +105,6 @@ impl MoveGenerator {
                     };
                     self.list.update_size(ptr);
 
-                    self.generated_count += self.list.len();
                     self.score_captures(board);
 
                     if self.quiescence {
@@ -117,7 +121,6 @@ impl MoveGenerator {
                     };
                     self.list.update_size(ptr);
 
-                    self.generated_count += self.list.len();
                     self.score_quiets(killer_moves);
                     self.stage = GenStage::Done;
                 }
@@ -129,7 +132,6 @@ impl MoveGenerator {
                     };
                     self.list.update_size(ptr);
 
-                    self.generated_count += self.list.len();
                     self.score_list[..self.list.len()].fill(0); // TODO
                     self.stage = GenStage::Done;
                 }
@@ -162,6 +164,19 @@ impl MoveGenerator {
             };
         }
     }
+}
+
+pub fn gen_all_moves(board: &Board) -> MoveList {
+    let in_check = board.checkers != 0;
+    let mut moves = MoveList::default();
+    let ptr = match (board.to_play, in_check) {
+        (Color::White, true) => generate_moves::<White, Evasions>(board, moves.as_ptr()),
+        (Color::White, false) => generate_moves::<White, NonEvasions>(board, moves.as_ptr()),
+        (Color::Black, true) => generate_moves::<Black, Evasions>(board, moves.as_ptr()),
+        (Color::Black, false) => generate_moves::<Black, NonEvasions>(board, moves.as_ptr()),
+    };
+    moves.update_size(ptr);
+    moves
 }
 
 pub fn gen_moves<Us: Player, Type: MoveGenType>(board: &Board) -> MoveList {

@@ -1,6 +1,5 @@
 use crate::{Color, Dir, Sq, bitboard::*, for_each_square};
 
-
 pub static PAWN_ATTACKS: [[u64; Sq::NB]; Color::NB] = const {
     let mut result = [[0; Sq::NB]; Color::NB];
 

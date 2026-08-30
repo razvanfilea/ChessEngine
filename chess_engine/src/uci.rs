@@ -122,13 +122,20 @@ uciok"#,
     }
 
     fn start_search(&mut self, depth: u8) {
-        let board = self.board.clone();
-        let stop_requested = self.stop_requested.clone();
-        stop_requested.store(false, Ordering::Relaxed);
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(thread) = self.search_thread.take() {
+            self.stop_requested.store(true, Ordering::Relaxed);
+            let _ = thread.join();
+        }
+
+        self.stop_requested.store(false, Ordering::Relaxed);
 
         if let Some(tt) = Arc::get_mut(&mut self.tt) {
             tt.new_search();
         }
+
+        let board = self.board.clone();
+        let stop_requested = self.stop_requested.clone();
         let tt = self.tt.clone();
         let output_cb = self.output_cb.clone();
 
@@ -144,9 +151,6 @@ uciok"#,
 
         #[cfg(not(target_family = "wasm"))]
         {
-            if let Some(thread) = self.search_thread.take() {
-                let _ = thread.join();
-            }
             self.search_thread = Some(std::thread::spawn(run_search));
         }
 
@@ -157,7 +161,7 @@ uciok"#,
     }
 
     fn find_move(&mut self, uci_move: uci_parser::types::UciMove) -> Option<Move> {
-        let mut generator = MoveGenerator::default();
+        let mut generator = MoveGenerator::new(Move::NONE);
         let from_sq = Sq::new(uci_move.src.0 as u8, uci_move.src.1 as u8)?;
         let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
 

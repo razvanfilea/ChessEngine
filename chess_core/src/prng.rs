@@ -38,4 +38,3 @@ impl Prng {
         self.random() & self.random() & self.random()
     }
 }
-

@@ -37,7 +37,9 @@ impl MoveList {
     }
 
     pub const fn as_slice_mut(&mut self) -> &mut [Move] {
-        unsafe { core::slice::from_raw_parts_mut(self.moves.as_mut_ptr().cast::<Move>(), self.size) }
+        unsafe {
+            core::slice::from_raw_parts_mut(self.moves.as_mut_ptr().cast::<Move>(), self.size)
+        }
     }
 
     #[inline(always)]

@@ -4,9 +4,9 @@ mod chess_move;
 mod color;
 mod dir;
 mod piece;
-mod square;
 pub mod piece_tables;
 pub mod prng;
+mod square;
 
 pub use castling::*;
 pub use chess_move::*;
