@@ -1,6 +1,5 @@
 use chess_core::{for_each_square, prelude::*, prng::Prng};
 
-
 pub struct ZobristKeys {
     pieces: [[[u64; Color::NB]; Piece::NB]; Sq::NB],
     side: u64,

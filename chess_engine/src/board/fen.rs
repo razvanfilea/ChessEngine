@@ -76,8 +76,7 @@ pub fn parse_fen(fen: &str) -> Option<Board> {
     let counter = full_move
         .and_then(|val| val.parse::<u16>().ok())
         .unwrap_or(1);
-    board.ply =
-        (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
+    board.ply = (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
 
     if board.to_play == Color::White {
         board.hash ^= ZOBRIST_KEYS.side();
@@ -138,7 +137,11 @@ pub fn format_fen(board: &Board) -> String {
 
     // 2. Active color
     fen.push(' ');
-    fen.push(if board.to_play == Color::White { 'w' } else { 'b' });
+    fen.push(if board.to_play == Color::White {
+        'w'
+    } else {
+        'b'
+    });
 
     // 3. Castling availability
     fen.push(' ');

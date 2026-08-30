@@ -2,6 +2,7 @@ use chess_core::{for_each_bit, prelude::*};
 
 use crate::board::Board;
 
+pub const EVAL_NONE: i16 = 30_001;
 pub const INFINITY: i16 = 30_000;
 pub const MATE_THRESHOLD: i16 = 29_000;
 

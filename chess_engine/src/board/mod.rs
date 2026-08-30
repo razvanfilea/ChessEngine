@@ -4,8 +4,9 @@ use std::hint::assert_unchecked;
 pub mod fen;
 
 use crate::attacks::*;
+use crate::move_gen::gen_all_moves;
 use crate::zobrist::ZOBRIST_KEYS;
-use chess_core::bitboard::LIGHT_SQUARES;
+use chess_core::bitboard::{LIGHT_SQUARES, bb_several};
 use chess_core::{
     bitboard::{bb_between, bb_line, bb_lsb, bb_only_one},
     for_each_bit,
@@ -151,6 +152,111 @@ impl Board {
             | (bishop_attacks(attacked_sq, occupied) & enemy_bishop)
             | (rook_attacks(attacked_sq, occupied) & enemy_rook)
             | (king_attacks(attacked_sq) & enemy_kings)
+    }
+
+    pub fn pseudo_legal(&self, mov: Move) -> bool {
+        if mov.is_none() {
+            return false;
+        }
+
+        let from = mov.from();
+        let to = mov.to();
+        if from == to {
+            return false;
+        }
+
+        let to_bb = to.bitboard();
+        let occupied = self.occupied();
+        let us = self.to_play;
+
+        let Some(colored_piece) = self.piece_at(from).filter(|p| p.color() == us) else {
+            return false;
+        };
+        let piece = colored_piece.piece();
+
+        if to_bb & self.colors(us) != 0 {
+            return false;
+        }
+
+        if mov.is_promotion() || mov.is_castle() || mov.flags() == MoveFlags::EnPassant {
+            return gen_all_moves(self).as_slice().contains(&mov);
+        }
+
+        if self.checkers != 0 {
+            if piece == Piece::King {
+                if king_attacks(from) & to_bb == 0 {
+                    return false;
+                }
+                return self.validate_capture_flag(mov, to_bb);
+            }
+
+            // Double check: only king moves can evade
+            if bb_several(self.checkers) {
+                return false;
+            }
+
+            // Single check: non-king piece must capture checker or interpose/block ray
+            let checker_sq = unsafe { bb_lsb(self.checkers) };
+            let king_sq = self.king_sq(us);
+            let evasion_mask = self.checkers | bb_between(king_sq, checker_sq);
+
+            let is_ep = mov.flags() == MoveFlags::EnPassant;
+            if !is_ep && (to_bb & evasion_mask == 0) {
+                return false;
+            }
+        }
+
+        if !self.validate_capture_flag(mov, to_bb) {
+            return false;
+        }
+
+        if mov.flags() == MoveFlags::DoublePawn && piece != Piece::Pawn {
+            return false;
+        }
+
+        match piece {
+            Piece::Pawn => {
+                let promo_rank = if us == Color::White { 7 } else { 0 };
+                if to.rank() == promo_rank {
+                    return false;
+                }
+
+                let forward_dir = if us == Color::White {
+                    Dir::North
+                } else {
+                    Dir::South
+                };
+                let start_rank = if us == Color::White { 1 } else { 6 };
+                let single_push_sq = unsafe { from.shift(forward_dir) };
+
+                if mov.is_capture() {
+                    pawn_attacks(from, us) & to_bb != 0
+                } else if to == single_push_sq {
+                    mov.flags() == MoveFlags::Quiet
+                } else if from.rank() == start_rank {
+                    let double_push_sq = unsafe { single_push_sq.shift(forward_dir) };
+                    to == double_push_sq
+                        && (single_push_sq.bitboard() & occupied) == 0
+                        && mov.flags() == MoveFlags::DoublePawn
+                } else {
+                    false
+                }
+            }
+            Piece::Knight => knight_attacks(from) & to_bb != 0,
+            Piece::Bishop => bishop_attacks(from, occupied) & to_bb != 0,
+            Piece::Rook => rook_attacks(from, occupied) & to_bb != 0,
+            Piece::Queen => queen_attacks(from, occupied) & to_bb != 0,
+            Piece::King => king_attacks(from) & to_bb != 0,
+        }
+    }
+
+    #[inline(always)]
+    fn validate_capture_flag(&self, mov: Move, to_bb: u64) -> bool {
+        if mov.is_capture() {
+            (to_bb & self.colors(!self.to_play)) != 0
+        } else {
+            (to_bb & self.occupied()) == 0
+        }
     }
 
     pub fn legal(&self, mov: Move) -> bool {

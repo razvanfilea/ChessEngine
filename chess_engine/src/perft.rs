@@ -1,27 +1,11 @@
-use chess_core::prelude::*;
-
-use crate::{
-    board::Board,
-    move_gen::{Black, Evasions, MoveList, NonEvasions, White, generate_moves},
-};
+use crate::{board::Board, move_gen::gen_all_moves};
 
 pub fn perft(board: &mut Board, depth: u8) -> u64 {
     if depth == 0 {
         return 1;
     }
 
-    let us = board.to_play;
-
-    let in_check = board.checkers != 0;
-    let mut moves = MoveList::default();
-    let ptr = match (us, in_check) {
-        (Color::White, true) => generate_moves::<White, Evasions>(board, moves.as_ptr()),
-        (Color::White, false) => generate_moves::<White, NonEvasions>(board, moves.as_ptr()),
-        (Color::Black, true) => generate_moves::<Black, Evasions>(board, moves.as_ptr()),
-        (Color::Black, false) => generate_moves::<Black, NonEvasions>(board, moves.as_ptr()),
-    };
-    moves.update_size(ptr);
-
+    let moves = gen_all_moves(board);
     let mut nodes = 0;
     for mov in moves.as_slice() {
         if !board.legal(*mov) {
