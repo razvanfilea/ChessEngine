@@ -1,8 +1,8 @@
-// Web Worker running lucky_chess wasm64 engine
+// Web Worker running lucky_chess wasm engine
 
 let wasmExports = null;
-let ffiStatePtr = 0n;
-let cmdBufferPtr = 0n;
+let ffiStatePtr = 0;
+let cmdBufferPtr = 0;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -14,7 +14,12 @@ async function initEngine(wasmPath = 'lucky_chess.wasm') {
       throw new Error(`Failed to load WASM binary: ${response.statusText}`);
     }
     const bytes = await response.arrayBuffer();
-    const { instance } = await WebAssembly.instantiate(bytes, {});
+    const imports = {
+      env: {
+        performance_now: () => performance.now(),
+      },
+    };
+    const { instance } = await WebAssembly.instantiate(bytes, imports);
 
     wasmExports = instance.exports;
     ffiStatePtr = wasmExports.uci_new();
@@ -31,11 +36,11 @@ async function initEngine(wasmPath = 'lucky_chess.wasm') {
 }
 
 function sendCommand(cmd) {
-  if (!wasmExports || ffiStatePtr === 0n) return;
+  if (!wasmExports || !ffiStatePtr) return;
 
   const encoded = encoder.encode(cmd);
   const memoryBuf = new Uint8Array(wasmExports.memory.buffer);
-  const offset = Number(cmdBufferPtr);
+  const offset = cmdBufferPtr;
 
   if (encoded.length > 4096) {
     console.error('Command too long for buffer');
@@ -43,19 +48,19 @@ function sendCommand(cmd) {
   }
 
   memoryBuf.set(encoded, offset);
-  wasmExports.uci_send_cmd(ffiStatePtr, BigInt(encoded.length));
+  wasmExports.uci_send_cmd(ffiStatePtr, encoded.length);
 
   drainOutputs();
 }
 
 function drainOutputs() {
-  if (!wasmExports || ffiStatePtr === 0n) return;
+  if (!wasmExports || !ffiStatePtr) return;
 
   while (true) {
     const memoryBuf = new Uint8Array(wasmExports.memory.buffer);
-    const offset = Number(cmdBufferPtr);
-    const n = wasmExports.uci_read_output(ffiStatePtr, cmdBufferPtr, 4096n);
-    const bytesRead = Number(n);
+    const offset = cmdBufferPtr;
+    const n = wasmExports.uci_read_output(ffiStatePtr, cmdBufferPtr, 4096);
+    const bytesRead = n;
     if (bytesRead === 0) break;
 
     const line = decoder.decode(memoryBuf.subarray(offset, offset + bytesRead)).trim();
@@ -105,7 +110,7 @@ self.onmessage = (event) => {
       sendCommand(cmd);
       break;
     case 'stop':
-      if (wasmExports && ffiStatePtr !== 0n) {
+      if (wasmExports && ffiStatePtr) {
         wasmExports.uci_stop(ffiStatePtr);
         drainOutputs();
       }

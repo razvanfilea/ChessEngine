@@ -39,7 +39,7 @@ function initWorker() {
     switch (data.type) {
       case 'ready':
         statusDot.className = 'dot ready';
-        statusText.textContent = 'Engine Ready (WASM64)';
+        statusText.textContent = 'Engine Ready';
         checkEngineTurn();
         break;
 

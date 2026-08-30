@@ -11,8 +11,9 @@ rustflags = [
     "-C", "debuginfo=0",
     "-C", "strip=symbols",
     "-C", "panic=abort",
+    "-C", "target-feature=+simd128",
 ]
 
 [alias]
-build-wasm64 = "build -p chess_web --target wasm64-unknown-unknown --release -Z build-std=std,panic_abort"
+build-wasm = "build -p chess_web --target wasm32-unknown-unknown --release"
 
