@@ -128,8 +128,10 @@ impl Board {
         unsafe { bb_lsb(king_bb) }
     }
 
-    pub fn is_draw(&self) -> bool {
-        self.half_move_clock >= 100 || self.has_insufficient_material() || self.is_repetition()
+    pub fn is_draw(&self, ply_from_root: u16) -> bool {
+        self.half_move_clock >= 100
+            || self.is_repetition(ply_from_root)
+            || self.has_insufficient_material()
     }
 
     pub fn generate_attackers(
@@ -259,6 +261,7 @@ impl Board {
         }
     }
 
+    #[inline]
     pub fn legal(&self, mov: Move) -> bool {
         let occupied = self.occupied();
         let from = mov.from();
@@ -396,7 +399,7 @@ impl Board {
         self.castling_rights &= CastlingRights::mask_for_move(from, to);
         self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);
 
-        if let Some(en_passsant) = self.en_passant_target_sq {
+        if let Some(en_passsant) = self.en_passant_target_sq.take() {
             self.hash ^= ZOBRIST_KEYS.en_passant(en_passsant);
         }
         if flags == MoveFlags::DoublePawn {
@@ -409,8 +412,6 @@ impl Board {
             };
             self.hash ^= ZOBRIST_KEYS.en_passant(target_sq);
             self.en_passant_target_sq = Some(target_sq);
-        } else {
-            self.en_passant_target_sq = None;
         }
 
         if is_pawn || is_capture {
@@ -490,6 +491,50 @@ impl Board {
         self.ply -= 1;
         self.hash_history[self.ply as usize] = 0;
         self.to_play = us;
+    }
+
+    pub fn make_null_move(&mut self) -> UndoInfo {
+        debug_assert!(self.checkers == 0);
+
+        let us = self.to_play;
+        let original_hash = self.hash;
+        self.hash_history[self.ply as usize] = original_hash;
+
+        let info = UndoInfo {
+            captured_piece: None,
+            castling_rights: self.castling_rights,
+            en_passant_target_sq: self.en_passant_target_sq,
+            half_move_clock: self.half_move_clock,
+            checkers: self.checkers,
+            pinned: self.pinned,
+            hash: original_hash,
+        };
+
+        if let Some(en_passant) = self.en_passant_target_sq.take() {
+            self.hash ^= ZOBRIST_KEYS.en_passant(en_passant);
+        }
+
+        self.half_move_clock += 1;
+        self.ply += 1;
+        self.to_play = !us;
+        self.hash ^= ZOBRIST_KEYS.side();
+        self.checkers = 0;
+        self.set_pinned();
+
+        info
+    }
+
+    pub fn undo_null_move(&mut self, info: UndoInfo) {
+        self.castling_rights = info.castling_rights;
+        self.en_passant_target_sq = info.en_passant_target_sq;
+        self.half_move_clock = info.half_move_clock;
+        self.checkers = info.checkers;
+        self.pinned = info.pinned;
+        self.hash = info.hash;
+
+        self.ply -= 1;
+        self.hash_history[self.ply as usize] = 0;
+        self.to_play = !self.to_play;
     }
 }
 
@@ -577,26 +622,24 @@ impl Board {
 
         let knights = self.pieces(Piece::Knight);
         let bishops = self.pieces(Piece::Bishop);
-        let piece_count = (knights | bishops).count_ones();
+        let minors = knights | bishops;
 
         // King vs King
-        if piece_count == 0 {
+        if minors == 0 {
             return true;
         }
 
         // King + Minor vs King (K+N vs K or K+B vs K)
-        if piece_count == 1 {
+        if bb_only_one(minors) {
             return true;
         }
 
         // King + Bishop vs King + Bishop on the same color squares
-        if piece_count == 2 && knights == 0 {
-            let white_bishops = self.color_piece(Piece::Bishop, Color::White);
-            let black_bishops = self.color_piece(Piece::Bishop, Color::Black);
+        if knights == 0 && bb_only_one(minors & minors.wrapping_sub(1)) {
+            let white_bishops = bishops & self.colors(Color::White);
+            let black_bishops = bishops & self.colors(Color::Black);
             if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
-                let white_is_light = (white_bishops & LIGHT_SQUARES) != 0;
-                let black_is_light = (black_bishops & LIGHT_SQUARES) != 0;
-                return white_is_light == black_is_light;
+                return (white_bishops & LIGHT_SQUARES != 0) == (black_bishops & LIGHT_SQUARES != 0);
             }
         }
 
@@ -604,22 +647,22 @@ impl Board {
     }
 
     #[inline(always)]
-    fn is_repetition(&self) -> bool {
+    fn is_repetition(&self, ply_from_root: u16) -> bool {
         let current_hash = self.hash;
         let count = self.half_move_clock as usize;
         let len = self.ply as usize;
+        let limit = count.min(len).min(ply_from_root as usize);
 
-        if len < 4 || count < 4 {
+        if limit < 4 {
             return false;
         }
 
-        // Only check every 2 plies back (same side to move), no further than the
-        // half-move clock -- any irreversible move resets it and bars repetition.
-        for i in (2..=count.min(len)).step_by(2) {
+        for i in (2..=limit).step_by(2) {
             if self.hash_history[len - i] == current_hash {
                 return true;
             }
         }
+
         false
     }
 }

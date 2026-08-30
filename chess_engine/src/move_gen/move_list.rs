@@ -11,7 +11,7 @@ pub struct MoveList {
 impl Default for MoveList {
     fn default() -> Self {
         Self {
-            moves: unsafe { MaybeUninit::uninit().assume_init() },
+            moves: [const { MaybeUninit::uninit() }; MAX_MOVES],
             size: 0,
         }
     }
