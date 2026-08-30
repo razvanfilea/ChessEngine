@@ -1,5 +1,5 @@
 use crate::time::Instant;
-use chess_core::Move;
+use chess_core::{Color, Move, Sq};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -9,19 +9,57 @@ use crate::{board::Board, eval::eval_board, move_gen::MoveGenerator};
 
 const MAX_PLY: u16 = 64;
 const MAX_KILLER_MOVES: usize = 2;
+const MAX_HISTORY: i32 = 10_000;
+
+pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
+
+impl Default for HistoryTable {
+    fn default() -> Self {
+        Self([[[0; Sq::NB]; Sq::NB]; Color::NB])
+    }
+}
+
+impl HistoryTable {
+    #[inline(always)]
+    pub fn get(&self, side: Color, from: Sq, to: Sq) -> i16 {
+        self.0[side as usize][from as usize][to as usize]
+    }
+
+    /// Gravity update formula: naturally bounds values in [-MAX_HISTORY, MAX_HISTORY]
+    /// without ever overflowing i16 or requiring periodic resets.
+    #[inline(always)]
+    pub fn update(&mut self, side: Color, from: Sq, to: Sq, depth: u8) {
+        let bonus = depth as i32 * depth as i32;
+
+        let entry = &mut self.0[side as usize][from as usize][to as usize];
+        let current = *entry as i32;
+
+        // Gravity formula: current + bonus - (current * |bonus| / MAX_HISTORY)
+        let clamped_bonus = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
+        let new_val = current + clamped_bonus - (current * clamped_bonus.abs() / MAX_HISTORY);
+
+        *entry = new_val as i16;
+    }
+
+    pub fn clear(&mut self) {
+        self.0 = [[[0; Sq::NB]; Sq::NB]; Color::NB];
+    }
+}
 
 pub type KillerMoves = [Move; MAX_KILLER_MOVES];
 type KillerMovesArray = [KillerMoves; MAX_PLY as usize];
 
+#[repr(C)] // to guarantee order
 struct Searcher<'a> {
     board: Board,
-    stop_requested: Arc<AtomicBool>,
     tt: &'a TranspositionTable,
     nodes_searched: u64,
-    killer_moves: KillerMovesArray,
     root_ply: u16,
+    killer_moves: KillerMovesArray,
+    history: HistoryTable,
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
-    pv_length: [usize; MAX_PLY as usize],
+    pv_length: [u16; MAX_PLY as usize],
+    stop_requested: Arc<AtomicBool>,
 }
 
 impl<'a> Searcher<'a> {
@@ -33,6 +71,7 @@ impl<'a> Searcher<'a> {
             tt,
             nodes_searched: 0,
             killer_moves: [[Move::default(); MAX_KILLER_MOVES]; MAX_PLY as usize],
+            history: HistoryTable::default(),
             root_ply,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
             pv_length: [0; MAX_PLY as usize],
@@ -44,9 +83,11 @@ impl<'a> Searcher<'a> {
         self.board.ply - self.root_ply
     }
 
+    #[inline(always)]
     fn get_killer_moves(&self) -> KillerMoves {
         let ply = self.ply() as usize;
-        self.killer_moves.get(ply).copied().unwrap_or_default()
+        debug_assert!(ply < MAX_PLY as usize);
+        unsafe { *self.killer_moves.get_unchecked(ply) }
     }
 
     fn set_killer_move(&mut self, current_move: Move) {
@@ -73,20 +114,14 @@ impl<'a> Searcher<'a> {
     #[inline(always)]
     fn update_pv(&mut self, ply: u16, mov: Move) {
         let ply = ply as usize;
-        if ply >= MAX_PLY as usize {
+        if ply >= MAX_PLY as usize - 1 {
             return;
         }
         self.pv_table[ply][0] = mov;
-        let next_len = if ply + 1 < MAX_PLY as usize {
-            self.pv_length[ply + 1]
-        } else {
-            0
-        };
-        let copy_len = next_len.min(MAX_PLY as usize - 1);
-        for i in 0..copy_len {
-            self.pv_table[ply][i + 1] = self.pv_table[ply + 1][i];
-        }
-        self.pv_length[ply] = copy_len + 1;
+        let copy_len = self.pv_length[ply + 1].min(MAX_PLY - 1) as usize;
+        let (current, rest) = self.pv_table[ply..].split_at_mut(1);
+        current[0][1..1 + copy_len].copy_from_slice(&rest[0][..copy_len]);
+        self.pv_length[ply] = copy_len as u16 + 1;
     }
 
     fn nega_max(&mut self, mut alpha: i16, beta: i16, depth: u8) -> i16 {
@@ -94,7 +129,7 @@ impl<'a> Searcher<'a> {
         self.pv_length[ply as usize] = 0;
         self.nodes_searched += 1;
 
-        if self.board.ply > 0 && self.board.is_draw() {
+        if self.board.ply > 0 && self.board.is_draw(ply) {
             return 0;
         }
         if ply >= MAX_PLY - 1 {
@@ -125,7 +160,7 @@ impl<'a> Searcher<'a> {
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
 
-        while let Some(mov) = moves.next(&self.board, self.get_killer_moves()) {
+        while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
             if !self.board.legal(mov) {
                 continue;
             }
@@ -146,7 +181,13 @@ impl<'a> Searcher<'a> {
             if score >= beta {
                 if !mov.is_capture() {
                     self.set_killer_move(mov);
+
+                    self.history
+                        .update(self.board.to_play, mov.from(), mov.to(), depth);
+
+                    // TODO: Maybe penalize previous quiet moves that failed to cause a cutoff
                 }
+
                 self.store_tt(mov, best_score, depth, TTFlag::LowerBound);
                 return best_score;
             }
@@ -205,7 +246,7 @@ impl<'a> Searcher<'a> {
 
         let mut moves = MoveGenerator::quiescence(tt_move);
 
-        while let Some(mov) = moves.next(&self.board, self.get_killer_moves()) {
+        while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
             if !in_check && (!mov.is_capture() && !mov.is_promotion()) {
                 continue;
             }
@@ -234,7 +275,7 @@ impl<'a> Searcher<'a> {
     }
 
     fn uci_info(&mut self, depth: u8, score: i16, start_time: Instant) -> String {
-        let pv_str = self.pv_table[0][..self.pv_length[0]]
+        let pv_str = self.pv_table[0][..self.pv_length[0] as usize]
             .iter()
             .map(|&m| crate::uci::format_move(m))
             .collect::<Vec<_>>()
@@ -270,7 +311,8 @@ pub fn search(
         let mut alpha = -INFINITY;
         let beta = INFINITY;
 
-        while let Some(mov) = moves.next(&search.board, search.get_killer_moves()) {
+        while let Some(mov) = moves.next(&search.board, search.get_killer_moves(), &search.history)
+        {
             if !search.board.legal(mov) {
                 continue;
             }

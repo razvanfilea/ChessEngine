@@ -7,7 +7,6 @@ use crate::zobrist::ZOBRIST_KEYS;
 
 pub const START_POS_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-/// Parses a FEN (Forsyth–Edwards Notation) string into a `Board`.
 pub fn parse_fen(fen: &str) -> Option<Board> {
     let mut board = Board::default();
 
@@ -94,7 +93,6 @@ pub fn parse_fen(fen: &str) -> Option<Board> {
     Some(board)
 }
 
-/// Formats a `Board` state into its standard FEN string representation.
 pub fn format_fen(board: &Board) -> String {
     let mut fen = String::with_capacity(90);
 

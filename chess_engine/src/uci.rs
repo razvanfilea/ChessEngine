@@ -5,7 +5,7 @@ use uci_parser::UciCommand;
 
 use crate::eval::INFINITY;
 use crate::transposition::TranspositionTable;
-use crate::{board::Board, move_gen::MoveGenerator, search::search};
+use crate::{board::Board, move_gen::gen_all_moves, search::search};
 
 pub type OutputCallback = Arc<dyn Fn(String) + Send + Sync>;
 
@@ -161,11 +161,10 @@ uciok"#,
     }
 
     fn find_move(&mut self, uci_move: uci_parser::types::UciMove) -> Option<Move> {
-        let mut generator = MoveGenerator::new(Move::NONE);
         let from_sq = Sq::new(uci_move.src.0 as u8, uci_move.src.1 as u8)?;
         let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
 
-        while let Some(mov) = generator.next(&self.board, [Move::default(); 2]) {
+        for &mov in gen_all_moves(&self.board).as_slice() {
             if mov.from() == from_sq && mov.to() == to_sq && self.board.legal(mov) {
                 // Check promotion match if applicable
                 if let Some(target_promo) = uci_move.promote {

@@ -1,25 +1,20 @@
+use std::mem::MaybeUninit;
+
 use chess_core::prelude::*;
 
-use crate::{board::Board, search::KillerMoves};
+use crate::{
+    board::Board,
+    search::{HistoryTable, KillerMoves},
+};
 
 mod generate;
 mod move_list;
+mod scoring;
 mod traits;
 
 pub use generate::*;
 pub use move_list::*;
 pub use traits::*;
-
-// Indexed MVV_LVA[victim][attacker], both in `Piece` enum order (P, N, B, R, Q, K).
-// Higher victim value and cheaper attacker => higher score.
-const MVV_LVA: [[u8; Piece::NB]; Piece::NB] = [
-    [15, 14, 13, 12, 11, 10], // victim P; attacker P, N, B, R, Q, K
-    [25, 24, 23, 22, 21, 20], // victim N; attacker P, N, B, R, Q, K
-    [35, 34, 33, 32, 31, 30], // victim B; attacker P, N, B, R, Q, K
-    [45, 44, 43, 42, 41, 40], // victim R; attacker P, N, B, R, Q, K
-    [55, 54, 53, 52, 51, 50], // victim Q; attacker P, N, B, R, Q, K
-    [0, 0, 0, 0, 0, 0],       // victim K; never actually captured
-];
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 enum GenStage {
@@ -33,7 +28,7 @@ enum GenStage {
 
 pub struct MoveGenerator {
     list: MoveList,
-    score_list: [u8; MAX_MOVES],
+    score_list: [MaybeUninit<i16>; MAX_MOVES],
     stage: GenStage,
     list_index: usize,
     quiescence: bool,
@@ -44,7 +39,7 @@ impl MoveGenerator {
     pub fn new(tt_move: Move) -> Self {
         Self {
             list: MoveList::default(),
-            score_list: [0; MAX_MOVES],
+            score_list: [const { MaybeUninit::uninit() }; MAX_MOVES],
             stage: GenStage::default(),
             list_index: 0,
             quiescence: false,
@@ -58,111 +53,145 @@ impl MoveGenerator {
         move_gen
     }
 
-    pub fn next(&mut self, board: &Board, killer_moves: KillerMoves) -> Option<Move> {
+    #[inline(always)]
+    pub fn next(
+        &mut self,
+        board: &Board,
+        killer_moves: KillerMoves,
+        history: &HistoryTable,
+    ) -> Option<Move> {
         loop {
             if self.list_index < self.list.len() {
-                let mut best_index = self.list_index;
-                let mut best_score = self.score_list[self.list_index];
-                for i in (self.list_index + 1)..self.list.len() {
-                    if self.score_list[i] > best_score {
-                        best_score = self.score_list[i];
-                        best_index = i;
-                    }
-                }
-
-                self.list.as_slice_mut().swap(self.list_index, best_index);
-                self.score_list.swap(self.list_index, best_index);
-
-                let mov = self.list.as_slice()[self.list_index];
-                self.list_index += 1;
+                let mov = self.pick_next();
                 if mov == self.tt_move {
                     continue;
                 }
-
                 return Some(mov);
             }
 
-            self.list.clear();
-            self.list_index = 0;
+            if self.stage == GenStage::Done {
+                return None;
+            }
 
-            match self.stage {
-                GenStage::Init => {
-                    if board.checkers != 0 {
-                        self.stage = GenStage::Evasions;
-                    } else {
-                        self.stage = GenStage::Captures;
-                    }
-
-                    if board.pseudo_legal(self.tt_move) {
-                        return Some(self.tt_move);
-                    }
-                }
-                GenStage::Captures => {
-                    let ptr = if board.to_play == Color::White {
-                        generate_moves::<White, Captures>(board, self.list.as_ptr())
-                    } else {
-                        generate_moves::<Black, Captures>(board, self.list.as_ptr())
-                    };
-                    self.list.update_size(ptr);
-
-                    self.score_captures(board);
-
-                    if self.quiescence {
-                        self.stage = GenStage::Done;
-                    } else {
-                        self.stage = GenStage::Quiets;
-                    }
-                }
-                GenStage::Quiets => {
-                    let ptr = if board.to_play == Color::White {
-                        generate_moves::<White, Quiets>(board, self.list.as_ptr())
-                    } else {
-                        generate_moves::<Black, Quiets>(board, self.list.as_ptr())
-                    };
-                    self.list.update_size(ptr);
-
-                    self.score_quiets(killer_moves);
-                    self.stage = GenStage::Done;
-                }
-                GenStage::Evasions => {
-                    let ptr = if board.to_play == Color::White {
-                        generate_moves::<White, Evasions>(board, self.list.as_ptr())
-                    } else {
-                        generate_moves::<Black, Evasions>(board, self.list.as_ptr())
-                    };
-                    self.list.update_size(ptr);
-
-                    self.score_list[..self.list.len()].fill(0); // TODO
-                    self.stage = GenStage::Done;
-                }
-                GenStage::Done => return None,
+            if let Some(mov) = self.advance_stage(board, killer_moves, history) {
+                return Some(mov);
             }
         }
     }
 
-    fn score_captures(&mut self, board: &Board) {
-        for (i, &mv) in self.list.as_slice().iter().enumerate() {
-            // Missing piece during capture must mean en passant
-            let to_piece = board
-                .piece_at(mv.to())
-                .map(|p| p.piece())
-                .unwrap_or(Piece::Pawn);
+    #[inline(always)]
+    fn pick_next(&mut self) -> Move {
+        let idx = self.list_index;
+        let len = self.list.len();
 
-            self.score_list[i] =
-                MVV_LVA[to_piece as usize][board.piece_at(mv.from()).unwrap().piece() as usize];
+        let moves = self.list.as_slice_mut();
+        let scores = &mut self.score_list[..len];
+
+        let mut best_index = idx;
+        let mut best_score = unsafe { scores[idx].assume_init() };
+
+        for i in (idx + 1)..len {
+            let score = unsafe { scores[i].assume_init() };
+            if score > best_score {
+                best_score = score;
+                best_index = i;
+            }
         }
+
+        moves.swap(idx, best_index);
+        scores.swap(idx, best_index);
+
+        self.list_index += 1;
+        moves[idx]
     }
 
-    fn score_quiets(&mut self, killer_moves: KillerMoves) {
-        for (i, &mv) in self.list.as_slice().iter().enumerate() {
-            self.score_list[i] = if mv == killer_moves[0] {
-                2
-            } else if mv == killer_moves[1] {
-                1
-            } else {
-                0
-            };
+    #[inline(never)]
+    fn advance_stage(
+        &mut self,
+        board: &Board,
+        killer_moves: KillerMoves,
+        history: &HistoryTable,
+    ) -> Option<Move> {
+        self.list.clear();
+        self.list_index = 0;
+
+        match self.stage {
+            GenStage::Init => {
+                self.stage = if board.checkers != 0 {
+                    GenStage::Evasions
+                } else {
+                    GenStage::Captures
+                };
+
+                if board.pseudo_legal(self.tt_move) {
+                    return Some(self.tt_move);
+                }
+            }
+            GenStage::Captures => {
+                let ptr = if board.to_play == Color::White {
+                    generate_moves::<White, Captures>(board, self.list.as_ptr())
+                } else {
+                    generate_moves::<Black, Captures>(board, self.list.as_ptr())
+                };
+                self.list.update_size(ptr);
+
+                let len = self.list.len();
+                let moves = self.list.as_slice();
+                for i in 0..len {
+                    let score = scoring::score_capture(moves[i], board);
+                    self.score_list[i].write(score);
+                }
+
+                if self.quiescence {
+                    self.stage = GenStage::Done;
+                } else {
+                    self.stage = GenStage::Quiets;
+                }
+            }
+            GenStage::Quiets => {
+                let ptr = if board.to_play == Color::White {
+                    generate_moves::<White, Quiets>(board, self.list.as_ptr())
+                } else {
+                    generate_moves::<Black, Quiets>(board, self.list.as_ptr())
+                };
+                self.list.update_size(ptr);
+
+                let len = self.list.len();
+                let moves = self.list.as_slice();
+                for i in 0..len {
+                    let score =
+                        scoring::score_quiet(moves[i], killer_moves, history, board.to_play);
+                    self.score_list[i].write(score);
+                }
+
+                self.stage = GenStage::Done;
+            }
+            GenStage::Evasions => {
+                let ptr = if board.to_play == Color::White {
+                    generate_moves::<White, Evasions>(board, self.list.as_ptr())
+                } else {
+                    generate_moves::<Black, Evasions>(board, self.list.as_ptr())
+                };
+                self.list.update_size(ptr);
+
+                let len = self.list.len();
+                let moves = self.list.as_slice();
+                for i in 0..len {
+                    let mov = moves[i];
+                    let score = if mov.is_capture() || mov.is_promotion() {
+                        scoring::score_capture(mov, board)
+                    } else {
+                        scoring::score_quiet(mov, killer_moves, history, board.to_play)
+                    };
+                    self.score_list[i].write(score);
+                }
+
+                self.stage = GenStage::Done;
+            }
+            GenStage::Done => {}
         }
+
+        None
     }
 }
 

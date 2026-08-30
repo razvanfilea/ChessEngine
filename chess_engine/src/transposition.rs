@@ -206,7 +206,7 @@ impl TranspositionTable {
     fn bucket(&self, hash: u64) -> &[AtomicTTEntry; BUCKET_SIZE] {
         // Lemire fastrange mapping across high bits of hash
         let idx = ((hash as u128 * self.buckets.len() as u128) >> 64) as usize;
-        &self.buckets[idx].0
+        unsafe { &self.buckets.get_unchecked(idx).0 }
     }
 
     pub fn probe(&self, hash: u64, ply: u16) -> Option<TTEntry> {
