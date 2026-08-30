@@ -1,17 +1,17 @@
 # ==========================================
-# Stage 1: Build & Optimize wasm64 Engine
+# Stage 1: Build & Optimize WASM Engine
 # ==========================================
 FROM rustlang/rust:nightly-slim AS wasm-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends binaryen && rm -rf /var/lib/apt/lists/*
-RUN rustup component add rust-src
+RUN rustup target add wasm32-unknown-unknown
 
 WORKDIR /app
 COPY . .
 
-# Build wasm64 and optimize with wasm-opt
-RUN cargo build-wasm64 && \
-    wasm-opt -Oz --all-features target/wasm64-unknown-unknown/release/lucky_chess.wasm -o /app/lucky_chess.wasm
+# Build wasm and optimize with wasm-opt
+RUN cargo build-wasm && \
+    wasm-opt -O3 --all-features target/wasm32-unknown-unknown/release/lucky_chess.wasm -o /app/lucky_chess.wasm
 
 # ==========================================
 # Stage 2: Ultra-Lightweight Runtime (< 5 MB)
