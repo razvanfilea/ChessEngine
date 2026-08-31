@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use uci_parser::UciCommand;
 
 use crate::eval::INFINITY;
+use crate::time::TimeManager;
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::gen_all_moves, search::search};
 
@@ -108,8 +109,8 @@ uciok"#,
                 }
             }
             UciCommand::Go(opts) => {
-                let depth = opts.depth.unwrap_or(12) as u8;
-                self.start_search(depth);
+                let time_manager = TimeManager::from_uci_options(&opts, self.board.to_play);
+                self.start_search(time_manager);
             }
             UciCommand::Stop => {
                 self.stop();
@@ -121,7 +122,7 @@ uciok"#,
         true
     }
 
-    fn start_search(&mut self, depth: u8) {
+    fn start_search(&mut self, time_manager: TimeManager) {
         #[cfg(not(target_family = "wasm"))]
         if let Some(thread) = self.search_thread.take() {
             self.stop_requested.store(true, Ordering::Relaxed);
@@ -144,7 +145,7 @@ uciok"#,
                 output_cb(line);
             };
 
-            let best = search(board, depth, stop_requested, &tt, on_info);
+            let best = search(board, time_manager, stop_requested, &tt, on_info);
             let best_line = format!("bestmove {}", format_move(best));
             output_cb(best_line);
         };
