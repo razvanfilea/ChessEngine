@@ -1,6 +1,9 @@
 use chess_core::prelude::*;
 
-use crate::{board::Board, search::{HistoryTable, KillerMoves}};
+use crate::{
+    board::Board,
+    search::{HistoryTable, KillerMoves},
+};
 
 const PIECE_VALUES: [i16; Piece::NB] = [1, 2, 3, 4, 5, 6]; // P, N, B, R, Q, K
 
@@ -43,11 +46,7 @@ pub fn score_capture(mov: Move, board: &Board) -> i16 {
     let base_score = mvv_lva(victim, attacker);
 
     let is_good = (attacker as u8) <= (victim as u8) || mov.is_promotion();
-    let tier = if is_good {
-        GOOD_CAPTURES
-    } else {
-        BAD_CAPTURES
-    };
+    let tier = if is_good { GOOD_CAPTURES } else { BAD_CAPTURES };
 
     let mut score = tier + base_score;
     if let Some(promo) = mov.promotion_piece() {
@@ -57,7 +56,12 @@ pub fn score_capture(mov: Move, board: &Board) -> i16 {
 }
 
 #[inline(always)]
-pub fn score_quiet(mov: Move, killer_moves: KillerMoves, history: &HistoryTable, side: Color) -> i16 {
+pub fn score_quiet(
+    mov: Move,
+    killer_moves: KillerMoves,
+    history: &HistoryTable,
+    side: Color,
+) -> i16 {
     if mov == killer_moves[0] {
         KILLER_1
     } else if mov == killer_moves[1] {

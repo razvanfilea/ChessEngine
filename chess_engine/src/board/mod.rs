@@ -648,7 +648,8 @@ impl Board {
             let white_bishops = bishops & self.colors(Color::White);
             let black_bishops = bishops & self.colors(Color::Black);
             if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
-                return (white_bishops & LIGHT_SQUARES != 0) == (black_bishops & LIGHT_SQUARES != 0);
+                return (white_bishops & LIGHT_SQUARES != 0)
+                    == (black_bishops & LIGHT_SQUARES != 0);
             }
         }
 
