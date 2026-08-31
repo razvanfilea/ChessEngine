@@ -128,6 +128,11 @@ impl Board {
         unsafe { bb_lsb(king_bb) }
     }
 
+    #[inline(always)]
+    pub fn in_check(&self) -> bool {
+        self.checkers != 0
+    }
+
     pub fn is_draw(&self, ply_from_root: u16) -> bool {
         self.half_move_clock >= 100
             || self.is_repetition(ply_from_root)
@@ -505,7 +510,7 @@ impl Board {
             castling_rights: self.castling_rights,
             en_passant_target_sq: self.en_passant_target_sq,
             half_move_clock: self.half_move_clock,
-            checkers: self.checkers,
+            checkers: 0,
             pinned: self.pinned,
             hash: original_hash,
         };
@@ -528,13 +533,17 @@ impl Board {
         self.castling_rights = info.castling_rights;
         self.en_passant_target_sq = info.en_passant_target_sq;
         self.half_move_clock = info.half_move_clock;
-        self.checkers = info.checkers;
         self.pinned = info.pinned;
         self.hash = info.hash;
 
         self.ply -= 1;
         self.hash_history[self.ply as usize] = 0;
         self.to_play = !self.to_play;
+    }
+
+    #[inline]
+    pub fn has_non_pawn_material(&self, color: Color) -> bool {
+        (self.colors(color) & !(self.pieces(Piece::Pawn) | self.pieces(Piece::King))) != 0
     }
 }
 

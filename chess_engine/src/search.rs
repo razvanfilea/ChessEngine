@@ -3,13 +3,17 @@ use chess_core::{Color, Move, Sq};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::eval::{EVAL_NONE, INFINITY};
+use crate::eval::{EVAL_NONE, INFINITY, MATE_THRESHOLD};
 use crate::transposition::{TTEntry, TTFlag, TranspositionTable};
 use crate::{board::Board, eval::eval_board, move_gen::MoveGenerator};
 
 const MAX_PLY: u16 = 64;
 const MAX_KILLER_MOVES: usize = 2;
 const MAX_HISTORY: i32 = 10_000;
+
+const NULL_MOVE_REDUCTION: u8 = 3;
+const RFP_MARGIN: i16 = 100;
+const RFP_DEPTH: u8 = 5;
 
 pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
 
@@ -106,8 +110,8 @@ impl<'a> Searcher<'a> {
     }
 
     #[inline(always)]
-    fn store_tt(&self, mov: Move, score: i16, depth: u8, flag: TTFlag) {
-        let entry = TTEntry::new(mov, score, EVAL_NONE, depth, flag);
+    fn store_tt(&self, mov: Move, score: i16, eval: i16, depth: u8, flag: TTFlag) {
+        let entry = TTEntry::new(mov, score, eval, depth, flag);
         self.tt.store(self.board.hash, entry, self.ply());
     }
 
@@ -124,33 +128,63 @@ impl<'a> Searcher<'a> {
         self.pv_length[ply] = copy_len as u16 + 1;
     }
 
-    fn nega_max(&mut self, mut alpha: i16, beta: i16, depth: u8) -> i16 {
+    fn nega_max(&mut self, mut alpha: i16, beta: i16, depth: u8, can_null: bool) -> i16 {
         let ply = self.ply();
+        let is_pv = false; // TODO: beta - alpha > 1;
+        let in_check = self.board.in_check();
         self.pv_length[ply as usize] = 0;
         self.nodes_searched += 1;
 
         if self.board.ply > 0 && self.board.is_draw(ply) {
             return 0;
         }
-        if ply >= MAX_PLY - 1 {
-            return eval_board(&self.board);
-        }
-
-        let mut tt_move = Move::NONE;
-        if let Some(entry) = self.tt.probe(self.board.hash, ply) {
-            tt_move = entry.mov;
-            if entry.depth >= depth {
-                match entry.flag() {
-                    TTFlag::Exact => return entry.value,
-                    TTFlag::LowerBound if entry.value >= beta => return entry.value,
-                    TTFlag::UpperBound if entry.value <= alpha => return entry.value,
-                    _ => {}
-                }
-            }
-        }
 
         if depth == 0 {
             return self.qsearch(alpha, beta);
+        }
+
+        let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
+            Some(entry) => {
+                if let Some(score) = entry.cutoff(depth, alpha, beta) {
+                    return score;
+                }
+                (entry.mov, entry.eval)
+            }
+            None => (Move::NONE, EVAL_NONE),
+        };
+
+        if static_eval == EVAL_NONE && !self.board.in_check() {
+            static_eval = eval_board(&self.board);
+        }
+
+        if ply >= MAX_PLY - 1 {
+            return static_eval;
+        }
+
+        if !is_pv
+            && !in_check
+            && can_null
+            && depth >= NULL_MOVE_REDUCTION
+            && static_eval >= beta
+            && beta < MATE_THRESHOLD
+            && self.board.has_non_pawn_material(self.board.to_play)
+        {
+            let undo = self.board.make_null_move();
+            let score = -self.nega_max(-beta, -beta + 1, depth - NULL_MOVE_REDUCTION, false);
+            self.board.undo_null_move(undo);
+
+            if score >= beta {
+                return beta;
+            }
+        }
+
+        if !is_pv
+            && !in_check
+            && depth <= RFP_DEPTH
+            && (tt_move.is_none() || !tt_move.is_capture())
+            && static_eval >= beta + (RFP_MARGIN * depth as i16)
+        {
+            return (static_eval + beta) / 2;
         }
 
         let orig_alpha = alpha;
@@ -167,7 +201,7 @@ impl<'a> Searcher<'a> {
             legal_moves += 1;
 
             let undo = self.board.make_move(mov);
-            let score = -self.nega_max(-beta, -alpha, depth - 1);
+            let score = -self.nega_max(-beta, -alpha, depth - 1, can_null);
             self.board.undo_move(mov, undo);
             if score > best_score {
                 best_score = score;
@@ -188,18 +222,18 @@ impl<'a> Searcher<'a> {
                     // TODO: Maybe penalize previous quiet moves that failed to cause a cutoff
                 }
 
-                self.store_tt(mov, best_score, depth, TTFlag::LowerBound);
+                self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound);
                 return best_score;
             }
         }
 
         if legal_moves == 0 {
-            let score = if self.board.checkers != 0 {
+            let score = if in_check {
                 -INFINITY + ply as i16
             } else {
                 0 // Stalemate
             };
-            self.store_tt(Move::NONE, score, depth, TTFlag::Exact);
+            self.store_tt(Move::NONE, score, static_eval, depth, TTFlag::Exact);
             return score;
         }
 
@@ -208,33 +242,37 @@ impl<'a> Searcher<'a> {
         } else {
             (TTFlag::Exact, best_move)
         };
-        self.store_tt(mov, best_score, depth, flag);
+        self.store_tt(mov, best_score, static_eval, depth, flag);
 
         best_score
     }
 
     fn qsearch(&mut self, mut alpha: i16, beta: i16) -> i16 {
         self.nodes_searched += 1;
+        let ply = self.ply();
+        if ply >= MAX_PLY - 1 {
+            return eval_board(&self.board);
+        }
 
-        let tt_move = if let Some(entry) = self.tt.probe(self.board.hash, self.ply()) {
-            match entry.flag() {
-                TTFlag::Exact => return entry.value,
-                TTFlag::LowerBound if entry.value >= beta => return entry.value,
-                TTFlag::UpperBound if entry.value <= alpha => return entry.value,
-                _ => {}
+        let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
+            Some(entry) => {
+                if let Some(score) = entry.cutoff(0, alpha, beta) {
+                    return score;
+                }
+                (entry.mov, entry.eval)
             }
-            entry.mov
-        } else {
-            Move::NONE
+            None => (Move::NONE, EVAL_NONE),
         };
 
-        let in_check = self.board.checkers != 0;
-
+        let orig_alpha = alpha;
+        let in_check = self.board.in_check();
         // Stand-pat: not available while in check, since every evasion must be considered.
         let mut best_score = if in_check {
-            -INFINITY + self.ply() as i16
+            -INFINITY + ply as i16
         } else {
-            let static_eval = eval_board(&self.board);
+            if static_eval == EVAL_NONE {
+                static_eval = eval_board(&self.board);
+            }
             if static_eval >= beta {
                 return static_eval;
             }
@@ -245,6 +283,7 @@ impl<'a> Searcher<'a> {
         };
 
         let mut moves = MoveGenerator::quiescence(tt_move);
+        let mut best_move = Move::NONE;
 
         while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
             if !in_check && (!mov.is_capture() && !mov.is_promotion()) {
@@ -260,15 +299,24 @@ impl<'a> Searcher<'a> {
 
             if score > best_score {
                 best_score = score;
+                best_move = mov;
                 if score > alpha {
                     alpha = score;
                 }
             }
 
             if score >= beta {
+                self.store_tt(mov, best_score, static_eval, 0, TTFlag::LowerBound);
                 return best_score;
             }
         }
+
+        if best_score <= orig_alpha {
+            self.store_tt(Move::NONE, best_score, static_eval, 0, TTFlag::UpperBound);
+        } else if in_check {
+            // We can only store as exact if in check, otherwise we didnt even check all moves
+            self.store_tt(best_move, best_score, static_eval, 0, TTFlag::Exact);
+        };
 
         // In check with no legal moves is checkmate; best_score is still -INFINITY here.
         best_score
@@ -318,7 +366,7 @@ pub fn search(
             }
 
             let undo = search.board.make_move(mov);
-            let score = -search.nega_max(-beta, -alpha, current_depth - 1);
+            let score = -search.nega_max(-beta, -alpha, current_depth - 1, true);
             search.board.undo_move(mov, undo);
             if score > best_score {
                 best_score = score;
@@ -332,7 +380,7 @@ pub fn search(
 
         if let Some(mov) = best_move {
             overall_best_move = mov;
-            search.store_tt(mov, best_score, current_depth, TTFlag::Exact);
+            search.store_tt(mov, best_score, EVAL_NONE, current_depth, TTFlag::Exact);
         }
 
         if search.stop_requested.load(Ordering::Relaxed) && !overall_best_move.is_none() {

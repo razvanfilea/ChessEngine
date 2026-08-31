@@ -137,6 +137,20 @@ impl TTEntry {
             flag_age: (bits >> 56) as u8,
         }
     }
+
+    #[inline(always)]
+    pub fn cutoff(&self, depth: u8, alpha: i16, beta: i16) -> Option<i16> {
+        if self.depth >= depth {
+            match self.flag() {
+                TTFlag::Exact => Some(self.value),
+                TTFlag::LowerBound if self.value >= beta => Some(self.value),
+                TTFlag::UpperBound if self.value <= alpha => Some(self.value),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// Atomic 16-byte slot implementing lockless XOR verification.
@@ -185,6 +199,11 @@ pub struct TranspositionTable {
 impl TranspositionTable {
     pub fn new(size_mb: usize) -> Self {
         let bucket_count = ((size_mb * 1024 * 1024) / std::mem::size_of::<TTBucket>()).max(1);
+        Self::with_buckets(bucket_count)
+    }
+
+    pub fn with_buckets(bucket_count: usize) -> Self {
+        let bucket_count = bucket_count.max(1);
         let buckets = (0..bucket_count).map(|_| TTBucket::default()).collect();
         Self { buckets, age: 0 }
     }
@@ -241,7 +260,6 @@ impl TranspositionTable {
         if same_pos {
             let is_current_search = victim_entry.age() == self.age;
             if is_current_search
-                && entry.flag() != TTFlag::Exact
                 && (entry.depth as i16) + 3 < (victim_entry.depth as i16)
             {
                 // If we found a move where none was recorded, update only the move
@@ -316,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_store_and_probe() {
-        let tt = TranspositionTable::new(1);
+        let tt = TranspositionTable::with_buckets(16);
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
         let entry = TTEntry::new(mov, 150, 140, 6, TTFlag::Exact);
         tt.store(0x1234_5678_9ABC_DEF0, entry, 2);
@@ -336,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_mate_score_adjustment() {
-        let tt = TranspositionTable::new(1);
+        let tt = TranspositionTable::with_buckets(16);
         let mate_score = 29_500; // Mate in 500 at ply 4
         let entry = TTEntry::new(Move::NONE, mate_score, EVAL_NONE, 8, TTFlag::Exact);
         tt.store(0xCAFE_BABE, entry, 4);
@@ -352,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_move_and_eval_preservation() {
-        let tt = TranspositionTable::new(1);
+        let tt = TranspositionTable::with_buckets(16);
         let hash = 0xABCD_EF01_2345;
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
 
@@ -376,11 +394,11 @@ mod tests {
 
     #[test]
     fn test_hashfull_and_aging() {
-        let mut tt = TranspositionTable::new(1);
+        let mut tt = TranspositionTable::with_buckets(16);
         assert_eq!(tt.hashfull(), 0);
 
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
-        for i in 0..4000 {
+        for i in 0..20 {
             let entry = TTEntry::new(mov, 100, 50, 4, TTFlag::Exact);
             tt.store((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15), entry, 0);
         }
