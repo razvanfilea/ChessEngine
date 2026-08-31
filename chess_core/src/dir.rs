@@ -25,6 +25,7 @@ impl Dir {
         Dir::SouthWest,
     ];
 
+    #[inline(always)]
     pub const fn opposite(self) -> Self {
         match self {
             Dir::North => Dir::South,
@@ -38,6 +39,7 @@ impl Dir {
         }
     }
 
+    #[inline(always)]
     pub const fn is_forwards(self) -> bool {
         match self {
             Dir::North | Dir::East | Dir::NorthWest | Dir::NorthEast => true,

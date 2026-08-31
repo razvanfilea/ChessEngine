@@ -145,16 +145,19 @@ impl Sq {
         1u64 << self as u8
     }
 
+    #[inline(always)]
     pub fn distance_to_file_edge(self) -> u8 {
         let file = self.file();
         file.min(7 - file)
     }
 
+    #[inline(always)]
     pub fn distance_to_rank_edge(self) -> u8 {
         let rank = self.rank();
         rank.min(7 - rank)
     }
 
+    #[inline(always)]
     pub const fn distance_to(self, other: Self) -> u8 {
         let rank_dist = self.rank().abs_diff(other.rank());
         let file_dist = self.file().abs_diff(other.file());
@@ -165,13 +168,14 @@ impl Sq {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub const fn on_diagonal_with(self, other: Self) -> bool {
         let rank_dist = self.rank().abs_diff(other.rank());
         let file_dist = self.file().abs_diff(other.file());
         rank_dist == file_dist
     }
 
+    #[inline(always)]
     pub const fn manhattan_distance_to(self, other: Self) -> u8 {
         self.rank().abs_diff(other.rank()) + self.file().abs_diff(other.file())
     }
