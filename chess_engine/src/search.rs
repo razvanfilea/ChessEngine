@@ -1,4 +1,4 @@
-use crate::time::Instant;
+use crate::time::{Instant, TimeManager};
 use chess_core::{Color, Move, Sq};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -67,21 +67,44 @@ struct Searcher<'a> {
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     pv_length: [u16; MAX_PLY as usize],
     stop_requested: Arc<AtomicBool>,
+    time_manager: TimeManager,
+    stopped: bool,
 }
 
 impl<'a> Searcher<'a> {
-    fn new(board: Board, stop_requested: Arc<AtomicBool>, tt: &'a TranspositionTable) -> Self {
+    fn new(
+        board: Board,
+        stop_requested: Arc<AtomicBool>,
+        tt: &'a TranspositionTable,
+        time_manager: TimeManager,
+    ) -> Self {
         let root_ply = board.ply;
+        let stopped = stop_requested.load(Ordering::Relaxed);
         Self {
             board,
             stop_requested,
             tt,
+            time_manager,
+            stopped,
             nodes_searched: 0,
             killer_moves: [[Move::default(); MAX_KILLER_MOVES]; MAX_PLY as usize],
             history: HistoryTable::default(),
             root_ply,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
             pv_length: [0; MAX_PLY as usize],
+        }
+    }
+
+    #[inline(always)]
+    fn check_limits(&mut self) {
+        if self.nodes_searched & 2047 == 0
+            && (self.stop_requested.load(Ordering::Relaxed)
+                || self
+                    .time_manager
+                    .is_hard_limit_exceeded(self.nodes_searched))
+        {
+            self.stopped = true;
+            self.stop_requested.store(true, Ordering::Relaxed);
         }
     }
 
@@ -114,6 +137,9 @@ impl<'a> Searcher<'a> {
 
     #[inline(always)]
     fn store_tt(&self, mov: Move, score: i16, eval: i16, depth: u8, flag: TTFlag) {
+        if self.stopped {
+            return;
+        }
         let entry = TTEntry::new(mov, score, eval, depth, flag);
         self.tt.store(self.board.hash, entry, self.ply());
     }
@@ -142,6 +168,11 @@ impl<'a> Searcher<'a> {
         let in_check = self.board.in_check();
         self.pv_length[ply as usize] = 0;
         self.nodes_searched += 1;
+        self.check_limits();
+
+        if self.stopped {
+            return 0;
+        }
 
         if self.board.ply > 0 && self.board.is_draw(ply) {
             return 0;
@@ -185,6 +216,10 @@ impl<'a> Searcher<'a> {
                 -self.nega_max::<true>(-beta, -beta + 1, depth - NULL_MOVE_REDUCTION, false);
             self.board.undo_null_move(undo);
 
+            if self.stopped {
+                return 0;
+            }
+
             if score >= beta {
                 return beta;
             }
@@ -216,7 +251,7 @@ impl<'a> Searcher<'a> {
             let score = if IS_PV && legal_moves > 1 {
                 let score = -self.nega_max::<false>(-alpha - 1, -alpha, depth - 1, can_null);
 
-                if score > alpha && score < beta {
+                if score > alpha && score < beta && !self.stopped {
                     // Re-search with full window
                     -self.nega_max::<true>(-beta, -alpha, depth - 1, can_null)
                 } else {
@@ -226,6 +261,10 @@ impl<'a> Searcher<'a> {
                 -self.nega_max::<IS_PV>(-beta, -alpha, depth - 1, can_null)
             };
             self.board.undo_move(mov, undo);
+
+            if self.stopped {
+                return 0;
+            }
 
             if score > best_score {
                 best_score = score;
@@ -273,6 +312,11 @@ impl<'a> Searcher<'a> {
 
     fn qsearch(&mut self, mut alpha: i16, beta: i16) -> i16 {
         self.nodes_searched += 1;
+        self.check_limits();
+        if self.stopped {
+            return 0;
+        }
+
         let ply = self.ply();
         if ply >= MAX_PLY - 1 {
             return eval_board(&self.board);
@@ -321,6 +365,10 @@ impl<'a> Searcher<'a> {
             let score = -self.qsearch(-beta, -alpha);
             self.board.undo_move(mov, undo);
 
+            if self.stopped {
+                return 0;
+            }
+
             if score > best_score {
                 best_score = score;
                 best_move = mov;
@@ -366,14 +414,17 @@ impl<'a> Searcher<'a> {
 
 pub fn search(
     board: Board,
-    max_depth: u8,
+    time_manager: TimeManager,
     stop_requested: Arc<AtomicBool>,
     tt: &TranspositionTable,
     mut on_info: impl FnMut(String),
 ) -> Move {
     let start_time = Instant::now();
-    let mut search = Searcher::new(board, stop_requested, tt);
+    let max_depth = time_manager.limits.max_depth;
+    let mut search = Searcher::new(board, stop_requested, tt, time_manager);
     let mut best_score = -INFINITY;
+    let mut completed_best_move = Move::NONE;
+    let mut prev_best_move = Move::NONE;
 
     'iterative: for current_depth in 1..=max_depth {
         let mut alpha = -INFINITY;
@@ -387,7 +438,7 @@ pub fn search(
 
         'aspiration: loop {
             let score = search.nega_max::<true>(alpha, beta, current_depth, true);
-            if search.stop_requested.load(Ordering::Relaxed) {
+            if search.stopped {
                 break 'iterative;
             }
 
@@ -415,13 +466,48 @@ pub fn search(
             }
         }
 
-        if search.stop_requested.load(Ordering::Relaxed) {
+        if search.stopped {
             break;
+        }
+
+        let current_best_move = search.pv_table[0][0];
+        if current_best_move != Move::NONE && search.board.legal(current_best_move) {
+            completed_best_move = current_best_move;
         }
 
         let line = search.uci_info(current_depth, best_score, start_time);
         on_info(line);
+
+        let move_is_stable = current_best_move == prev_best_move;
+        prev_best_move = current_best_move;
+
+        if search.stop_requested.load(Ordering::Relaxed)
+            || search
+                .time_manager
+                .should_stop_after_depth(current_depth, move_is_stable)
+        {
+            search.stopped = true;
+            break 'iterative;
+        }
     }
 
-    search.pv_table[0][0]
+    if completed_best_move == Move::NONE || !search.board.legal(completed_best_move) {
+        let pv_move = search.pv_table[0][0];
+        let tt_move = tt.probe(search.board.hash, 0).map_or(Move::NONE, |e| e.mov);
+
+        completed_best_move = if pv_move != Move::NONE && search.board.legal(pv_move) {
+            pv_move
+        } else if tt_move != Move::NONE && search.board.legal(tt_move) {
+            tt_move
+        } else {
+            crate::move_gen::gen_all_moves(&search.board)
+                .as_slice()
+                .iter()
+                .copied()
+                .find(|&m| search.board.legal(m))
+                .unwrap_or(Move::NONE)
+        };
+    }
+
+    completed_best_move
 }

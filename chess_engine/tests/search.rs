@@ -1,6 +1,7 @@
 use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::search::{HistoryTable, search};
+use chess_engine::time::TimeManager;
 use chess_engine::transposition::{TTEntry, TTFlag, TranspositionTable};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -38,9 +39,13 @@ fn test_search_start_pos_depth_1_and_2() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board.clone(), 2, stop_requested, &tt, |info| {
-        info_lines.push(info)
-    });
+    let best_move = search(
+        board.clone(),
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert!(!best_move.is_none());
     assert!(board.legal(best_move));
@@ -60,9 +65,13 @@ fn test_search_mate_in_1_white_scholars() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board.clone(), 1, stop_requested, &tt, |info| {
-        info_lines.push(info)
-    });
+    let best_move = search(
+        board.clone(),
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert_eq!(best_move.from(), Sq::F3);
     assert_eq!(best_move.to(), Sq::F7);
@@ -79,9 +88,13 @@ fn test_search_mate_in_1_black_fools() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board.clone(), 1, stop_requested, &tt, |info| {
-        info_lines.push(info)
-    });
+    let best_move = search(
+        board.clone(),
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert_eq!(best_move.from(), Sq::D8);
     assert_eq!(best_move.to(), Sq::H4);
@@ -97,7 +110,13 @@ fn test_search_already_checkmated_terminal() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board, 1, stop_requested, &tt, |info| info_lines.push(info));
+    let best_move = search(
+        board,
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert!(best_move.is_none());
     assert!(info_lines.iter().any(|line| line.contains("score mate")));
@@ -111,7 +130,13 @@ fn test_search_stalemate_terminal() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board, 1, stop_requested, &tt, |info| info_lines.push(info));
+    let best_move = search(
+        board,
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert!(best_move.is_none());
     assert!(info_lines.iter().any(|line| line.contains("score cp 0")));
@@ -125,7 +150,13 @@ fn test_search_draw_fifty_move_rule() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let _best_move = search(board, 1, stop_requested, &tt, |info| info_lines.push(info));
+    let _best_move = search(
+        board,
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert!(info_lines.iter().any(|line| line.contains("score cp 0")));
 }
@@ -138,7 +169,13 @@ fn test_search_draw_insufficient_material() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let _best_move = search(board, 1, stop_requested, &tt, |info| info_lines.push(info));
+    let _best_move = search(
+        board,
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert!(info_lines.iter().any(|line| line.contains("score cp 0")));
 }
@@ -150,7 +187,13 @@ fn test_search_stop_requested_before_search() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut count = 0;
-    let _ = search(board, 5, stop_requested, &tt, |_| count += 1);
+    let _ = search(
+        board,
+        TimeManager::from_depth(5),
+        stop_requested,
+        &tt,
+        |_| count += 1,
+    );
 
     // Since stop was set immediately, 0 depths should complete
     assert_eq!(count, 0);
@@ -166,11 +209,17 @@ fn test_search_stop_requested_during_search() {
     let completed_depths = Arc::new(AtomicUsize::new(0));
     let completed_clone = Arc::clone(&completed_depths);
 
-    let _ = search(board, 10, stop_requested, &tt, move |_line| {
-        completed_clone.fetch_add(1, Ordering::Relaxed);
-        // Abort after depth 1
-        stop_clone.store(true, Ordering::Relaxed);
-    });
+    let _ = search(
+        board,
+        TimeManager::from_depth(10),
+        stop_requested,
+        &tt,
+        move |_line| {
+            completed_clone.fetch_add(1, Ordering::Relaxed);
+            // Abort after depth 1
+            stop_clone.store(true, Ordering::Relaxed);
+        },
+    );
 
     assert_eq!(completed_depths.load(Ordering::Relaxed), 1);
 }
@@ -182,12 +231,24 @@ fn test_search_transposition_table_reuse_and_cutoff() {
     let tt = TranspositionTable::with_buckets(16);
 
     // First search populates TT
-    let mov1 = search(board.clone(), 2, Arc::clone(&stop_requested), &tt, |_| {});
+    let mov1 = search(
+        board.clone(),
+        TimeManager::from_depth(2),
+        Arc::clone(&stop_requested),
+        &tt,
+        |_| {},
+    );
     assert!(!mov1.is_none());
 
     // Second search on the same position reuses TT and hits cutoffs
     let mut lines = Vec::new();
-    let mov2 = search(board, 2, stop_requested, &tt, |info| lines.push(info));
+    let mov2 = search(
+        board,
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |info| lines.push(info),
+    );
     assert_eq!(mov1, mov2);
     assert_eq!(lines.len(), 2);
 }
@@ -204,7 +265,13 @@ fn test_search_transposition_table_manual_exact_cutoff() {
     tt.store(board.hash, entry, 0);
 
     let mut lines = Vec::new();
-    let chosen = search(board, 2, stop_requested, &tt, |info| lines.push(info));
+    let chosen = search(
+        board,
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |info| lines.push(info),
+    );
     // Since depth 4 exact entry is present, depth 1 and 2 probe and cutoff immediately
     assert_eq!(chosen, best_m);
 }
@@ -215,14 +282,26 @@ fn test_search_null_move_pruning_and_zugzwang_skip() {
     let board_nmp = Board::from_fen("4k3/8/8/8/8/2N5/1Q6/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov = search(board_nmp, 3, stop_requested, &tt, |_| {});
+    let mov = search(
+        board_nmp,
+        TimeManager::from_depth(3),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!mov.is_none());
 
     // 2. Pawn endgame (only pawns, has_non_pawn_material is false -> NMP skipped to avoid zugzwang UB/bugs)
     let board_pawn = Board::from_fen("8/8/8/4k3/4P3/8/4K3/8 w - - 0 1").unwrap();
     let stop_requested2 = Arc::new(AtomicBool::new(false));
     let tt2 = TranspositionTable::with_buckets(16);
-    let mov2 = search(board_pawn, 2, stop_requested2, &tt2, |_| {});
+    let mov2 = search(
+        board_pawn,
+        TimeManager::from_depth(2),
+        stop_requested2,
+        &tt2,
+        |_| {},
+    );
     assert!(!mov2.is_none());
 }
 
@@ -232,7 +311,13 @@ fn test_search_reverse_futility_pruning() {
     let board = Board::from_fen("8/8/8/8/8/5k2/7Q/4K2R w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov = search(board, 2, stop_requested, &tt, |_| {});
+    let mov = search(
+        board,
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!mov.is_none());
 }
 
@@ -242,7 +327,13 @@ fn test_search_pvs_and_killer_moves() {
     let board = Board::from_fen("4k3/8/8/3q4/8/2N5/1R6/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov = search(board, 2, stop_requested, &tt, |_| {});
+    let mov = search(
+        board,
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!mov.is_none());
 }
 
@@ -252,14 +343,26 @@ fn test_search_quiescence_captures_and_promotions() {
     let board_caps = Board::from_fen("6k1/8/8/3q4/4R3/8/8/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov = search(board_caps, 1, stop_requested, &tt, |_| {});
+    let mov = search(
+        board_caps,
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!mov.is_none());
 
     // 2. Promotion in qsearch
     let board_promo = Board::from_fen("8/4P3/8/8/8/8/k7/4K3 w - - 0 1").unwrap();
     let stop_requested2 = Arc::new(AtomicBool::new(false));
     let tt2 = TranspositionTable::with_buckets(16);
-    let promo_mov = search(board_promo, 1, stop_requested2, &tt2, |_| {});
+    let promo_mov = search(
+        board_promo,
+        TimeManager::from_depth(1),
+        stop_requested2,
+        &tt2,
+        |_| {},
+    );
     assert_eq!(promo_mov.from(), Sq::E7);
     assert_eq!(promo_mov.to(), Sq::E8);
     assert!(promo_mov.is_promotion());
@@ -271,7 +374,13 @@ fn test_search_quiescence_in_check_evasions() {
     let board_in_check = Board::from_fen("4k3/8/8/8/7q/5P2/4P3/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov = search(board_in_check, 1, stop_requested, &tt, |_| {});
+    let mov = search(
+        board_in_check,
+        TimeManager::from_depth(1),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!mov.is_none());
 }
 
@@ -284,7 +393,13 @@ fn test_search_aspiration_window_depth_5() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board, 5, stop_requested, &tt, |info| info_lines.push(info));
+    let best_move = search(
+        board,
+        TimeManager::from_depth(5),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert_eq!(best_move.from(), Sq::H1);
     assert_eq!(best_move.to(), Sq::H2);
@@ -300,7 +415,13 @@ fn test_search_aspiration_fail_high_and_low_recovery() {
     let tt = TranspositionTable::with_buckets(16);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board, 5, stop_requested, &tt, |info| info_lines.push(info));
+    let best_move = search(
+        board,
+        TimeManager::from_depth(5),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
 
     assert_eq!(best_move.from(), Sq::H1);
     assert_eq!(best_move.to(), Sq::H2);
@@ -316,7 +437,13 @@ fn test_search_non_zero_root_ply() {
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
 
-    let best_move = search(board.clone(), 2, stop_requested, &tt, |_| {});
+    let best_move = search(
+        board.clone(),
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!best_move.is_none());
     assert!(board.legal(best_move));
 }
@@ -328,7 +455,13 @@ fn test_search_black_to_move_endgame() {
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
 
-    let best_move = search(board.clone(), 2, stop_requested, &tt, |_| {});
+    let best_move = search(
+        board.clone(),
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!best_move.is_none());
     assert!(board.legal(best_move));
 }
@@ -339,7 +472,13 @@ fn test_search_castling_and_en_passant() {
     let board_castle = Board::from_fen("4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov1 = search(board_castle.clone(), 2, stop_requested, &tt, |_| {});
+    let mov1 = search(
+        board_castle.clone(),
+        TimeManager::from_depth(2),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
     assert!(!mov1.is_none());
     assert!(board_castle.legal(mov1));
 
@@ -347,7 +486,13 @@ fn test_search_castling_and_en_passant() {
     let board_ep = Board::from_fen("4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1").unwrap();
     let stop_requested2 = Arc::new(AtomicBool::new(false));
     let tt2 = TranspositionTable::with_buckets(16);
-    let mov2 = search(board_ep.clone(), 2, stop_requested2, &tt2, |_| {});
+    let mov2 = search(
+        board_ep.clone(),
+        TimeManager::from_depth(2),
+        stop_requested2,
+        &tt2,
+        |_| {},
+    );
     assert!(!mov2.is_none());
     assert!(board_ep.legal(mov2));
 }
@@ -364,7 +509,13 @@ fn test_search_aspiration_fail_low_widening() {
     tt.store(board.hash, entry, 0);
 
     let mut info_lines = Vec::new();
-    let best_move = search(board, 5, stop_requested, &tt, |info| info_lines.push(info));
+    let best_move = search(
+        board,
+        TimeManager::from_depth(5),
+        stop_requested,
+        &tt,
+        |info| info_lines.push(info),
+    );
     assert_eq!(best_move.from(), Sq::H1);
     assert_eq!(best_move.to(), Sq::H2);
 }
