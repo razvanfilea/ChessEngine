@@ -15,6 +15,10 @@ const NULL_MOVE_REDUCTION: u8 = 3;
 const RFP_MARGIN: i16 = 100;
 const RFP_DEPTH: u8 = 5;
 
+const ASPIRATION_INITIAL_DELTA: i16 = 20;
+const ASPIRATION_FLUCTUATION: i16 = 100;
+const ASPIRATION_MIN_DEPTH: u8 = 5;
+
 pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
 
 impl Default for HistoryTable {
@@ -38,7 +42,6 @@ impl HistoryTable {
         let entry = &mut self.0[side as usize][from as usize][to as usize];
         let current = *entry as i32;
 
-        // Gravity formula: current + bonus - (current * |bonus| / MAX_HISTORY)
         let clamped_bonus = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
         let new_val = current + clamped_bonus - (current * clamped_bonus.abs() / MAX_HISTORY);
 
@@ -130,7 +133,7 @@ impl<'a> Searcher<'a> {
 
     fn nega_max(&mut self, mut alpha: i16, beta: i16, depth: u8, can_null: bool) -> i16 {
         let ply = self.ply();
-        let is_pv = false; // TODO: beta - alpha > 1;
+        let is_pv = ply == 0; // TODO: beta - alpha > 1;
         let in_check = self.board.in_check();
         self.pv_length[ply as usize] = 0;
         self.nodes_searched += 1;
@@ -347,43 +350,51 @@ pub fn search(
     tt: &TranspositionTable,
     mut on_info: impl FnMut(String),
 ) -> Move {
-    let mut search = Searcher::new(board, stop_requested, tt);
     let start_time = Instant::now();
-    let mut overall_best_move = Move::NONE;
+    let mut search = Searcher::new(board, stop_requested, tt);
+    let mut best_score = -INFINITY;
 
-    for current_depth in 1..=max_depth {
-        let mut best_move = None;
-        let mut best_score = -INFINITY;
-        let mut moves = MoveGenerator::new(overall_best_move);
-
+    'iterative: for current_depth in 1..=max_depth {
         let mut alpha = -INFINITY;
-        let beta = INFINITY;
+        let mut beta = INFINITY;
+        let mut delta = ASPIRATION_INITIAL_DELTA;
 
-        while let Some(mov) = moves.next(&search.board, search.get_killer_moves(), &search.history)
-        {
-            if !search.board.legal(mov) {
-                continue;
+        if current_depth >= ASPIRATION_MIN_DEPTH {
+            alpha = best_score.saturating_sub(delta).max(-INFINITY);
+            beta = best_score.saturating_add(delta).min(INFINITY);
+        }
+
+        'aspiration: loop {
+            let score = search.nega_max(alpha, beta, current_depth, true);
+            if search.stop_requested.load(Ordering::Relaxed) {
+                break 'iterative;
             }
 
-            let undo = search.board.make_move(mov);
-            let score = -search.nega_max(-beta, -alpha, current_depth - 1, true);
-            search.board.undo_move(mov, undo);
-            if score > best_score {
-                best_score = score;
-                best_move = Some(mov);
-                if score > alpha {
-                    alpha = score;
-                    search.update_pv(0, mov);
+            if score <= alpha {
+                beta = (alpha + beta) / 2;
+                alpha = best_score.saturating_sub(delta).max(-INFINITY);
+                if score < -MATE_THRESHOLD {
+                    alpha = -INFINITY;
                 }
+            } else if score >= beta {
+                beta = best_score.saturating_add(delta).min(INFINITY);
+                if score > MATE_THRESHOLD {
+                    beta = INFINITY;
+                }
+            } else {
+                best_score = score;
+                break 'aspiration;
+            }
+
+            if delta > ASPIRATION_FLUCTUATION {
+                alpha = -INFINITY;
+                beta = INFINITY;
+            } else {
+                delta = delta.saturating_add(delta / 2);
             }
         }
 
-        if let Some(mov) = best_move {
-            overall_best_move = mov;
-            search.store_tt(mov, best_score, EVAL_NONE, current_depth, TTFlag::Exact);
-        }
-
-        if search.stop_requested.load(Ordering::Relaxed) && !overall_best_move.is_none() {
+        if search.stop_requested.load(Ordering::Relaxed) {
             break;
         }
 
@@ -391,5 +402,5 @@ pub fn search(
         on_info(line);
     }
 
-    overall_best_move
+    search.pv_table[0][0]
 }
