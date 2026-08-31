@@ -131,9 +131,14 @@ impl<'a> Searcher<'a> {
         self.pv_length[ply] = copy_len as u16 + 1;
     }
 
-    fn nega_max(&mut self, mut alpha: i16, beta: i16, depth: u8, can_null: bool) -> i16 {
+    fn nega_max<const IS_PV: bool>(
+        &mut self,
+        mut alpha: i16,
+        beta: i16,
+        depth: u8,
+        can_null: bool,
+    ) -> i16 {
         let ply = self.ply();
-        let is_pv = ply == 0; // TODO: beta - alpha > 1;
         let in_check = self.board.in_check();
         self.pv_length[ply as usize] = 0;
         self.nodes_searched += 1;
@@ -149,6 +154,9 @@ impl<'a> Searcher<'a> {
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
                 if let Some(score) = entry.cutoff(depth, alpha, beta) {
+                    if !entry.mov.is_none() {
+                        self.update_pv(ply, entry.mov);
+                    }
                     return score;
                 }
                 (entry.mov, entry.eval)
@@ -164,7 +172,7 @@ impl<'a> Searcher<'a> {
             return static_eval;
         }
 
-        if !is_pv
+        if !IS_PV
             && !in_check
             && can_null
             && depth >= NULL_MOVE_REDUCTION
@@ -173,7 +181,8 @@ impl<'a> Searcher<'a> {
             && self.board.has_non_pawn_material(self.board.to_play)
         {
             let undo = self.board.make_null_move();
-            let score = -self.nega_max(-beta, -beta + 1, depth - NULL_MOVE_REDUCTION, false);
+            let score =
+                -self.nega_max::<true>(-beta, -beta + 1, depth - NULL_MOVE_REDUCTION, false);
             self.board.undo_null_move(undo);
 
             if score >= beta {
@@ -181,13 +190,13 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        if !is_pv
+        if !IS_PV
             && !in_check
             && depth <= RFP_DEPTH
             && (tt_move.is_none() || !tt_move.is_capture())
-            && static_eval >= beta + (RFP_MARGIN * depth as i16)
+            && static_eval >= beta.saturating_add(RFP_MARGIN * depth as i16)
         {
-            return (static_eval + beta) / 2;
+            return ((static_eval as i32 + beta as i32) / 2) as i16;
         }
 
         let orig_alpha = alpha;
@@ -204,8 +213,20 @@ impl<'a> Searcher<'a> {
             legal_moves += 1;
 
             let undo = self.board.make_move(mov);
-            let score = -self.nega_max(-beta, -alpha, depth - 1, can_null);
+            let score = if IS_PV && legal_moves > 1 {
+                let score = -self.nega_max::<false>(-alpha - 1, -alpha, depth - 1, can_null);
+
+                if score > alpha && score < beta {
+                    // Re-search with full window
+                    -self.nega_max::<true>(-beta, -alpha, depth - 1, can_null)
+                } else {
+                    score
+                }
+            } else {
+                -self.nega_max::<IS_PV>(-beta, -alpha, depth - 1, can_null)
+            };
             self.board.undo_move(mov, undo);
+
             if score > best_score {
                 best_score = score;
                 if score > alpha {
@@ -365,18 +386,18 @@ pub fn search(
         }
 
         'aspiration: loop {
-            let score = search.nega_max(alpha, beta, current_depth, true);
+            let score = search.nega_max::<true>(alpha, beta, current_depth, true);
             if search.stop_requested.load(Ordering::Relaxed) {
                 break 'iterative;
             }
 
-            if score <= alpha {
-                beta = (alpha + beta) / 2;
+            if score <= alpha && alpha > -INFINITY {
+                beta = ((alpha as i32 + beta as i32) / 2) as i16;
                 alpha = best_score.saturating_sub(delta).max(-INFINITY);
                 if score < -MATE_THRESHOLD {
                     alpha = -INFINITY;
                 }
-            } else if score >= beta {
+            } else if score >= beta && beta < INFINITY {
                 beta = best_score.saturating_add(delta).min(INFINITY);
                 if score > MATE_THRESHOLD {
                     beta = INFINITY;
