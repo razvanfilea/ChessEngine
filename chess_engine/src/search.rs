@@ -1,3 +1,4 @@
+use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove};
 use crate::time::{Instant, TimeManager};
 use chess_core::bitboard::{RANK_2, RANK_7};
 use chess_core::prelude::*;
@@ -181,7 +182,10 @@ impl<'a> Searcher<'a> {
         self.pv_table[ply][0] = mov;
         let next_len = (self.pv_length[ply + 1] as usize).min(MAX_PLY as usize - 1 - ply);
         let (current, rest) = self.pv_table[ply..].split_at_mut(1);
-        for (dst, &src) in current[0][1..1 + next_len].iter_mut().zip(&rest[0][..next_len]) {
+        for (dst, &src) in current[0][1..1 + next_len]
+            .iter_mut()
+            .zip(&rest[0][..next_len])
+        {
             *dst = src;
         }
         self.pv_length[ply] = (next_len + 1) as u16;
@@ -194,10 +198,12 @@ impl<'a> Searcher<'a> {
 
     fn nega_max<const IS_PV: bool>(
         &mut self,
+        move_buffer: MoveListPtr,
         mut alpha: i16,
         beta: i16,
         depth: u8,
         can_null: bool,
+        can_lmr: bool,
     ) -> i16 {
         let ply = self.ply();
         let in_check = self.board.in_check();
@@ -214,7 +220,7 @@ impl<'a> Searcher<'a> {
         }
 
         if depth == 0 {
-            return self.qsearch(alpha, beta);
+            return self.qsearch(move_buffer, alpha, beta);
         }
 
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
@@ -259,8 +265,14 @@ impl<'a> Searcher<'a> {
             && self.board.has_non_pawn_material(self.board.to_play)
         {
             let undo = self.board.make_null_move();
-            let score =
-                -self.nega_max::<true>(-beta, -beta + 1, depth - NULL_MOVE_REDUCTION, false);
+            let score = -self.nega_max::<true>(
+                move_buffer,
+                -beta,
+                -beta + 1,
+                depth - NULL_MOVE_REDUCTION,
+                false,
+                true,
+            );
             self.board.undo_null_move(undo);
 
             if self.stopped {
@@ -274,7 +286,7 @@ impl<'a> Searcher<'a> {
 
         let futility_margin_eval = static_eval + FUTILITY_MARGIN * depth as i16;
         let orig_alpha = alpha;
-        let mut moves = MoveGenerator::new(tt_move);
+        let mut moves = MoveGenerator::new(move_buffer, tt_move);
         let mut legal_moves = 0;
 
         let mut best_score = -INFINITY;
@@ -309,16 +321,30 @@ impl<'a> Searcher<'a> {
 
             // Principal Variation
             let score = if IS_PV && legal_moves > 1 {
-                let score = -self.nega_max::<false>(-alpha - 1, -alpha, depth - 1, can_null);
+                let score = -self.nega_max::<false>(
+                    moves.next_ptr(),
+                    -alpha - 1,
+                    -alpha,
+                    depth - 1,
+                    can_null,
+                    true,
+                );
 
                 if score > alpha && score < beta && !self.stopped {
                     // Re-search with full window
-                    -self.nega_max::<true>(-beta, -alpha, depth - 1, can_null)
+                    -self.nega_max::<true>(
+                        moves.next_ptr(),
+                        -beta,
+                        -alpha,
+                        depth - 1,
+                        can_null,
+                        true,
+                    )
                 } else {
                     score
                 }
             } else {
-                -self.nega_max::<IS_PV>(-beta, -alpha, depth - 1, can_null)
+                -self.nega_max::<IS_PV>(moves.next_ptr(), -beta, -alpha, depth - 1, can_null, true)
             };
             self.board.undo_move(mov, undo);
 
@@ -370,7 +396,7 @@ impl<'a> Searcher<'a> {
         best_score
     }
 
-    fn qsearch(&mut self, mut alpha: i16, beta: i16) -> i16 {
+    fn qsearch(&mut self, move_buffer: MoveListPtr, mut alpha: i16, beta: i16) -> i16 {
         self.nodes_searched += 1;
         self.check_limits();
         if self.stopped {
@@ -421,7 +447,7 @@ impl<'a> Searcher<'a> {
             static_eval
         };
 
-        let mut moves = MoveGenerator::quiescence(tt_move);
+        let mut moves = MoveGenerator::quiescence(move_buffer, tt_move);
         let mut best_move = Move::NONE;
 
         while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
@@ -442,7 +468,7 @@ impl<'a> Searcher<'a> {
             }
 
             let undo = self.board.make_move(mov);
-            let score = -self.qsearch(-beta, -alpha);
+            let score = -self.qsearch(moves.next_ptr(), -beta, -alpha);
             self.board.undo_move(mov, undo);
 
             if self.stopped {
@@ -501,6 +527,9 @@ pub fn search(
 ) -> Move {
     let start_time = Instant::now();
     let max_depth = time_manager.limits.max_depth;
+
+    let mut move_buffer = [ScoredMove::default(); MAX_PLY as usize * MAX_MOVES / 2];
+    let move_ptr = MoveListPtr(move_buffer.as_mut_ptr());
     let mut search = Searcher::new(board, stop_requested, tt, time_manager);
     let mut best_score = -INFINITY;
     let mut completed_best_move = Move::NONE;
@@ -517,7 +546,7 @@ pub fn search(
         }
 
         'aspiration: loop {
-            let score = search.nega_max::<true>(alpha, beta, current_depth, true);
+            let score = search.nega_max::<true>(move_ptr, alpha, beta, current_depth, true, true);
             if search.stopped {
                 break 'iterative;
             }
