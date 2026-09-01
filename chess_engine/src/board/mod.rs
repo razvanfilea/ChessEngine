@@ -133,9 +133,9 @@ impl Board {
         self.checkers != 0
     }
 
-    pub fn is_draw(&self, ply_from_root: u16) -> bool {
+    pub fn is_draw(&self) -> bool {
         self.half_move_clock >= 100
-            || self.is_repetition(ply_from_root)
+            || self.is_repetition()
             || self.has_insufficient_material()
     }
 
@@ -657,17 +657,17 @@ impl Board {
     }
 
     #[inline(always)]
-    fn is_repetition(&self, ply_from_root: u16) -> bool {
+    fn is_repetition(&self) -> bool {
         let current_hash = self.hash;
         let count = self.half_move_clock as usize;
         let len = self.ply as usize;
-        let limit = count.min(len).min(ply_from_root as usize);
+        let limit = count.min(len);
 
         if limit < 4 {
             return false;
         }
 
-        for i in (2..=limit).step_by(2) {
+        for i in (4..=limit).step_by(2) {
             if self.hash_history[len - i] == current_hash {
                 return true;
             }

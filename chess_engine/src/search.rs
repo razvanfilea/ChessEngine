@@ -1,9 +1,10 @@
 use crate::time::{Instant, TimeManager};
-use chess_core::{Color, Move, Sq};
+use chess_core::bitboard::{RANK_2, RANK_7};
+use chess_core::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::eval::{EVAL_NONE, INFINITY, MATE_THRESHOLD};
+use crate::eval::{self, EVAL_NONE, INFINITY, MATE_THRESHOLD};
 use crate::transposition::{TTEntry, TTFlag, TranspositionTable};
 use crate::{board::Board, eval::eval_board, move_gen::MoveGenerator};
 
@@ -12,8 +13,13 @@ const MAX_KILLER_MOVES: usize = 2;
 const MAX_HISTORY: i32 = 10_000;
 
 const NULL_MOVE_REDUCTION: u8 = 3;
+const FUTILITY_MARGIN: i16 = 100;
+const FUTILITY_MAX_DEPTH: u8 = 8;
 const RFP_MARGIN: i16 = 100;
 const RFP_DEPTH: u8 = 5;
+
+const DELTA_MARGIN: i16 = 200;
+const GLOBAL_DELTA_MARGIN: i16 = 900; // Queen
 
 const ASPIRATION_INITIAL_DELTA: i16 = 20;
 const ASPIRATION_FLUCTUATION: i16 = 100;
@@ -174,7 +180,7 @@ impl<'a> Searcher<'a> {
             return 0;
         }
 
-        if self.board.ply > 0 && self.board.is_draw(ply) {
+        if ply > 0 && self.board.is_draw() {
             return 0;
         }
 
@@ -185,8 +191,9 @@ impl<'a> Searcher<'a> {
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
                 if let Some(score) = entry.cutoff(depth, alpha, beta) {
-                    if !entry.mov.is_none() {
-                        self.update_pv(ply, entry.mov);
+                    if !entry.mov.is_none() && self.board.legal(entry.mov) {
+                        self.pv_table[ply as usize][0] = entry.mov;
+                        self.pv_length[ply as usize] = 1;
                     }
                     return score;
                 }
@@ -203,6 +210,17 @@ impl<'a> Searcher<'a> {
             return static_eval;
         }
 
+        // Reverse Futility Pruning
+        if !IS_PV
+            && !in_check
+            && depth <= RFP_DEPTH
+            && (tt_move.is_none() || !tt_move.is_capture())
+            && static_eval >= beta.saturating_add(RFP_MARGIN * depth as i16)
+        {
+            return ((static_eval as i32 + beta as i32) / 2) as i16;
+        }
+
+        // Null Move Pruning
         if !IS_PV
             && !in_check
             && can_null
@@ -225,15 +243,7 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        if !IS_PV
-            && !in_check
-            && depth <= RFP_DEPTH
-            && (tt_move.is_none() || !tt_move.is_capture())
-            && static_eval >= beta.saturating_add(RFP_MARGIN * depth as i16)
-        {
-            return ((static_eval as i32 + beta as i32) / 2) as i16;
-        }
-
+        let futility_margin_eval = static_eval + FUTILITY_MARGIN * depth as i16;
         let orig_alpha = alpha;
         let mut moves = MoveGenerator::new(tt_move);
         let mut legal_moves = 0;
@@ -248,6 +258,27 @@ impl<'a> Searcher<'a> {
             legal_moves += 1;
 
             let undo = self.board.make_move(mov);
+            let move_gives_check = self.board.in_check();
+
+            // Futility Pruning
+            if !IS_PV
+                && depth < FUTILITY_MAX_DEPTH
+                && legal_moves > 3
+                && !(alpha > MATE_THRESHOLD)
+                && !in_check
+                && futility_margin_eval <= alpha
+                && !mov.is_tactical()
+                && mov.flags() != MoveFlags::DoublePawn
+                && !move_gives_check
+            {
+                if static_eval > best_score {
+                    best_score = static_eval;
+                }
+                self.board.undo_move(mov, undo);
+                continue;
+            }
+
+            // Principal Variation
             let score = if IS_PV && legal_moves > 1 {
                 let score = -self.nega_max::<false>(-alpha - 1, -alpha, depth - 1, can_null);
 
@@ -347,6 +378,17 @@ impl<'a> Searcher<'a> {
             if static_eval > alpha {
                 alpha = static_eval;
             }
+
+            // Global Delta Pruning
+            let our_pawns = self.board.color_piece(Piece::Pawn, self.board.to_play);
+            let has_promoting_pawns = match self.board.to_play {
+                Color::White => (our_pawns & RANK_7) != 0,
+                Color::Black => (our_pawns & RANK_2) != 0,
+            };
+            if !has_promoting_pawns && static_eval < alpha - GLOBAL_DELTA_MARGIN {
+                return static_eval;
+            }
+
             static_eval
         };
 
@@ -354,7 +396,16 @@ impl<'a> Searcher<'a> {
         let mut best_move = Move::NONE;
 
         while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
-            if !in_check && (!mov.is_capture() && !mov.is_promotion()) {
+            if !in_check && !mov.is_tactical() {
+                continue;
+            }
+            if !in_check
+                && let Some(victim) = self.board.piece_at(mov.to())
+                && (static_eval
+                    + eval::PIECE_VALUES_MG[victim.piece() as usize] as i16
+                    + DELTA_MARGIN)
+                    < alpha
+            {
                 continue;
             }
             if !self.board.legal(mov) {
