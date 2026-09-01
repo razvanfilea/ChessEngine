@@ -33,8 +33,8 @@ static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
     while depth < MAX_PLY {
         let mut moves = 1;
         while moves < MAX_PLY {
-            let r = (0.75 + (depth as f64).ln() * (moves as f64).ln() / 2.25) as i8;
-            table[depth as usize][moves as usize] = (r, (r.max(1) - 1) as u8);
+            let r = (0.75 + (depth as f64).ln() * (moves as f64).ln() / 2.25) as u8;
+            table[depth as usize][moves as usize] = (r, r.saturating_sub(1));
             moves += 1;
         }
 
@@ -44,7 +44,7 @@ static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
     table
 });
 
-type LmrTable = [[(i8, u8); MAX_PLY as usize]; MAX_PLY as usize];
+type LmrTable = [[(u8, u8); MAX_PLY as usize]; MAX_PLY as usize];
 
 pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
 
@@ -192,8 +192,9 @@ impl<'a> Searcher<'a> {
     }
 
     #[inline(always)]
-    fn get_lmr(&self, is_pv: bool, depth: u8, mov_index: u8) {
-        LMR_TABLE[depth.max(63) as usize][mov_index.max(63) as usize];
+    fn get_lmr(&self, is_pv: bool, depth: u8, mov_index: u8) -> u8 {
+        let (non_pv, pv) = LMR_TABLE[depth.min(63) as usize][mov_index.min(63) as usize];
+        if is_pv { pv } else { non_pv }
     }
 
     fn nega_max<const IS_PV: bool>(
@@ -203,7 +204,6 @@ impl<'a> Searcher<'a> {
         beta: i16,
         depth: u8,
         can_null: bool,
-        can_lmr: bool,
     ) -> i16 {
         let ply = self.ply();
         let in_check = self.board.in_check();
@@ -271,7 +271,6 @@ impl<'a> Searcher<'a> {
                 -beta + 1,
                 depth - NULL_MOVE_REDUCTION,
                 false,
-                true,
             );
             self.board.undo_null_move(undo);
 
@@ -319,33 +318,63 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            // Principal Variation
-            let score = if IS_PV && legal_moves > 1 {
-                let score = -self.nega_max::<false>(
+            // --- Search the Move ---
+            let mut score;
+            let mut do_full_search = true;
+
+            let is_late_move = legal_moves > 1;
+
+            if is_late_move {
+                do_full_search = false;
+                
+                let mut reduction = 0;
+                // PVS Zero-Window Search with LMR
+                if can_null
+                    && legal_moves > 3
+                    && depth > 3
+                    && !mov.is_tactical()
+                    && !in_check
+                    && !self.board.in_check()
+                {
+                    reduction = self.get_lmr(IS_PV, depth, legal_moves as u8);
+                }
+                
+                let lmr_depth = depth.saturating_sub(reduction).saturating_sub(1);
+
+                score = -self.nega_max::<false>(
                     moves.next_ptr(),
                     -alpha - 1,
                     -alpha,
-                    depth - 1,
+                    lmr_depth,
                     can_null,
-                    true,
                 );
 
-                if score > alpha && score < beta && !self.stopped {
-                    // Re-search with full window
-                    -self.nega_max::<true>(
-                        moves.next_ptr(),
-                        -beta,
-                        -alpha,
-                        depth - 1,
-                        can_null,
-                        true,
-                    )
-                } else {
-                    score
+                if score > alpha {
+                    if reduction > 0 {
+                        // If a reduced search failed high, we MUST re-search at full depth.
+                        // We set this to true so the full-depth search triggers below.
+                        do_full_search = true;
+                    } else if IS_PV && score < beta {
+                        // If it wasn't reduced (reduction == 0), it was already a full-depth zero-window search.
+                        // If we are in a PV node and it failed high, we only need to open the window.
+                        do_full_search = true;
+                    }
                 }
             } else {
-                -self.nega_max::<IS_PV>(moves.next_ptr(), -beta, -alpha, depth - 1, can_null, true)
-            };
+                // Not a late move (it's the first move), we need a full search right away.
+                // We use a dummy score here since the full search will overwrite it.
+                score = -INFINITY;
+            }
+
+            if do_full_search && !self.stopped {
+                score = -self.nega_max::<IS_PV>(
+                    moves.next_ptr(),
+                    -beta,
+                    -alpha,
+                    depth - 1,
+                    can_null,
+                );
+            }
             self.board.undo_move(mov, undo);
 
             if self.stopped {
@@ -546,7 +575,7 @@ pub fn search(
         }
 
         'aspiration: loop {
-            let score = search.nega_max::<true>(move_ptr, alpha, beta, current_depth, true, true);
+            let score = search.nega_max::<true>(move_ptr, alpha, beta, current_depth, true);
             if search.stopped {
                 break 'iterative;
             }
