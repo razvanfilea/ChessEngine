@@ -134,9 +134,7 @@ impl Board {
     }
 
     pub fn is_draw(&self) -> bool {
-        self.half_move_clock >= 100
-            || self.is_repetition()
-            || self.has_insufficient_material()
+        self.half_move_clock >= 100 || self.is_repetition() || self.has_insufficient_material()
     }
 
     pub fn generate_attackers(

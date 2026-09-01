@@ -519,3 +519,30 @@ fn test_search_aspiration_fail_low_widening() {
     assert_eq!(best_move.from(), Sq::H1);
     assert_eq!(best_move.to(), Sq::H2);
 }
+
+#[test]
+fn test_search_ponder_move() {
+    let board =
+        Board::from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1").unwrap();
+    let stop_requested = Arc::new(AtomicBool::new(false));
+    let tt = TranspositionTable::with_buckets(16);
+
+    let best_move = search(
+        board.clone(),
+        TimeManager::from_depth(3),
+        stop_requested,
+        &tt,
+        |_| {},
+    );
+
+    assert!(!best_move.is_none());
+    assert!(board.legal(best_move));
+
+    let mut next_board = board.clone();
+    next_board.make_move(best_move);
+    if let Some(entry) = tt.probe(next_board.hash, 1) {
+        if entry.mov != Move::NONE {
+            assert!(next_board.legal(entry.mov));
+        }
+    }
+}

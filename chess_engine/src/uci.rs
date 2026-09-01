@@ -53,6 +53,28 @@ impl UciState {
             return true;
         }
 
+        // Custom developer commands
+        if trimmed.eq_ignore_ascii_case("d") || trimmed.eq_ignore_ascii_case("display") {
+            self.display_board();
+            return true;
+        }
+
+        if trimmed.eq_ignore_ascii_case("eval") {
+            let eval = crate::eval::eval_board(&self.board);
+            self.output_line(format!("score: {}", format_score(eval)));
+            return true;
+        }
+
+        if trimmed.starts_with("perft") {
+            let depth = trimmed["perft".len()..]
+                .trim()
+                .parse::<u8>()
+                .unwrap_or(1)
+                .max(1);
+            self.run_perft(depth);
+            return true;
+        }
+
         let command = match trimmed.parse::<UciCommand>() {
             Ok(c) => c,
             Err(e) => {
@@ -73,6 +95,10 @@ uciok"#,
             }
             UciCommand::Debug(_) => {}
             UciCommand::IsReady => {
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(thread) = self.search_thread.take() {
+                    let _ = thread.join();
+                }
                 self.output_line("readyok");
             }
             UciCommand::SetOption { name, value } => {
@@ -86,7 +112,14 @@ uciok"#,
             }
             UciCommand::Register { .. } => self.output_line("registration ok"),
             UciCommand::UciNewGame => {
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(thread) = self.search_thread.take() {
+                    self.stop_requested.store(true, Ordering::Relaxed);
+                    let _ = thread.join();
+                }
+                self.stop_requested.store(false, Ordering::Relaxed);
                 self.board = Board::start_pos();
+                self.tt.clear();
             }
             UciCommand::Position { fen, moves } => {
                 self.board = if let Some(fen) = fen {
@@ -109,17 +142,51 @@ uciok"#,
                 }
             }
             UciCommand::Go(opts) => {
-                let time_manager = TimeManager::from_uci_options(&opts, self.board.to_play);
-                self.start_search(time_manager);
+                if let Some(depth) = opts.perft {
+                    self.run_perft(depth as u8);
+                } else {
+                    let time_manager = TimeManager::from_uci_options(&opts, self.board.to_play);
+                    self.start_search(time_manager);
+                }
             }
             UciCommand::Stop => {
                 self.stop();
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(thread) = self.search_thread.take() {
+                    let _ = thread.join();
+                }
             }
             UciCommand::PonderHit => {}
-            UciCommand::Quit => return false,
+            UciCommand::Quit => {
+                self.stop();
+                #[cfg(not(target_family = "wasm"))]
+                if let Some(thread) = self.search_thread.take() {
+                    let _ = thread.join();
+                }
+                return false;
+            }
         }
 
         true
+    }
+
+    fn display_board(&self) {
+        let mut out = format!("{:?}\n", self.board);
+        out.push_str(&format!("FEN: {}\n", self.board.to_fen()));
+        out.push_str(&format!("Key: 0x{:016X}", self.board.hash));
+        self.output_line(out);
+    }
+
+    fn run_perft(&mut self, depth: u8) {
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(thread) = self.search_thread.take() {
+            self.stop_requested.store(true, Ordering::Relaxed);
+            let _ = thread.join();
+        }
+
+        let mut board = self.board.clone();
+        let nodes = crate::perft::perft(&mut board, depth);
+        self.output_line(format!("Nodes searched: {nodes}"));
     }
 
     fn start_search(&mut self, time_manager: TimeManager) {
@@ -145,8 +212,22 @@ uciok"#,
                 output_cb(line);
             };
 
-            let best = search(board, time_manager, stop_requested, &tt, on_info);
-            let best_line = format!("bestmove {}", format_move(best));
+            let best = search(board.clone(), time_manager, stop_requested, &tt, on_info);
+            let mut ponder = None;
+            if best != Move::NONE {
+                let mut next_board = board;
+                next_board.make_move(best);
+                if let Some(entry) = tt.probe(next_board.hash, 1) {
+                    if entry.mov != Move::NONE && next_board.legal(entry.mov) {
+                        ponder = Some(entry.mov);
+                    }
+                }
+            }
+
+            let best_line = match ponder {
+                Some(p) => format!("bestmove {} ponder {}", format_move(best), format_move(p)),
+                None => format!("bestmove {}", format_move(best)),
+            };
             output_cb(best_line);
         };
 
@@ -220,6 +301,7 @@ pub fn format_score(score: i16) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     #[test]
     fn test_process_command_basic() {
@@ -228,5 +310,54 @@ mod tests {
         assert!(uci.process_command("isready"));
         assert!(uci.process_command("position startpos moves e2e4 e7e5"));
         assert!(!uci.process_command("quit"));
+    }
+
+    #[test]
+    fn test_process_command_display_and_eval() {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let out_clone = output.clone();
+        let mut uci = UciState::new(move |line| {
+            out_clone.lock().unwrap().push(line);
+        });
+
+        assert!(uci.process_command("d"));
+        assert!(uci.process_command("eval"));
+
+        let lines = output.lock().unwrap().clone();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("Side to move: White"));
+        assert!(lines[0].contains("FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"));
+        assert!(lines[1].starts_with("score: cp"));
+    }
+
+    #[test]
+    fn test_process_command_perft() {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let out_clone = output.clone();
+        let mut uci = UciState::new(move |line| {
+            out_clone.lock().unwrap().push(line);
+        });
+
+        assert!(uci.process_command("go perft 1"));
+        let lines = output.lock().unwrap().clone();
+        assert!(lines.iter().any(|l| l.contains("Nodes searched: 20")));
+    }
+
+    #[test]
+    fn test_process_command_ucinewgame_clears_tt() {
+        let mut uci = UciState::new(|_| {});
+        // Store entry in TT
+        let entry = crate::transposition::TTEntry::new(
+            Move::NONE,
+            100,
+            50,
+            4,
+            crate::transposition::TTFlag::Exact,
+        );
+        uci.tt.store(uci.board.hash, entry, 0);
+        assert!(uci.tt.probe(uci.board.hash, 0).is_some());
+
+        assert!(uci.process_command("ucinewgame"));
+        assert!(uci.tt.probe(uci.board.hash, 0).is_none());
     }
 }
