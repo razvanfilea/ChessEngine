@@ -129,16 +129,16 @@ impl TimeManager {
         };
 
         let (optimum_time, max_time) = if let Some(remaining) = time {
-            let moves_to_go = opts.movestogo.unwrap_or(28).clamp(1, 50) as u64;
+            let moves_to_go = opts.movestogo.unwrap_or(40).clamp(1, 50) as u64;
             let time_ms = remaining.as_millis() as u64;
             let inc_ms = inc.as_millis() as u64;
 
-            const SAFETY_MARGIN_MS: u64 = 40;
-            const MAX_TIME_MULTIPLIER: u64 = 7;
-            const MAX_TIME_DIVISOR: u64 = 2;
+            const SAFETY_MARGIN_MS: u64 = 50;
+            const MAX_TIME_MULTIPLIER: u64 = 5;
+            const MAX_TIME_DIVISOR: u64 = 1;
 
             let usable_time = time_ms.saturating_sub(SAFETY_MARGIN_MS);
-            let mut opt_ms = (usable_time / moves_to_go) + (inc_ms * 3 / 4);
+            let mut opt_ms = (usable_time / moves_to_go) + (inc_ms * 7 / 10);
             opt_ms = opt_ms.clamp(1, usable_time.max(1));
 
             let max_ms = (opt_ms * MAX_TIME_MULTIPLIER / MAX_TIME_DIVISOR)
