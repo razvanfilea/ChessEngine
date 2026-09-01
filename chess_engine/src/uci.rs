@@ -244,7 +244,7 @@ uciok"#,
         let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
 
         for &scored_move in gen_all_moves(&self.board).as_slice() {
-            let mov  = scored_move.mov;
+            let mov = scored_move.mov;
             if mov.from() == from_sq && mov.to() == to_sq && self.board.legal(mov) {
                 // Check promotion match if applicable
                 if let Some(target_promo) = uci_move.promote {

@@ -25,7 +25,8 @@ enum GenStage {
 }
 
 pub struct MoveGenerator {
-    list: MoveList,
+    start_ptr: MoveListPtr,
+    end_ptr: MoveListPtr,
     stage: GenStage,
     list_index: usize,
     quiescence: bool,
@@ -33,9 +34,10 @@ pub struct MoveGenerator {
 }
 
 impl MoveGenerator {
-    pub fn new(tt_move: Move) -> Self {
+    pub fn new(move_buffer: MoveListPtr, tt_move: Move) -> Self {
         Self {
-            list: MoveList::default(),
+            start_ptr: move_buffer,
+            end_ptr: move_buffer,
             stage: GenStage::default(),
             list_index: 0,
             quiescence: false,
@@ -43,8 +45,8 @@ impl MoveGenerator {
         }
     }
 
-    pub fn quiescence(tt_move: Move) -> Self {
-        let mut move_gen = Self::new(tt_move);
+    pub fn quiescence(move_buffer: MoveListPtr, tt_move: Move) -> Self {
+        let mut move_gen = Self::new(move_buffer, tt_move);
         move_gen.quiescence = true;
         move_gen
     }
@@ -57,7 +59,7 @@ impl MoveGenerator {
         history: &HistoryTable,
     ) -> Option<Move> {
         loop {
-            if self.list_index < self.list.len() {
+            if self.list_index < self.len() {
                 let mov = self.pick_next();
                 if mov == self.tt_move {
                     continue;
@@ -76,16 +78,31 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
+    pub const fn next_ptr(&self) -> MoveListPtr {
+        self.end_ptr
+    }
+
+    #[inline(always)]
+    const fn len(&self) -> usize {
+        unsafe { self.end_ptr.0.offset_from(self.start_ptr.0) as usize }
+    }
+
+    #[inline(always)]
+    const fn as_slice_mut(&mut self) -> &mut [ScoredMove] {
+        unsafe { core::slice::from_raw_parts_mut(self.start_ptr.0, self.len()) }
+    }
+
+    #[inline(always)]
     fn pick_next(&mut self) -> Move {
         let idx = self.list_index;
-        let moves = &mut self.list.as_slice_mut()[idx..];
+        let moves = &mut self.as_slice_mut()[idx..];
 
         let mut best_index = 0;
-        let mut best_score = moves[0].score;
+        let mut best_move = moves[0];
 
         for (i, mov) in moves.iter().enumerate().skip(1) {
-            if mov.score > best_score {
-                best_score = mov.score;
+            if mov.score > best_move.score {
+                best_move = *mov;
                 best_index = i;
             }
         }
@@ -97,7 +114,7 @@ impl MoveGenerator {
         moves.swap(0, best_index);
 
         self.list_index += 1;
-        moves[0].mov
+        best_move.mov
     }
 
     #[inline(never)]
@@ -107,7 +124,7 @@ impl MoveGenerator {
         killer_moves: KillerMoves,
         history: &HistoryTable,
     ) -> Option<Move> {
-        self.list.clear();
+        self.end_ptr = self.start_ptr;
         self.list_index = 0;
 
         match self.stage {
@@ -124,13 +141,13 @@ impl MoveGenerator {
             }
             GenStage::Captures => {
                 let ptr = if board.to_play == Color::White {
-                    generate_moves::<White, Captures>(board, self.list.as_ptr())
+                    generate_moves::<White, Captures>(board, self.start_ptr)
                 } else {
-                    generate_moves::<Black, Captures>(board, self.list.as_ptr())
+                    generate_moves::<Black, Captures>(board, self.start_ptr)
                 };
-                self.list.update_size(ptr);
+                self.end_ptr = ptr;
 
-                for scored_move in self.list.as_slice_mut() {
+                for scored_move in self.as_slice_mut() {
                     scored_move.score = scoring::score_capture(scored_move.mov, board);
                 }
 
@@ -142,13 +159,13 @@ impl MoveGenerator {
             }
             GenStage::Quiets => {
                 let ptr = if board.to_play == Color::White {
-                    generate_moves::<White, Quiets>(board, self.list.as_ptr())
+                    generate_moves::<White, Quiets>(board, self.start_ptr)
                 } else {
-                    generate_moves::<Black, Quiets>(board, self.list.as_ptr())
+                    generate_moves::<Black, Quiets>(board, self.start_ptr)
                 };
-                self.list.update_size(ptr);
+                self.end_ptr = ptr;
 
-                for scored_move in self.list.as_slice_mut() {
+                for scored_move in self.as_slice_mut() {
                     scored_move.score =
                         scoring::score_quiet(scored_move.mov, killer_moves, history, board.to_play);
                 }
@@ -157,13 +174,13 @@ impl MoveGenerator {
             }
             GenStage::Evasions => {
                 let ptr = if board.to_play == Color::White {
-                    generate_moves::<White, Evasions>(board, self.list.as_ptr())
+                    generate_moves::<White, Evasions>(board, self.start_ptr)
                 } else {
-                    generate_moves::<Black, Evasions>(board, self.list.as_ptr())
+                    generate_moves::<Black, Evasions>(board, self.start_ptr)
                 };
-                self.list.update_size(ptr);
+                self.end_ptr = ptr;
 
-                for scored_move in self.list.as_slice_mut() {
+                for scored_move in self.as_slice_mut() {
                     scored_move.score = if scored_move.mov.is_tactical() {
                         scoring::score_capture(scored_move.mov, board)
                     } else {

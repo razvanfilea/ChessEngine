@@ -62,6 +62,7 @@ fn test_time_manager_panic_mode_low_time() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_movetime_limit() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(false));
