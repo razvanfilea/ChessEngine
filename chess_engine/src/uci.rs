@@ -65,12 +65,8 @@ impl UciState {
             return true;
         }
 
-        if trimmed.starts_with("perft") {
-            let depth = trimmed["perft".len()..]
-                .trim()
-                .parse::<u8>()
-                .unwrap_or(1)
-                .max(1);
+        if let Some(rest) = trimmed.strip_prefix("perft") {
+            let depth = rest.trim().parse::<u8>().unwrap_or(1).max(1);
             self.run_perft(depth);
             return true;
         }
@@ -217,10 +213,11 @@ uciok"#,
             if best != Move::NONE {
                 let mut next_board = board;
                 next_board.make_move(best);
-                if let Some(entry) = tt.probe(next_board.hash, 1) {
-                    if entry.mov != Move::NONE && next_board.legal(entry.mov) {
-                        ponder = Some(entry.mov);
-                    }
+                if let Some(entry) = tt.probe(next_board.hash, 1)
+                    && entry.mov != Move::NONE
+                    && next_board.legal(entry.mov)
+                {
+                    ponder = Some(entry.mov);
                 }
             }
 
@@ -246,7 +243,8 @@ uciok"#,
         let from_sq = Sq::new(uci_move.src.0 as u8, uci_move.src.1 as u8)?;
         let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
 
-        for &mov in gen_all_moves(&self.board).as_slice() {
+        for &scored_move in gen_all_moves(&self.board).as_slice() {
+            let mov  = scored_move.mov;
             if mov.from() == from_sq && mov.to() == to_sq && self.board.legal(mov) {
                 // Check promotion match if applicable
                 if let Some(target_promo) = uci_move.promote {

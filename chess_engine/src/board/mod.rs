@@ -184,7 +184,7 @@ impl Board {
         }
 
         if mov.is_promotion() || mov.is_castle() || mov.flags() == MoveFlags::EnPassant {
-            return gen_all_moves(self).as_slice().contains(&mov);
+            return gen_all_moves(self).as_slice().iter().any(|&sm| sm == mov);
         }
 
         if self.checkers != 0 {

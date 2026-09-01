@@ -76,6 +76,10 @@ impl Move {
         self.0
     }
 
+    /// Creates a `Move` from raw 16-bit encoding.
+    ///
+    /// # Safety
+    /// The caller must ensure that `val` has valid square and flag bits.
     #[inline(always)]
     pub const unsafe fn from_bits_unchecked(val: u16) -> Self {
         Self(val)

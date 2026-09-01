@@ -1,5 +1,3 @@
-use std::mem::MaybeUninit;
-
 use chess_core::prelude::*;
 
 use crate::{
@@ -28,7 +26,6 @@ enum GenStage {
 
 pub struct MoveGenerator {
     list: MoveList,
-    score_list: [MaybeUninit<i16>; MAX_MOVES],
     stage: GenStage,
     list_index: usize,
     quiescence: bool,
@@ -39,7 +36,6 @@ impl MoveGenerator {
     pub fn new(tt_move: Move) -> Self {
         Self {
             list: MoveList::default(),
-            score_list: [const { MaybeUninit::uninit() }; MAX_MOVES],
             stage: GenStage::default(),
             list_index: 0,
             quiescence: false,
@@ -82,27 +78,26 @@ impl MoveGenerator {
     #[inline(always)]
     fn pick_next(&mut self) -> Move {
         let idx = self.list_index;
-        let len = self.list.len();
+        let moves = &mut self.list.as_slice_mut()[idx..];
 
-        let moves = self.list.as_slice_mut();
-        let scores = &mut self.score_list[..len];
+        let mut best_index = 0;
+        let mut best_score = moves[0].score;
 
-        let mut best_index = idx;
-        let mut best_score = unsafe { scores[idx].assume_init() };
-
-        for i in (idx + 1)..len {
-            let score = unsafe { scores[i].assume_init() };
-            if score > best_score {
-                best_score = score;
+        for (i, mov) in moves.iter().enumerate().skip(1) {
+            if mov.score > best_score {
+                best_score = mov.score;
                 best_index = i;
             }
         }
 
-        moves.swap(idx, best_index);
-        scores.swap(idx, best_index);
+        unsafe {
+            std::hint::assert_unchecked(best_index < moves.len());
+        }
+
+        moves.swap(0, best_index);
 
         self.list_index += 1;
-        moves[idx]
+        moves[0].mov
     }
 
     #[inline(never)]
@@ -135,11 +130,8 @@ impl MoveGenerator {
                 };
                 self.list.update_size(ptr);
 
-                let len = self.list.len();
-                let moves = self.list.as_slice();
-                for i in 0..len {
-                    let score = scoring::score_capture(moves[i], board);
-                    self.score_list[i].write(score);
+                for scored_move in self.list.as_slice_mut() {
+                    scored_move.score = scoring::score_capture(scored_move.mov, board);
                 }
 
                 if self.quiescence {
@@ -156,12 +148,9 @@ impl MoveGenerator {
                 };
                 self.list.update_size(ptr);
 
-                let len = self.list.len();
-                let moves = self.list.as_slice();
-                for i in 0..len {
-                    let score =
-                        scoring::score_quiet(moves[i], killer_moves, history, board.to_play);
-                    self.score_list[i].write(score);
+                for scored_move in self.list.as_slice_mut() {
+                    scored_move.score =
+                        scoring::score_quiet(scored_move.mov, killer_moves, history, board.to_play);
                 }
 
                 self.stage = GenStage::Done;
@@ -174,16 +163,12 @@ impl MoveGenerator {
                 };
                 self.list.update_size(ptr);
 
-                let len = self.list.len();
-                let moves = self.list.as_slice();
-                for i in 0..len {
-                    let mov = moves[i];
-                    let score = if mov.is_capture() || mov.is_promotion() {
-                        scoring::score_capture(mov, board)
+                for scored_move in self.list.as_slice_mut() {
+                    scored_move.score = if scored_move.mov.is_tactical() {
+                        scoring::score_capture(scored_move.mov, board)
                     } else {
-                        scoring::score_quiet(mov, killer_moves, history, board.to_play)
+                        scoring::score_quiet(scored_move.mov, killer_moves, history, board.to_play)
                     };
-                    self.score_list[i].write(score);
                 }
 
                 self.stage = GenStage::Done;

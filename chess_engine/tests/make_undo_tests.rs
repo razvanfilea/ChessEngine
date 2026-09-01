@@ -19,7 +19,8 @@ fn test_make_undo_for_fen(fen: &str) {
     };
 
     let mut tested = 0;
-    for &mov in moves.as_slice() {
+    for &scored_move in moves.as_slice() {
+        let mov = scored_move.mov;
         let mut child = board.clone();
         if !child.legal(mov) {
             continue;
