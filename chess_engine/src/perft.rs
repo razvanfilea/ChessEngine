@@ -7,8 +7,9 @@ pub fn perft(board: &mut Board, depth: u8) -> u64 {
 
     let moves = gen_all_moves(board);
     let mut nodes = 0;
-    for mov in moves.as_slice() {
-        if !board.legal(*mov) {
+    for scored_move in moves.as_slice() {
+        let mov = scored_move.mov;
+        if !board.legal(mov) {
             continue;
         }
 
@@ -17,9 +18,9 @@ pub fn perft(board: &mut Board, depth: u8) -> u64 {
             continue;
         }
 
-        let undo_info = board.make_move(*mov);
+        let undo_info = board.make_move(mov);
         nodes += perft(board, depth - 1);
-        board.undo_move(*mov, undo_info);
+        board.undo_move(mov, undo_info);
     }
 
     nodes

@@ -983,10 +983,11 @@ fn test_perft_move_generation_invariants() {
         };
         moves.update_size(ptr);
 
-        for mov in moves.as_slice() {
-            if board.legal(*mov) {
+        for scored_move in moves.as_slice() {
+            let mov = scored_move.mov;
+            if board.legal(mov) {
                 let mut child = board.clone();
-                child.make_move(*mov);
+                child.make_move(mov);
                 assert_board_invariants(&child);
             }
         }

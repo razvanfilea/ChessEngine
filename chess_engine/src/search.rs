@@ -25,6 +25,26 @@ const ASPIRATION_INITIAL_DELTA: i16 = 20;
 const ASPIRATION_FLUCTUATION: i16 = 100;
 const ASPIRATION_MIN_DEPTH: u8 = 5;
 
+static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
+    let mut table = [[(0, 0); MAX_PLY as usize]; MAX_PLY as usize];
+
+    let mut depth = 1;
+    while depth < MAX_PLY {
+        let mut moves = 1;
+        while moves < MAX_PLY {
+            let r = (0.75 + (depth as f64).ln() * (moves as f64).ln() / 2.25) as i8;
+            table[depth as usize][moves as usize] = (r, (r.max(1) - 1) as u8);
+            moves += 1;
+        }
+
+        depth += 1;
+    }
+
+    table
+});
+
+type LmrTable = [[(i8, u8); MAX_PLY as usize]; MAX_PLY as usize];
+
 pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
 
 impl Default for HistoryTable {
@@ -66,6 +86,7 @@ type KillerMovesArray = [KillerMoves; MAX_PLY as usize];
 struct Searcher<'a> {
     board: Board,
     tt: &'a TranspositionTable,
+    lmr_table: &'static LmrTable,
     nodes_searched: u64,
     root_ply: u16,
     killer_moves: KillerMovesArray,
@@ -90,6 +111,7 @@ impl<'a> Searcher<'a> {
             board,
             stop_requested,
             tt,
+            lmr_table: &*LMR_TABLE,
             time_manager,
             stopped,
             nodes_searched: 0,
@@ -157,10 +179,17 @@ impl<'a> Searcher<'a> {
             return;
         }
         self.pv_table[ply][0] = mov;
-        let copy_len = self.pv_length[ply + 1].min(MAX_PLY - 1) as usize;
+        let next_len = (self.pv_length[ply + 1] as usize).min(MAX_PLY as usize - 1 - ply);
         let (current, rest) = self.pv_table[ply..].split_at_mut(1);
-        current[0][1..1 + copy_len].copy_from_slice(&rest[0][..copy_len]);
-        self.pv_length[ply] = copy_len as u16 + 1;
+        for (dst, &src) in current[0][1..1 + next_len].iter_mut().zip(&rest[0][..next_len]) {
+            *dst = src;
+        }
+        self.pv_length[ply] = (next_len + 1) as u16;
+    }
+
+    #[inline(always)]
+    fn get_lmr(&self, is_pv: bool, depth: u8, mov_index: u8) {
+        LMR_TABLE[depth.max(63) as usize][mov_index.max(63) as usize];
     }
 
     fn nega_max<const IS_PV: bool>(
@@ -555,6 +584,7 @@ pub fn search(
                 .as_slice()
                 .iter()
                 .copied()
+                .map(|scored| scored.mov)
                 .find(|&m| search.board.legal(m))
                 .unwrap_or(Move::NONE)
         };
