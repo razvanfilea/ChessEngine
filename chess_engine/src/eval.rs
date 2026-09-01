@@ -24,7 +24,7 @@ const QUEEN_VALUE_EG: i32 = 936;
 const KING_VALUE_MG: i32 = 0;
 const KING_VALUE_EG: i32 = 0;
 
-const PIECE_VALUES_MG: [i32; Piece::NB] = [
+pub static PIECE_VALUES_MG: [i32; Piece::NB] = [
     PAWN_VALUE_MG,
     KNIGHT_VALUE_MG,
     BISHOP_VALUE_MG,
@@ -33,7 +33,7 @@ const PIECE_VALUES_MG: [i32; Piece::NB] = [
     KING_VALUE_MG,
 ];
 
-const PIECE_VALUES_EG: [i32; Piece::NB] = [
+pub static PIECE_VALUES_EG: [i32; Piece::NB] = [
     PAWN_VALUE_EG,
     KNIGHT_VALUE_EG,
     BISHOP_VALUE_EG,
