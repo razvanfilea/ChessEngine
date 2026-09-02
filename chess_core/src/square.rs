@@ -180,6 +180,11 @@ impl Sq {
         self.rank().abs_diff(other.rank()) + self.file().abs_diff(other.file())
     }
 
+    #[inline(always)]
+    pub const fn rotate_180(self) -> Sq {
+        unsafe { Self::from_raw_unchecked(self as u8 ^ 63) }
+    }
+
     pub fn parse(val: &str) -> Option<Self> {
         let mut x = val.chars();
         let file = x.next()?;
