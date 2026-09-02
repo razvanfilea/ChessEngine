@@ -90,6 +90,7 @@ struct Searcher<'a> {
     lmr_table: &'static LmrTable,
     nodes_searched: u64,
     root_ply: u16,
+    // nnue_accumulator: [i64; MAX_PLY as usize],
     killer_moves: KillerMovesArray,
     history: HistoryTable,
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],

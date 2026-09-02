@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 chess_core.workspace = true
 uci-parser.workspace = true
+fearless_simd.workspace = true
 
 [build-dependencies]
 chess_core.workspace = true
