@@ -222,6 +222,32 @@ pub const BISHOP_MAGICS: [SMagic; 64] = {bishop_magics:?};
     .unwrap();
 }
 
+fn generate_nnue_data(out_dir: &str) {
+    let nnue_path = Path::new("src/nnue/nn-04cf2b4ed1da.nnue");
+    println!("cargo:rerun-if-changed={}", nnue_path.display());
+    let bytes = std::fs::read(nnue_path).expect("Failed to read NNUE file");
+    let desc_len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    let weights_bytes = &bytes[12 + desc_len..];
+
+    let bin_path = Path::new(out_dir).join("network.bin");
+    std::fs::write(&bin_path, weights_bytes).expect("Failed to write network.bin");
+
+    let rs_path = Path::new(out_dir).join("nnue_data.rs");
+    let code = format!(
+        r#"#[repr(C, align(64))]
+struct AlignedData([u8; {len}]);
+
+static RAW_DATA: AlignedData = AlignedData(*include_bytes!("network.bin"));
+
+pub static NNUE: &Network = unsafe {{
+    &*(RAW_DATA.0.as_ptr() as *const Network)
+}};
+"#,
+        len = weights_bytes.len()
+    );
+    std::fs::write(&rs_path, code).expect("Failed to write nnue_data.rs");
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../chess_core/src/bitboard.rs");
@@ -229,4 +255,5 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     generate_pext_data(&out_dir);
     generate_magic_data(&out_dir);
+    generate_nnue_data(&out_dir);
 }
