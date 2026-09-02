@@ -1,4 +1,5 @@
 use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove};
+use crate::nnue::Accumulator;
 use crate::time::{Instant, TimeManager};
 use chess_core::bitboard::{RANK_2, RANK_7};
 use chess_core::prelude::*;
@@ -7,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::eval::{self, EVAL_NONE, INFINITY, MATE_THRESHOLD};
 use crate::transposition::{TTEntry, TTFlag, TranspositionTable};
-use crate::{board::Board, eval::eval_board, move_gen::MoveGenerator};
+use crate::{board::Board, move_gen::MoveGenerator};
 
 const MAX_PLY: u16 = 64;
 const MAX_KILLER_MOVES: usize = 2;
@@ -90,7 +91,7 @@ struct Searcher<'a> {
     lmr_table: &'static LmrTable,
     nodes_searched: u64,
     root_ply: u16,
-    // nnue_accumulator: [i64; MAX_PLY as usize],
+    nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
     killer_moves: KillerMovesArray,
     history: HistoryTable,
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
@@ -109,6 +110,13 @@ impl<'a> Searcher<'a> {
     ) -> Self {
         let root_ply = board.ply;
         let stopped = stop_requested.load(Ordering::Relaxed);
+        let mut nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]> =
+            vec![Accumulator::default(); MAX_PLY as usize]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap();
+        nnue_accumulator[0] = Accumulator::from_board(&board);
+
         Self {
             board,
             stop_requested,
@@ -117,6 +125,7 @@ impl<'a> Searcher<'a> {
             time_manager,
             stopped,
             nodes_searched: 0,
+            nnue_accumulator,
             killer_moves: [[Move::default(); MAX_KILLER_MOVES]; MAX_PLY as usize],
             history: HistoryTable::default(),
             root_ply,
@@ -198,6 +207,11 @@ impl<'a> Searcher<'a> {
         if is_pv { pv } else { non_pv }
     }
 
+    #[inline(always)]
+    fn eval_position(&self) -> i16 {
+        self.nnue_accumulator[self.ply() as usize].eval(self.board.to_play)
+    }
+
     fn nega_max<const IS_PV: bool>(
         &mut self,
         move_buffer: MoveListPtr,
@@ -239,7 +253,7 @@ impl<'a> Searcher<'a> {
         };
 
         if static_eval == EVAL_NONE && !self.board.in_check() {
-            static_eval = eval_board(&self.board);
+            static_eval = self.eval_position();
         }
 
         if ply >= MAX_PLY - 1 {
@@ -265,6 +279,8 @@ impl<'a> Searcher<'a> {
             && beta < MATE_THRESHOLD
             && self.board.has_non_pawn_material(self.board.to_play)
         {
+            let search_ply = self.ply() as usize;
+            self.nnue_accumulator[search_ply + 1] = self.nnue_accumulator[search_ply].clone();
             let undo = self.board.make_null_move();
             let score = -self.nega_max::<true>(
                 move_buffer,
@@ -298,7 +314,11 @@ impl<'a> Searcher<'a> {
             }
             legal_moves += 1;
 
-            let undo = self.board.make_move(mov);
+            let search_ply = self.ply() as usize;
+            self.nnue_accumulator[search_ply + 1] = self.nnue_accumulator[search_ply].clone();
+            let undo = self
+                .board
+                .make_move(mov, &mut self.nnue_accumulator[search_ply + 1]);
             let move_gives_check = self.board.in_check();
 
             // Futility Pruning
@@ -327,7 +347,7 @@ impl<'a> Searcher<'a> {
 
             if is_late_move {
                 do_full_search = false;
-                
+
                 let mut reduction = 0;
                 // PVS Zero-Window Search with LMR
                 if can_null
@@ -339,7 +359,7 @@ impl<'a> Searcher<'a> {
                 {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8);
                 }
-                
+
                 let lmr_depth = depth.saturating_sub(reduction).saturating_sub(1);
 
                 score = -self.nega_max::<false>(
@@ -368,13 +388,8 @@ impl<'a> Searcher<'a> {
             }
 
             if do_full_search && !self.stopped {
-                score = -self.nega_max::<IS_PV>(
-                    moves.next_ptr(),
-                    -beta,
-                    -alpha,
-                    depth - 1,
-                    can_null,
-                );
+                score =
+                    -self.nega_max::<IS_PV>(moves.next_ptr(), -beta, -alpha, depth - 1, can_null);
             }
             self.board.undo_move(mov, undo);
 
@@ -435,7 +450,7 @@ impl<'a> Searcher<'a> {
 
         let ply = self.ply();
         if ply >= MAX_PLY - 1 {
-            return eval_board(&self.board);
+            return self.eval_position();
         }
 
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
@@ -455,7 +470,7 @@ impl<'a> Searcher<'a> {
             -INFINITY + ply as i16
         } else {
             if static_eval == EVAL_NONE {
-                static_eval = eval_board(&self.board);
+                static_eval = self.eval_position();
             }
             if static_eval >= beta {
                 return static_eval;
@@ -497,7 +512,11 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            let undo = self.board.make_move(mov);
+            let search_ply = self.ply() as usize;
+            self.nnue_accumulator[search_ply + 1] = self.nnue_accumulator[search_ply].clone();
+            let undo = self
+                .board
+                .make_move(mov, &mut self.nnue_accumulator[search_ply + 1]);
             let score = -self.qsearch(moves.next_ptr(), -beta, -alpha);
             self.board.undo_move(mov, undo);
 

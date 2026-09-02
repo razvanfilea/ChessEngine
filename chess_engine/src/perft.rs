@@ -1,4 +1,4 @@
-use crate::{board::Board, move_gen::gen_all_moves};
+use crate::{board::Board, move_gen::gen_all_moves, nnue::Accumulator};
 
 pub fn perft(board: &mut Board, depth: u8) -> u64 {
     if depth == 0 {
@@ -6,6 +6,7 @@ pub fn perft(board: &mut Board, depth: u8) -> u64 {
     }
 
     let moves = gen_all_moves(board);
+    let mut next_acc = Accumulator::default();
     let mut nodes = 0;
     for scored_move in moves.as_slice() {
         let mov = scored_move.mov;
@@ -18,7 +19,7 @@ pub fn perft(board: &mut Board, depth: u8) -> u64 {
             continue;
         }
 
-        let undo_info = board.make_move(mov);
+        let undo_info = board.make_move(mov, &mut next_acc);
         nodes += perft(board, depth - 1);
         board.undo_move(mov, undo_info);
     }
