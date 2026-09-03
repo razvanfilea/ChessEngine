@@ -5,7 +5,6 @@ pub mod fen;
 
 use crate::attacks::*;
 use crate::move_gen::gen_all_moves;
-use crate::nnue::Accumulator;
 use crate::zobrist::ZOBRIST_KEYS;
 use chess_core::bitboard::{LIGHT_SQUARES, bb_several};
 use chess_core::{
@@ -333,7 +332,7 @@ impl Board {
         (to.bitboard() & ray_mask) != 0
     }
 
-    pub fn make_move(&mut self, mov: Move, accumulator: &mut Accumulator) -> UndoInfo {
+    pub fn make_move(&mut self, mov: Move) -> UndoInfo {
         let from = mov.from();
         let to = mov.to();
         let flags = mov.flags();
@@ -357,7 +356,6 @@ impl Board {
                 to
             };
             let piece = unsafe { self.remove_piece(sq).unwrap_unchecked() };
-            accumulator.remove_piece(piece, sq);
             Some(piece)
         } else {
             None
@@ -374,7 +372,6 @@ impl Board {
         };
 
         let mut piece = self.move_piece(from, to);
-        accumulator.move_piece(piece, from, to);
 
         let is_pawn = piece.piece() == Piece::Pawn;
 
@@ -382,11 +379,9 @@ impl Board {
             let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
 
             self.remove_piece(to);
-            accumulator.remove_piece(piece, to);
 
             piece = ColoredPiece::new(promo_piece, us);
             self.add_piece(to, piece);
-            accumulator.add_piece(piece, to);
         }
 
         if mov.is_castle() {
@@ -404,8 +399,6 @@ impl Board {
                 }
             };
             self.move_piece(rook_from, rook_to);
-            let rook = ColoredPiece::new(Piece::Rook, us);
-            accumulator.move_piece(rook, rook_from, rook_to);
         }
 
         self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);

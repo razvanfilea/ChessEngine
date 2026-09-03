@@ -223,7 +223,7 @@ pub const BISHOP_MAGICS: [SMagic; 64] = {bishop_magics:?};
 }
 
 fn generate_nnue_data(out_dir: &str) {
-    let nnue_path = Path::new("src/nnue/quantised.bin");
+    let nnue_path = Path::new("src/nnue/model-v3.bin");
     println!("cargo:rerun-if-changed={}", nnue_path.display());
     let bytes = std::fs::read(nnue_path).expect("Failed to read NNUE file");
 
@@ -237,6 +237,17 @@ struct AlignedData([u8; {len}]);
 
 static RAW_DATA: AlignedData = AlignedData(*include_bytes!("network.bin"));
 
+// Guard against a net/engine size mismatch (e.g. bumping HIDDEN_SIZE without
+// retraining `quantised.bin`). `Network` is `align(64)` so its `size_of` is
+// already padded to the same 64-byte boundary bullet pads the file to; the
+// buffer we transmute from must be exactly that size or the cast below reads
+// out of bounds. Fails the build loudly instead of producing garbage evals.
+const _: () = assert!(
+    {len} == core::mem::size_of::<Network>(),
+    "quantised.bin size != size_of::<Network>(): net/engine HIDDEN_SIZE mismatch \
+     (retrain the net or fix HIDDEN_SIZE)"
+);
+
 pub static NNUE: &Network = unsafe {{
     &*(RAW_DATA.0.as_ptr() as *const Network)
 }};
@@ -248,7 +259,6 @@ pub static NNUE: &Network = unsafe {{
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../chess_core/src/bitboard.rs");
 
     let out_dir = env::var("OUT_DIR").unwrap();
     generate_pext_data(&out_dir);

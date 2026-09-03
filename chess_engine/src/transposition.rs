@@ -228,6 +228,7 @@ impl TranspositionTable {
         unsafe { &self.buckets.get_unchecked(idx).0 }
     }
 
+    #[inline]
     pub fn probe(&self, hash: u64, ply: u16) -> Option<TTEntry> {
         for slot in self.bucket(hash) {
             let (mut entry, entry_key) = slot.load();
@@ -239,6 +240,7 @@ impl TranspositionTable {
         None
     }
 
+    #[inline]
     pub fn store(&self, hash: u64, mut entry: TTEntry, ply: u16) {
         entry.value = TTEntry::score_to_tt(entry.value, ply);
         entry.set_age(self.age);
