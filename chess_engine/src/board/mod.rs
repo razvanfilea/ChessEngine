@@ -338,14 +338,10 @@ impl Board {
         let to = mov.to();
         let flags = mov.flags();
         let us = self.to_play;
-        let them = !us;
         let original_hash = self.hash;
-        let king_us_sq = self.king_sq(us);
-        let king_them_sq = self.king_sq(them);
         self.hash_history[self.ply as usize] = original_hash;
 
         debug_assert!(self.piece_at(from).is_some());
-        let moving_piece_type = unsafe { self.piece_at(from).unwrap_unchecked().piece() };
 
         let is_capture = mov.is_capture();
         let captured_piece = if is_capture {
@@ -361,10 +357,7 @@ impl Board {
                 to
             };
             let piece = unsafe { self.remove_piece(sq).unwrap_unchecked() };
-            accumulator.remove_piece(king_them_sq, them, piece, sq);
-            if moving_piece_type != Piece::King {
-                accumulator.remove_piece(king_us_sq, us, piece, sq);
-            }
+            accumulator.remove_piece(piece, sq);
             Some(piece)
         } else {
             None
@@ -381,11 +374,7 @@ impl Board {
         };
 
         let mut piece = self.move_piece(from, to);
-
-        if piece.piece() != Piece::King {
-            accumulator.move_piece(king_them_sq, them, piece, from, to);
-            accumulator.move_piece(king_us_sq, us, piece, from, to);
-        }
+        accumulator.move_piece(piece, from, to);
 
         let is_pawn = piece.piece() == Piece::Pawn;
 
@@ -393,13 +382,11 @@ impl Board {
             let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
 
             self.remove_piece(to);
-            accumulator.remove_piece(king_them_sq, them, piece, to);
-            accumulator.remove_piece(king_us_sq, us, piece, to);
+            accumulator.remove_piece(piece, to);
 
             piece = ColoredPiece::new(promo_piece, us);
             self.add_piece(to, piece);
-            accumulator.add_piece(king_them_sq, them, piece, to);
-            accumulator.add_piece(king_us_sq, us, piece, to);
+            accumulator.add_piece(piece, to);
         }
 
         if mov.is_castle() {
@@ -418,7 +405,7 @@ impl Board {
             };
             self.move_piece(rook_from, rook_to);
             let rook = ColoredPiece::new(Piece::Rook, us);
-            accumulator.move_piece(king_them_sq, them, rook, rook_from, rook_to);
+            accumulator.move_piece(rook, rook_from, rook_to);
         }
 
         self.hash ^= ZOBRIST_KEYS.castling(self.castling_rights);
@@ -451,10 +438,6 @@ impl Board {
         self.hash ^= ZOBRIST_KEYS.side();
         self.set_checkers();
         self.set_pinned();
-
-        if moving_piece_type == Piece::King {
-            accumulator.move_king(self, us, to);
-        }
 
         undo_info
     }

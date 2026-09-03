@@ -1,0 +1,18 @@
+[package]
+name = "nnue_trainer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+# Trains the engine's NNUE with the `bullet` framework.
+#   cargo run -r -p nnue_trainer --features rocm
+
+[dependencies]
+bullet_lib = { git = "https://github.com/jw1912/bullet", package = "bullet_lib" }
+
+[features]
+default = []
+rocm = ["bullet_lib/rocm"]
+cuda = ["bullet_lib/cuda"]
+metal = ["bullet_lib/metal"]

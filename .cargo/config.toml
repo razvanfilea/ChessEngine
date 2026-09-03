@@ -17,3 +17,10 @@ rustflags = [
 [alias]
 build-wasm = "build -p chess_web --target wasm32-unknown-unknown --release"
 
+[net]
+git-fetch-with-cli = true
+
+[env]
+HIP_PATH = "/opt/rocm"
+HSA_OVERRIDE_GFX_VERSION = "11.0.0"
+
