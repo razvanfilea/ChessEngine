@@ -3,3 +3,6 @@
 
 /benchmarks/bin/
 /benchmarks/pgn/
+/benchmarks/*.epd
+
+/checkpoints/

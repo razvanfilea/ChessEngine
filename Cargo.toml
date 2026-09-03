@@ -5,6 +5,13 @@ members = [
     "chess_engine",
     "chess_cli",
     "chess_web",
+    "nnue_trainer",
+]
+default-members = [
+    "chess_core",
+    "chess_engine",
+    "chess_cli",
+    "chess_web",
 ]
 
 [workspace.package]
