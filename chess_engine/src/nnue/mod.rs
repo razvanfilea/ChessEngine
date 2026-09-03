@@ -16,16 +16,16 @@ impl Default for Accumulator {
 }
 
 impl Accumulator {
-    pub fn eval(&self, to_play: Color) -> i16 {
+    pub fn eval(&self, board: &Board) -> i16 {
         let level = Level::baseline();
-        dispatch!(level, simd => self.eval_simd(simd, to_play))
+        dispatch!(level, simd => self.eval_simd(simd, board))
     }
 
     #[inline(always)]
-    fn eval_simd<S: Simd>(&self, simd: S, to_play: Color) -> i16 {
+    fn eval_simd<S: Simd>(&self, simd: S, board: &Board) -> i16 {
         let n_i16 = i16x32::<S>::N;
-        let us = &self.0[to_play as usize];
-        let them = &self.0[!to_play as usize];
+        let us = &self.0[board.to_play as usize];
+        let them = &self.0[!board.to_play as usize];
 
         let mut total_sum = i32x16::splat(simd, 0);
         let mut screlu_half = |values: &[i16], weights: &[i16]| {
@@ -45,15 +45,17 @@ impl Accumulator {
             }
         };
 
-        screlu_half(us, &NNUE.output_weights[..HIDDEN_SIZE]);
-        screlu_half(them, &NNUE.output_weights[HIDDEN_SIZE..]);
+        let bucket_index = Network::bucket_index(board.occupied().count_ones() as usize);
+        let weights = &NNUE.output_weights[bucket_index];
+        screlu_half(us, &weights[..HIDDEN_SIZE]);
+        screlu_half(them, &weights[HIDDEN_SIZE..]);
 
         let mut buf = [0i32; 16];
         total_sum.store_slice(&mut buf);
         let mut out = buf.iter().sum::<i32>();
 
         out /= network::QA;
-        out += NNUE.output_bias as i32;
+        out += NNUE.output_bias[bucket_index] as i32;
         out *= network::SCALE;
         out /= network::QA * network::QB;
         out as i16

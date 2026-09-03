@@ -15,13 +15,15 @@ const MAX_KILLER_MOVES: usize = 2;
 const MAX_HISTORY: i32 = 10_000;
 
 const NULL_MOVE_REDUCTION: u8 = 3;
-const FUTILITY_MARGIN: i16 = 100;
+// Margins are in NNUE eval units, where ~1 pawn ≈ 400 (the net's SCALE), not
+// classical centipawns.
+const FUTILITY_MARGIN: i16 = 400;
 const FUTILITY_MAX_DEPTH: u8 = 8;
-const RFP_MARGIN: i16 = 100;
+const RFP_MARGIN: i16 = 400;
 const RFP_DEPTH: u8 = 5;
 
-const DELTA_MARGIN: i16 = 200;
-const GLOBAL_DELTA_MARGIN: i16 = 900; // Queen
+const DELTA_MARGIN: i16 = 800;
+const GLOBAL_DELTA_MARGIN: i16 = 2600; // Queen
 
 const ASPIRATION_INITIAL_DELTA: i16 = 20;
 const ASPIRATION_FLUCTUATION: i16 = 100;
@@ -84,21 +86,22 @@ impl HistoryTable {
 pub type KillerMoves = [Move; MAX_KILLER_MOVES];
 type KillerMovesArray = [KillerMoves; MAX_PLY as usize];
 
-#[repr(C)] // to guarantee order
+// #[repr(C)] // to guarantee order
 struct Searcher<'a> {
     board: Board,
-    tt: &'a TranspositionTable,
-    lmr_table: &'static LmrTable,
     nodes_searched: u64,
     root_ply: u16,
-    nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
-    killer_moves: KillerMovesArray,
-    history: HistoryTable,
-    pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
-    pv_length: [u16; MAX_PLY as usize],
+    stopped: bool,
+    tt: &'a TranspositionTable,
     stop_requested: Arc<AtomicBool>,
     time_manager: TimeManager,
-    stopped: bool,
+    lmr_table: &'static LmrTable,
+    nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
+    killer_moves: KillerMovesArray,
+    eval_stack: [i16; MAX_PLY as usize],
+    pv_length: [u16; MAX_PLY as usize],
+    pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
+    history: HistoryTable,
 }
 
 impl<'a> Searcher<'a> {
@@ -131,6 +134,7 @@ impl<'a> Searcher<'a> {
             root_ply,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
             pv_length: [0; MAX_PLY as usize],
+            eval_stack: [0; MAX_PLY as usize],
         }
     }
 
@@ -203,13 +207,13 @@ impl<'a> Searcher<'a> {
 
     #[inline(always)]
     fn get_lmr(&self, is_pv: bool, depth: u8, mov_index: u8) -> u8 {
-        let (non_pv, pv) = LMR_TABLE[depth.min(63) as usize][mov_index.min(63) as usize];
+        let (non_pv, pv) = self.lmr_table[depth.min(63) as usize][mov_index.min(63) as usize];
         if is_pv { pv } else { non_pv }
     }
 
     #[inline(always)]
     fn eval_position(&self) -> i16 {
-        self.nnue_accumulator[self.ply() as usize].eval(self.board.to_play)
+        self.nnue_accumulator[self.ply() as usize].eval(&self.board)
     }
 
     fn nega_max<const IS_PV: bool>(
@@ -259,13 +263,16 @@ impl<'a> Searcher<'a> {
         if ply >= MAX_PLY - 1 {
             return static_eval;
         }
+        self.eval_stack[ply as usize] = static_eval;
+
+        let improving = !in_check && ply >= 2 && static_eval > self.eval_stack[ply as usize - 2];
 
         // Reverse Futility Pruning
         if !IS_PV
             && !in_check
             && depth <= RFP_DEPTH
             && (tt_move.is_none() || !tt_move.is_capture())
-            && static_eval >= beta.saturating_add(RFP_MARGIN * depth as i16)
+            && static_eval >= beta.saturating_add(RFP_MARGIN * (depth as i16 - improving as i16))
         {
             return ((static_eval as i32 + beta as i32) / 2) as i16;
         }
@@ -358,6 +365,8 @@ impl<'a> Searcher<'a> {
                     && !self.board.in_check()
                 {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8);
+                    // Reduce one ply less when our eval is improving.
+                    reduction = reduction.saturating_sub(improving as u8);
                 }
 
                 let lmr_depth = depth.saturating_sub(reduction).saturating_sub(1);

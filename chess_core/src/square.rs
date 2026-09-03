@@ -181,11 +181,6 @@ impl Sq {
     }
 
     #[inline(always)]
-    pub const fn rotate_180(self) -> Sq {
-        unsafe { Self::from_raw_unchecked(self as u8 ^ 63) }
-    }
-
-    #[inline(always)]
     pub const fn flip_vertical(self) -> Sq {
         unsafe { Self::from_raw_unchecked(self as u8 ^ 56) }
     }

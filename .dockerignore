@@ -1,2 +1,10 @@
-target/
-.git/
+.idea/
+/target/
+
+/benchmarks/bin/
+/benchmarks/pgn/
+/benchmarks/*.epd
+
+/checkpoints/
+/data/
+
