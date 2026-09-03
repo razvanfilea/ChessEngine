@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use uci_parser::UciCommand;
 
 use crate::eval::INFINITY;
-use crate::nnue::Accumulator;
 use crate::time::TimeManager;
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::gen_all_moves, search::search};
@@ -130,10 +129,9 @@ uciok"#,
                     Board::start_pos()
                 };
 
-                let mut next_acc = Accumulator::default();
                 for uci_move in moves {
                     if let Some(mov) = self.find_move(uci_move) {
-                        self.board.make_move(mov, &mut next_acc);
+                        self.board.make_move(mov);
                     } else {
                         eprintln!("Illegal or unrecognized move in position command");
                         break;
@@ -212,11 +210,10 @@ uciok"#,
             };
 
             let best = search(board.clone(), time_manager, stop_requested, &tt, on_info);
-            let mut next_acc = Accumulator::default();
             let mut ponder = None;
             if best != Move::NONE {
                 let mut next_board = board;
-                next_board.make_move(best, &mut next_acc);
+                next_board.make_move(best);
                 if let Some(entry) = tt.probe(next_board.hash, 1)
                     && entry.mov != Move::NONE
                     && next_board.legal(entry.mov)

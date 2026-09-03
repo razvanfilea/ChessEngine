@@ -25,8 +25,8 @@ const RFP_DEPTH: u8 = 5;
 const DELTA_MARGIN: i16 = 800;
 const GLOBAL_DELTA_MARGIN: i16 = 2600; // Queen
 
-const ASPIRATION_INITIAL_DELTA: i16 = 20;
-const ASPIRATION_FLUCTUATION: i16 = 100;
+const ASPIRATION_INITIAL_DELTA: i16 = 100;
+const ASPIRATION_FLUCTUATION: i16 = 400;
 const ASPIRATION_MIN_DEPTH: u8 = 5;
 
 static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
@@ -68,14 +68,9 @@ impl HistoryTable {
     #[inline(always)]
     pub fn update(&mut self, side: Color, from: Sq, to: Sq, depth: u8) {
         let bonus = depth as i32 * depth as i32;
-
         let entry = &mut self.0[side as usize][from as usize][to as usize];
         let current = *entry as i32;
-
-        let clamped_bonus = bonus.clamp(-MAX_HISTORY, MAX_HISTORY);
-        let new_val = current + clamped_bonus - (current * clamped_bonus.abs() / MAX_HISTORY);
-
-        *entry = new_val as i16;
+        *entry = (current + bonus - (current * bonus / MAX_HISTORY)) as i16;
     }
 
     pub fn clear(&mut self) {
@@ -84,22 +79,35 @@ impl HistoryTable {
 }
 
 pub type KillerMoves = [Move; MAX_KILLER_MOVES];
-type KillerMovesArray = [KillerMoves; MAX_PLY as usize];
 
-// #[repr(C)] // to guarantee order
+#[derive(Default, Clone, Copy)]
+struct StackEntry {
+    killer_moves: KillerMoves,
+    eval: i16,
+    pv_length: u16,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PlyMove {
+    mov: Move,
+    moved_piece: Option<ColoredPiece>,
+    captured: Option<ColoredPiece>,
+}
+
+#[repr(C)]
 struct Searcher<'a> {
-    board: Board,
     nodes_searched: u64,
     root_ply: u16,
     stopped: bool,
     tt: &'a TranspositionTable,
+    board: Board,
     stop_requested: Arc<AtomicBool>,
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
     nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
-    killer_moves: KillerMovesArray,
-    eval_stack: [i16; MAX_PLY as usize],
-    pv_length: [u16; MAX_PLY as usize],
+    acc_computed: [bool; MAX_PLY as usize],
+    history_moves: [PlyMove; MAX_PLY as usize],
+    stack: [StackEntry; MAX_PLY as usize],
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     history: HistoryTable,
 }
@@ -120,6 +128,9 @@ impl<'a> Searcher<'a> {
                 .unwrap();
         nnue_accumulator[0] = Accumulator::from_board(&board);
 
+        let mut acc_computed = [false; MAX_PLY as usize];
+        acc_computed[0] = true;
+
         Self {
             board,
             stop_requested,
@@ -129,12 +140,12 @@ impl<'a> Searcher<'a> {
             stopped,
             nodes_searched: 0,
             nnue_accumulator,
-            killer_moves: [[Move::default(); MAX_KILLER_MOVES]; MAX_PLY as usize],
+            acc_computed,
+            history_moves: [PlyMove::default(); MAX_PLY as usize],
+            stack: [StackEntry::default(); MAX_PLY as usize],
             history: HistoryTable::default(),
             root_ply,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
-            pv_length: [0; MAX_PLY as usize],
-            eval_stack: [0; MAX_PLY as usize],
         }
     }
 
@@ -160,7 +171,7 @@ impl<'a> Searcher<'a> {
     fn get_killer_moves(&self) -> KillerMoves {
         let ply = self.ply() as usize;
         debug_assert!(ply < MAX_PLY as usize);
-        unsafe { *self.killer_moves.get_unchecked(ply) }
+        unsafe { *self.stack.get_unchecked(ply) }.killer_moves
     }
 
     fn set_killer_move(&mut self, current_move: Move) {
@@ -169,7 +180,7 @@ impl<'a> Searcher<'a> {
             return;
         }
 
-        let [first_killer, second_killer] = &mut self.killer_moves[ply];
+        let [first_killer, second_killer] = &mut self.stack[ply].killer_moves;
         if *first_killer == current_move {
             return;
         }
@@ -194,7 +205,7 @@ impl<'a> Searcher<'a> {
             return;
         }
         self.pv_table[ply][0] = mov;
-        let next_len = (self.pv_length[ply + 1] as usize).min(MAX_PLY as usize - 1 - ply);
+        let next_len = (self.stack[ply + 1].pv_length as usize).min(MAX_PLY as usize - 1 - ply);
         let (current, rest) = self.pv_table[ply..].split_at_mut(1);
         for (dst, &src) in current[0][1..1 + next_len]
             .iter_mut()
@@ -202,7 +213,7 @@ impl<'a> Searcher<'a> {
         {
             *dst = src;
         }
-        self.pv_length[ply] = (next_len + 1) as u16;
+        self.stack[ply].pv_length = (next_len + 1) as u16;
     }
 
     #[inline(always)]
@@ -211,9 +222,95 @@ impl<'a> Searcher<'a> {
         if is_pv { pv } else { non_pv }
     }
 
-    #[inline(always)]
-    fn eval_position(&self) -> i16 {
-        self.nnue_accumulator[self.ply() as usize].eval(&self.board)
+    #[inline]
+    fn eval_position(&mut self) -> i16 {
+        let ply = self.ply();
+        self.ensure_accumulator(ply);
+        self.nnue_accumulator[ply as usize].eval(&self.board)
+    }
+
+    #[inline]
+    fn ensure_accumulator(&mut self, target_ply: u16) {
+        if self.acc_computed[target_ply as usize] {
+            return;
+        }
+
+        // Walk back to find nearest computed ancestor.
+        let mut ancestor = target_ply;
+        while ancestor > 0 {
+            ancestor -= 1;
+            if self.acc_computed[ancestor as usize] {
+                break;
+            }
+        }
+
+        if !self.acc_computed[ancestor as usize] {
+            self.nnue_accumulator[target_ply as usize] = Accumulator::from_board(&self.board);
+            self.acc_computed[target_ply as usize] = true;
+            return;
+        }
+
+        // Forward replay: clone each ply from its predecessor, applying the delta.
+        // Null moves (moved_piece = None) are a pure clone with no delta.
+        for ply in (ancestor + 1)..=target_ply {
+            self.nnue_accumulator[ply as usize] = self.nnue_accumulator[ply as usize - 1].clone();
+            let entry = self.history_moves[ply as usize];
+            self.apply_move_to_accumulator(ply as usize, entry);
+            self.acc_computed[ply as usize] = true;
+        }
+    }
+
+    fn apply_move_to_accumulator(&mut self, acc_ply: usize, entry: PlyMove) {
+        let mov = entry.mov;
+        let moved_piece = match entry.moved_piece {
+            Some(p) => p,
+            None => return,
+        };
+        let from = mov.from();
+        let to = mov.to();
+        let flags = mov.flags();
+        let acc = &mut self.nnue_accumulator[acc_ply];
+
+        if let Some(captured) = entry.captured {
+            let capture_sq = if flags == MoveFlags::EnPassant {
+                let dir = if moved_piece.color() == Color::White {
+                    Dir::South
+                } else {
+                    Dir::North
+                };
+                unsafe { to.shift(dir) }
+            } else {
+                to
+            };
+            acc.remove_piece(captured, capture_sq);
+        }
+
+        acc.move_piece(moved_piece, from, to);
+
+        if mov.is_promotion() {
+            let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
+            acc.remove_piece(moved_piece, to);
+            acc.add_piece(ColoredPiece::new(promo_piece, moved_piece.color()), to);
+        }
+
+        if mov.is_castle() {
+            let us = moved_piece.color();
+            let (rook_from, rook_to) = if flags == MoveFlags::CastleKing {
+                if us == Color::White {
+                    (Sq::H1, Sq::F1)
+                } else {
+                    (Sq::H8, Sq::F8)
+                }
+            } else {
+                if us == Color::White {
+                    (Sq::A1, Sq::D1)
+                } else {
+                    (Sq::A8, Sq::D8)
+                }
+            };
+            let rook = ColoredPiece::new(Piece::Rook, us);
+            acc.move_piece(rook, rook_from, rook_to);
+        }
     }
 
     fn nega_max<const IS_PV: bool>(
@@ -225,8 +322,12 @@ impl<'a> Searcher<'a> {
         can_null: bool,
     ) -> i16 {
         let ply = self.ply();
+        if ply >= MAX_PLY - 1 {
+            return self.eval_position();
+        }
+
         let in_check = self.board.in_check();
-        self.pv_length[ply as usize] = 0;
+        self.stack[ply as usize].pv_length = 0;
         self.nodes_searched += 1;
         self.check_limits();
 
@@ -245,9 +346,9 @@ impl<'a> Searcher<'a> {
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
                 if let Some(score) = entry.cutoff(depth, alpha, beta) {
-                    if !entry.mov.is_none() && self.board.legal(entry.mov) {
+                    if IS_PV && !entry.mov.is_none() && self.board.legal(entry.mov) {
                         self.pv_table[ply as usize][0] = entry.mov;
-                        self.pv_length[ply as usize] = 1;
+                        self.stack[ply as usize].pv_length = 1;
                     }
                     return score;
                 }
@@ -256,16 +357,13 @@ impl<'a> Searcher<'a> {
             None => (Move::NONE, EVAL_NONE),
         };
 
-        if static_eval == EVAL_NONE && !self.board.in_check() {
+        if static_eval == EVAL_NONE && !in_check {
             static_eval = self.eval_position();
         }
 
-        if ply >= MAX_PLY - 1 {
-            return static_eval;
-        }
-        self.eval_stack[ply as usize] = static_eval;
+        self.stack[ply as usize].eval = static_eval;
 
-        let improving = !in_check && ply >= 2 && static_eval > self.eval_stack[ply as usize - 2];
+        let improving = !in_check && ply >= 2 && static_eval > self.stack[ply as usize - 2].eval;
 
         // Reverse Futility Pruning
         if !IS_PV
@@ -287,9 +385,10 @@ impl<'a> Searcher<'a> {
             && self.board.has_non_pawn_material(self.board.to_play)
         {
             let search_ply = self.ply() as usize;
-            self.nnue_accumulator[search_ply + 1] = self.nnue_accumulator[search_ply].clone();
             let undo = self.board.make_null_move();
-            let score = -self.nega_max::<true>(
+            self.acc_computed[search_ply + 1] = false;
+            self.history_moves[search_ply + 1] = PlyMove::default();
+            let score = -self.nega_max::<false>(
                 move_buffer,
                 -beta,
                 -beta + 1,
@@ -307,25 +406,33 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        let futility_margin_eval = static_eval + FUTILITY_MARGIN * depth as i16;
+        let futility_margin_eval =
+            static_eval.saturating_add(FUTILITY_MARGIN.saturating_mul(depth as i16));
         let orig_alpha = alpha;
         let mut moves = MoveGenerator::new(move_buffer, tt_move);
         let mut legal_moves = 0;
 
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
+        let killer_moves = self.get_killer_moves();
 
-        while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
+        while let Some(mov) = moves.next(&self.board, killer_moves, &self.history) {
             if !self.board.legal(mov) {
                 continue;
             }
             legal_moves += 1;
 
             let search_ply = self.ply() as usize;
-            self.nnue_accumulator[search_ply + 1] = self.nnue_accumulator[search_ply].clone();
-            let undo = self
-                .board
-                .make_move(mov, &mut self.nnue_accumulator[search_ply + 1]);
+            let moved_piece = self.board.piece_at(mov.from());
+            let undo = self.board.make_move(mov);
+            let child_ply = search_ply + 1;
+            self.acc_computed[child_ply] = false;
+            self.history_moves[child_ply] = PlyMove {
+                mov,
+                moved_piece,
+                captured: undo.captured_piece,
+            };
+
             let move_gives_check = self.board.in_check();
 
             // Futility Pruning
@@ -382,7 +489,6 @@ impl<'a> Searcher<'a> {
                 if score > alpha {
                     if reduction > 0 {
                         // If a reduced search failed high, we MUST re-search at full depth.
-                        // We set this to true so the full-depth search triggers below.
                         do_full_search = true;
                     } else if IS_PV && score < beta {
                         // If it wasn't reduced (reduction == 0), it was already a full-depth zero-window search.
@@ -392,7 +498,6 @@ impl<'a> Searcher<'a> {
                 }
             } else {
                 // Not a late move (it's the first move), we need a full search right away.
-                // We use a dummy score here since the full search will overwrite it.
                 score = -INFINITY;
             }
 
@@ -411,7 +516,9 @@ impl<'a> Searcher<'a> {
                 if score > alpha {
                     alpha = score;
                     best_move = mov;
-                    self.update_pv(ply, mov);
+                    if IS_PV {
+                        self.update_pv(ply, mov);
+                    }
                 }
             }
 
@@ -501,10 +608,12 @@ impl<'a> Searcher<'a> {
             static_eval
         };
 
+
         let mut moves = MoveGenerator::quiescence(move_buffer, tt_move);
         let mut best_move = Move::NONE;
+        let killer_moves = self.get_killer_moves();
 
-        while let Some(mov) = moves.next(&self.board, self.get_killer_moves(), &self.history) {
+        while let Some(mov) = moves.next(&self.board, killer_moves, &self.history) {
             if !in_check && !mov.is_tactical() {
                 continue;
             }
@@ -521,11 +630,17 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
+            let moved_piece = self.board.piece_at(mov.from());
             let search_ply = self.ply() as usize;
-            self.nnue_accumulator[search_ply + 1] = self.nnue_accumulator[search_ply].clone();
-            let undo = self
-                .board
-                .make_move(mov, &mut self.nnue_accumulator[search_ply + 1]);
+            let undo = self.board.make_move(mov);
+            let child_ply = search_ply + 1;
+            self.acc_computed[child_ply] = false;
+            self.history_moves[child_ply] = PlyMove {
+                mov,
+                moved_piece,
+                captured: undo.captured_piece,
+            };
+
             let score = -self.qsearch(moves.next_ptr(), -beta, -alpha);
             self.board.undo_move(mov, undo);
 
@@ -559,7 +674,7 @@ impl<'a> Searcher<'a> {
     }
 
     fn uci_info(&mut self, depth: u8, score: i16, start_time: Instant) -> String {
-        let pv_str = self.pv_table[0][..self.pv_length[0] as usize]
+        let pv_str = self.pv_table[0][..self.stack[0].pv_length as usize]
             .iter()
             .map(|&m| crate::uci::format_move(m))
             .collect::<Vec<_>>()
