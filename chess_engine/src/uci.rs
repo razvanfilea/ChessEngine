@@ -62,7 +62,7 @@ impl UciState {
 
         if trimmed.eq_ignore_ascii_case("eval") {
             let acc = crate::nnue::Accumulator::from_board(&self.board);
-            let eval = acc.eval(self.board.to_play);
+            let eval = acc.eval(&self.board);
             self.output_line(format!("score: {}", format_score(eval)));
             return true;
         }
@@ -296,7 +296,8 @@ pub fn format_score(score: i16) -> String {
         let moves_to_mate = (plies_to_mate + 1) / 2;
         format!("mate -{moves_to_mate}")
     } else {
-        format!("cp {score}")
+        const NORMALIZE_TO_PAWN: i32 = 400;
+        format!("cp {}", 100 * score as i32 / NORMALIZE_TO_PAWN)
     }
 }
 

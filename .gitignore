@@ -6,3 +6,5 @@
 /benchmarks/*.epd
 
 /checkpoints/
+/data/
+
