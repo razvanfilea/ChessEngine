@@ -3,7 +3,7 @@ use std::hint::assert_unchecked;
 use chess_core::prelude::*;
 
 pub const INPUT_FEATURES: usize = 768;
-pub const HIDDEN_SIZE: usize = 1024;
+pub const HIDDEN_SIZE: usize = 1536;
 pub const QA: i32 = 255;
 pub const QB: i32 = 64;
 pub const SCALE: i32 = 400;

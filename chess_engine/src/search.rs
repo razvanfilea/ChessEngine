@@ -16,10 +16,10 @@ pub const MATE_THRESHOLD: i16 = 29_000;
 // Material values calibrated to NNUE scale (~400 / pawn)
 pub const PIECE_VALUES: [i16; Piece::NB] = [
     400,  // Pawn
-    1300, // Knight
-    1350, // Bishop
-    2000, // Rook
-    2600, // Queen
+    1350, // Knight
+    1450, // Bishop
+    1750, // Rook
+    2570, // Queen
     0,    // King
 ];
 
