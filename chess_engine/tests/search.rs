@@ -1,10 +1,114 @@
 use chess_core::prelude::*;
 use chess_engine::board::Board;
+use chess_engine::move_gen::gen_all_moves;
+use chess_engine::nnue::Accumulator;
 use chess_engine::search::{HistoryTable, search};
 use chess_engine::time::TimeManager;
 use chess_engine::transposition::{TTEntry, TTFlag, TranspositionTable};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+#[test]
+fn test_lazy_acc_single_move_parity() {
+    let board = Board::start_pos();
+    let root_acc = Accumulator::from_board(&board);
+
+    let moves = gen_all_moves(&board);
+    for &scored in moves.as_slice() {
+        let mov = scored.mov;
+        if !board.legal(mov) {
+            continue;
+        }
+
+        let moved_piece = board.piece_at(mov.from()).unwrap();
+        let mut child = board.clone();
+        let undo = child.make_move(mov);
+
+        let expected = Accumulator::from_board(&child);
+
+        let mut lazy = root_acc.clone();
+        if let Some(captured) = undo.captured_piece {
+            let capture_sq = if mov.flags() == MoveFlags::EnPassant {
+                let dir = if moved_piece.color() == Color::White {
+                    Dir::South
+                } else {
+                    Dir::North
+                };
+                unsafe { mov.to().shift(dir) }
+            } else {
+                mov.to()
+            };
+            lazy.remove_piece(captured, capture_sq);
+        }
+        lazy.move_piece(moved_piece, mov.from(), mov.to());
+        if mov.is_promotion() {
+            let promo = unsafe { mov.promotion_piece().unwrap_unchecked() };
+            lazy.remove_piece(moved_piece, mov.to());
+            lazy.add_piece(ColoredPiece::new(promo, moved_piece.color()), mov.to());
+        }
+        if mov.is_castle() {
+            let us = moved_piece.color();
+            let (rf, rt) = if mov.flags() == MoveFlags::CastleKing {
+                if us == Color::White {
+                    (Sq::H1, Sq::F1)
+                } else {
+                    (Sq::H8, Sq::F8)
+                }
+            } else {
+                if us == Color::White {
+                    (Sq::A1, Sq::D1)
+                } else {
+                    (Sq::A8, Sq::D8)
+                }
+            };
+            lazy.move_piece(ColoredPiece::new(Piece::Rook, us), rf, rt);
+        }
+
+        assert_eq!(lazy.raw(), expected.raw(), "mismatch for move {mov:?}");
+    }
+}
+
+#[test]
+fn test_lazy_acc_two_move_parity() {
+    let board = Board::start_pos();
+    let root_acc = Accumulator::from_board(&board);
+
+    // Try c2c3 then every legal Black response
+    let mov1 = Move::new(Sq::C2, Sq::C3, MoveFlags::Quiet);
+    let mp1 = board.piece_at(mov1.from()).unwrap();
+    let mut b1 = board.clone();
+    let undo1 = b1.make_move(mov1);
+
+    let moves2 = gen_all_moves(&b1);
+    for &scored in moves2.as_slice() {
+        let mov2 = scored.mov;
+        if !b1.legal(mov2) {
+            continue;
+        }
+
+        let mp2 = b1.piece_at(mov2.from()).unwrap();
+        let mut b2 = b1.clone();
+        let undo2 = b2.make_move(mov2);
+
+        let expected = Accumulator::from_board(&b2);
+
+        // Multi-ply replay: clone root, apply move1 delta, apply move2 delta
+        let mut lazy = root_acc.clone();
+        lazy.move_piece(mp1, mov1.from(), mov1.to());
+        // move2
+        if let Some(cap) = undo2.captured_piece {
+            lazy.remove_piece(cap, mov2.to());
+        }
+        lazy.move_piece(mp2, mov2.from(), mov2.to());
+
+        assert_eq!(
+            lazy.raw(),
+            expected.raw(),
+            "2-ply mismatch: c2c3 then {mov2:?} (board: {})",
+            b2.to_fen()
+        );
+    }
+}
 
 #[test]
 fn test_history_table_operations() {

@@ -1,3 +1,5 @@
+use std::hint::assert_unchecked;
+
 use chess_core::prelude::*;
 
 pub const INPUT_FEATURES: usize = 768;
@@ -41,6 +43,10 @@ impl Network {
 
     #[inline(always)]
     pub(super) fn bucket_index(piece_count: usize) -> usize {
-        (piece_count - 2) / 32usize.div_ceil(OUTPUT_BUCKETS)
+        let bucket = (piece_count - 2) / 32usize.div_ceil(OUTPUT_BUCKETS);
+        unsafe {
+            assert_unchecked(bucket < OUTPUT_BUCKETS);
+        }
+        bucket
     }
 }

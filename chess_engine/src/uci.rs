@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uci_parser::UciCommand;
 
-use crate::eval::INFINITY;
+use crate::search::INFINITY;
 use crate::time::TimeManager;
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::gen_all_moves, search::search};

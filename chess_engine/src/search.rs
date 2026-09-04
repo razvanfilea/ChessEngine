@@ -6,9 +6,22 @@ use chess_core::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::eval::{self, EVAL_NONE, INFINITY, MATE_THRESHOLD};
 use crate::transposition::{TTEntry, TTFlag, TranspositionTable};
 use crate::{board::Board, move_gen::MoveGenerator};
+
+pub const EVAL_NONE: i16 = 30_001;
+pub const INFINITY: i16 = 30_000;
+pub const MATE_THRESHOLD: i16 = 29_000;
+
+// Material values calibrated to NNUE scale (~400 / pawn)
+pub const PIECE_VALUES: [i16; Piece::NB] = [
+    400,  // Pawn
+    1300, // Knight
+    1350, // Bishop
+    2000, // Rook
+    2600, // Queen
+    0,    // King
+];
 
 const MAX_PLY: u16 = 64;
 const MAX_KILLER_MOVES: usize = 2;
@@ -17,16 +30,16 @@ const MAX_HISTORY: i32 = 10_000;
 const NULL_MOVE_REDUCTION: u8 = 3;
 // Margins are in NNUE eval units, where ~1 pawn ≈ 400 (the net's SCALE), not
 // classical centipawns.
-const FUTILITY_MARGIN: i16 = 400;
+const FUTILITY_MARGIN: i16 = PIECE_VALUES[Piece::Pawn as usize];
 const FUTILITY_MAX_DEPTH: u8 = 8;
-const RFP_MARGIN: i16 = 400;
-const RFP_DEPTH: u8 = 5;
+const RFP_MARGIN: i16 = PIECE_VALUES[Piece::Pawn as usize];
+const RFP_DEPTH: u8 = 5; // TODO: test depth 6 in SPRT
 
-const DELTA_MARGIN: i16 = 800;
-const GLOBAL_DELTA_MARGIN: i16 = 2600; // Queen
+const DELTA_MARGIN: i16 = 2 * PIECE_VALUES[Piece::Pawn as usize];
+const GLOBAL_DELTA_MARGIN: i16 = PIECE_VALUES[Piece::Queen as usize];
 
 const ASPIRATION_INITIAL_DELTA: i16 = 100;
-const ASPIRATION_FLUCTUATION: i16 = 400;
+const ASPIRATION_FLUCTUATION: i16 = 3 * PIECE_VALUES[Piece::Pawn as usize];
 const ASPIRATION_MIN_DEPTH: u8 = 5;
 
 static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
@@ -244,11 +257,10 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        if !self.acc_computed[ancestor as usize] {
-            self.nnue_accumulator[target_ply as usize] = Accumulator::from_board(&self.board);
-            self.acc_computed[target_ply as usize] = true;
-            return;
-        }
+        debug_assert!(
+            self.acc_computed[ancestor as usize],
+            "root ply 0 is always computed"
+        );
 
         // Forward replay: clone each ply from its predecessor, applying the delta.
         // Null moves (moved_piece = None) are a pure clone with no delta.
@@ -608,7 +620,6 @@ impl<'a> Searcher<'a> {
             static_eval
         };
 
-
         let mut moves = MoveGenerator::quiescence(move_buffer, tt_move);
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
@@ -617,14 +628,24 @@ impl<'a> Searcher<'a> {
             if !in_check && !mov.is_tactical() {
                 continue;
             }
-            if !in_check
-                && let Some(victim) = self.board.piece_at(mov.to())
-                && (static_eval
-                    + eval::PIECE_VALUES_MG[victim.piece() as usize] as i16
-                    + DELTA_MARGIN)
-                    < alpha
-            {
-                continue;
+            if !in_check {
+                let victim_val = if mov.flags() == MoveFlags::EnPassant {
+                    PIECE_VALUES[Piece::Pawn as usize]
+                } else {
+                    self.board
+                        .piece_at(mov.to())
+                        .map_or(0, |p| PIECE_VALUES[p.piece() as usize])
+                };
+
+                let promo_val = if mov.is_promotion() {
+                    PIECE_VALUES[Piece::Queen as usize] - PIECE_VALUES[Piece::Pawn as usize]
+                } else {
+                    0
+                };
+
+                if static_eval.saturating_add(victim_val + promo_val + DELTA_MARGIN) < alpha {
+                    continue;
+                }
             }
             if !self.board.legal(mov) {
                 continue;
@@ -726,25 +747,24 @@ pub fn search(
 
             if score <= alpha && alpha > -INFINITY {
                 beta = ((alpha as i32 + beta as i32) / 2) as i16;
-                alpha = best_score.saturating_sub(delta).max(-INFINITY);
-                if score < -MATE_THRESHOLD {
+                delta = delta.saturating_add(delta / 2);
+                if delta > ASPIRATION_FLUCTUATION || score < -MATE_THRESHOLD {
                     alpha = -INFINITY;
+                    beta = INFINITY;
+                } else {
+                    alpha = best_score.saturating_sub(delta).max(-INFINITY);
                 }
             } else if score >= beta && beta < INFINITY {
-                beta = best_score.saturating_add(delta).min(INFINITY);
-                if score > MATE_THRESHOLD {
+                delta = delta.saturating_add(delta / 2);
+                if delta > ASPIRATION_FLUCTUATION || score > MATE_THRESHOLD {
+                    alpha = -INFINITY;
                     beta = INFINITY;
+                } else {
+                    beta = best_score.saturating_add(delta).min(INFINITY);
                 }
             } else {
                 best_score = score;
                 break 'aspiration;
-            }
-
-            if delta > ASPIRATION_FLUCTUATION {
-                alpha = -INFINITY;
-                beta = INFINITY;
-            } else {
-                delta = delta.saturating_add(delta / 2);
             }
         }
 

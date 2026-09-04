@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
 use chess_core::Move;
 
-use crate::eval::{EVAL_NONE, MATE_THRESHOLD};
+use crate::search::{EVAL_NONE, MATE_THRESHOLD};
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]

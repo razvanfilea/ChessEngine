@@ -16,6 +16,11 @@ impl Default for Accumulator {
 }
 
 impl Accumulator {
+    #[inline(always)]
+    pub fn raw(&self) -> &[[i16; HIDDEN_SIZE]; Color::NB] {
+        &self.0
+    }
+
     pub fn eval(&self, board: &Board) -> i16 {
         let level = Level::baseline();
         dispatch!(level, simd => self.eval_simd(simd, board))
