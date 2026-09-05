@@ -2,7 +2,7 @@ use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::move_gen::gen_all_moves;
 use chess_engine::nnue::Accumulator;
-use chess_engine::search::{HistoryTable, search};
+use chess_engine::search::{HistoryTable, PlyMove, search};
 use chess_engine::time::TimeManager;
 use chess_engine::transposition::{TTEntry, TTFlag, TranspositionTable};
 use std::sync::Arc;
@@ -26,43 +26,15 @@ fn test_lazy_acc_single_move_parity() {
 
         let expected = Accumulator::from_board(&child);
 
-        let mut lazy = root_acc.clone();
-        if let Some(captured) = undo.captured_piece {
-            let capture_sq = if mov.flags() == MoveFlags::EnPassant {
-                let dir = if moved_piece.color() == Color::White {
-                    Dir::South
-                } else {
-                    Dir::North
-                };
-                unsafe { mov.to().shift(dir) }
-            } else {
-                mov.to()
-            };
-            lazy.remove_piece(captured, capture_sq);
-        }
-        lazy.move_piece(moved_piece, mov.from(), mov.to());
-        if mov.is_promotion() {
-            let promo = unsafe { mov.promotion_piece().unwrap_unchecked() };
-            lazy.remove_piece(moved_piece, mov.to());
-            lazy.add_piece(ColoredPiece::new(promo, moved_piece.color()), mov.to());
-        }
-        if mov.is_castle() {
-            let us = moved_piece.color();
-            let (rf, rt) = if mov.flags() == MoveFlags::CastleKing {
-                if us == Color::White {
-                    (Sq::H1, Sq::F1)
-                } else {
-                    (Sq::H8, Sq::F8)
-                }
-            } else {
-                if us == Color::White {
-                    (Sq::A1, Sq::D1)
-                } else {
-                    (Sq::A8, Sq::D8)
-                }
-            };
-            lazy.move_piece(ColoredPiece::new(Piece::Rook, us), rf, rt);
-        }
+        let mut lazy = Accumulator::default();
+        lazy.compute_from(
+            &root_acc,
+            PlyMove {
+                mov,
+                moved_piece: Some(moved_piece),
+                captured: undo.captured_piece,
+            },
+        );
 
         assert_eq!(lazy.raw(), expected.raw(), "mismatch for move {mov:?}");
     }
@@ -92,17 +64,29 @@ fn test_lazy_acc_two_move_parity() {
 
         let expected = Accumulator::from_board(&b2);
 
-        // Multi-ply replay: clone root, apply move1 delta, apply move2 delta
-        let mut lazy = root_acc.clone();
-        lazy.move_piece(mp1, mov1.from(), mov1.to());
-        // move2
-        if let Some(cap) = undo2.captured_piece {
-            lazy.remove_piece(cap, mov2.to());
-        }
-        lazy.move_piece(mp2, mov2.from(), mov2.to());
+        // Multi-ply replay: compute move1, then compute move2
+        let mut lazy1 = Accumulator::default();
+        lazy1.compute_from(
+            &root_acc,
+            PlyMove {
+                mov: mov1,
+                moved_piece: Some(mp1),
+                captured: undo1.captured_piece,
+            },
+        );
+
+        let mut lazy2 = Accumulator::default();
+        lazy2.compute_from(
+            &lazy1,
+            PlyMove {
+                mov: mov2,
+                moved_piece: Some(mp2),
+                captured: undo2.captured_piece,
+            },
+        );
 
         assert_eq!(
-            lazy.raw(),
+            lazy2.raw(),
             expected.raw(),
             "2-ply mismatch: c2c3 then {mov2:?} (board: {})",
             b2.to_fen()

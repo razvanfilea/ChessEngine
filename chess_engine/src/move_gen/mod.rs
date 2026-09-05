@@ -64,7 +64,16 @@ impl MoveGenerator {
                 if mov == self.tt_move {
                     continue;
                 }
-                return Some(mov);
+
+                // TODO: Add this back after implementing SEE
+                // // First generate quiets instead of bad captures
+                // if self.stage != GenStage::Done && mov.score < GOOD_CAPTURES {
+                //     self.list_index -= 1; // add back the move we were about to return
+                //     self.advance_stage(board, killer_moves, history); // generate quiet moves
+                //     continue;
+                // }
+
+                return Some(mov.mov);
             }
 
             if self.stage == GenStage::Done {
@@ -93,7 +102,7 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
-    fn pick_next(&mut self) -> Move {
+    fn pick_next(&mut self) -> ScoredMove {
         let idx = self.list_index;
         let moves = &mut self.as_slice_mut()[idx..];
 
@@ -114,7 +123,7 @@ impl MoveGenerator {
         moves.swap(0, best_index);
 
         self.list_index += 1;
-        best_move.mov
+        best_move
     }
 
     #[inline(never)]
@@ -124,8 +133,10 @@ impl MoveGenerator {
         killer_moves: KillerMoves,
         history: &HistoryTable,
     ) -> Option<Move> {
-        self.end_ptr = self.start_ptr;
-        self.list_index = 0;
+        if self.list_index == self.len() {
+            self.end_ptr = self.start_ptr;
+            self.list_index = 0;
+        }
 
         match self.stage {
             GenStage::Init => {
@@ -158,14 +169,15 @@ impl MoveGenerator {
                 }
             }
             GenStage::Quiets => {
+                let remaining_captures = self.len();
                 let ptr = if board.to_play == Color::White {
-                    generate_moves::<White, Quiets>(board, self.start_ptr)
+                    generate_moves::<White, Quiets>(board, self.end_ptr)
                 } else {
-                    generate_moves::<Black, Quiets>(board, self.start_ptr)
+                    generate_moves::<Black, Quiets>(board, self.end_ptr)
                 };
                 self.end_ptr = ptr;
 
-                for scored_move in self.as_slice_mut() {
+                for scored_move in &mut self.as_slice_mut()[remaining_captures..] {
                     scored_move.score =
                         scoring::score_quiet(scored_move.mov, killer_moves, history, board.to_play);
                 }

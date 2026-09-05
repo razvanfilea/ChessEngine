@@ -9,103 +9,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::transposition::{TTEntry, TTFlag, TranspositionTable};
 use crate::{board::Board, move_gen::MoveGenerator};
 
-pub const EVAL_NONE: i16 = 30_001;
-pub const INFINITY: i16 = 30_000;
-pub const MATE_THRESHOLD: i16 = 29_000;
+mod history;
+mod params;
+mod stack;
 
-// Material values calibrated to NNUE scale (~400 / pawn)
-pub const PIECE_VALUES: [i16; Piece::NB] = [
-    400,  // Pawn
-    1350, // Knight
-    1450, // Bishop
-    1750, // Rook
-    2570, // Queen
-    0,    // King
-];
-
-const MAX_PLY: u16 = 64;
-const MAX_KILLER_MOVES: usize = 2;
-const MAX_HISTORY: i32 = 10_000;
-
-const NULL_MOVE_REDUCTION: u8 = 3;
-// Margins are in NNUE eval units, where ~1 pawn ≈ 400 (the net's SCALE), not
-// classical centipawns.
-const FUTILITY_MARGIN: i16 = PIECE_VALUES[Piece::Pawn as usize];
-const FUTILITY_MAX_DEPTH: u8 = 8;
-const RFP_MARGIN: i16 = PIECE_VALUES[Piece::Pawn as usize];
-const RFP_DEPTH: u8 = 5; // TODO: test depth 6 in SPRT
-
-const DELTA_MARGIN: i16 = 2 * PIECE_VALUES[Piece::Pawn as usize];
-const GLOBAL_DELTA_MARGIN: i16 = PIECE_VALUES[Piece::Queen as usize];
-
-const ASPIRATION_INITIAL_DELTA: i16 = 100;
-const ASPIRATION_FLUCTUATION: i16 = 3 * PIECE_VALUES[Piece::Pawn as usize];
-const ASPIRATION_MIN_DEPTH: u8 = 5;
-
-static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
-    let mut table = [[(0, 0); MAX_PLY as usize]; MAX_PLY as usize];
-
-    let mut depth = 1;
-    while depth < MAX_PLY {
-        let mut moves = 1;
-        while moves < MAX_PLY {
-            let r = (0.75 + (depth as f64).ln() * (moves as f64).ln() / 2.25) as u8;
-            table[depth as usize][moves as usize] = (r, r.saturating_sub(1));
-            moves += 1;
-        }
-
-        depth += 1;
-    }
-
-    table
-});
-
-type LmrTable = [[(u8, u8); MAX_PLY as usize]; MAX_PLY as usize];
-
-pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
-
-impl Default for HistoryTable {
-    fn default() -> Self {
-        Self([[[0; Sq::NB]; Sq::NB]; Color::NB])
-    }
-}
-
-impl HistoryTable {
-    #[inline(always)]
-    pub fn get(&self, side: Color, from: Sq, to: Sq) -> i16 {
-        self.0[side as usize][from as usize][to as usize]
-    }
-
-    /// Gravity update formula: naturally bounds values in [-MAX_HISTORY, MAX_HISTORY]
-    /// without ever overflowing i16 or requiring periodic resets.
-    #[inline(always)]
-    pub fn update(&mut self, side: Color, from: Sq, to: Sq, depth: u8) {
-        let bonus = depth as i32 * depth as i32;
-        let entry = &mut self.0[side as usize][from as usize][to as usize];
-        let current = *entry as i32;
-        *entry = (current + bonus - (current * bonus / MAX_HISTORY)) as i16;
-    }
-
-    pub fn clear(&mut self) {
-        self.0 = [[[0; Sq::NB]; Sq::NB]; Color::NB];
-    }
-}
-
-pub type KillerMoves = [Move; MAX_KILLER_MOVES];
-
-#[derive(Default, Clone, Copy)]
-struct StackEntry {
-    killer_moves: KillerMoves,
-    eval: i16,
-    pv_length: u16,
-}
-
-#[derive(Clone, Copy, Default)]
-struct PlyMove {
-    mov: Move,
-    moved_piece: Option<ColoredPiece>,
-    captured: Option<ColoredPiece>,
-}
+pub use history::*;
+pub use params::*;
+pub use stack::*;
 
 #[repr(C)]
 struct Searcher<'a> {
@@ -238,18 +148,12 @@ impl<'a> Searcher<'a> {
     #[inline]
     fn eval_position(&mut self) -> i16 {
         let ply = self.ply();
-        self.ensure_accumulator(ply);
-        self.nnue_accumulator[ply as usize].eval(&self.board)
-    }
-
-    #[inline]
-    fn ensure_accumulator(&mut self, target_ply: u16) {
-        if self.acc_computed[target_ply as usize] {
-            return;
+        if self.acc_computed[ply as usize] {
+            return self.nnue_accumulator[ply as usize].eval(&self.board);
         }
 
         // Walk back to find nearest computed ancestor.
-        let mut ancestor = target_ply;
+        let mut ancestor = ply;
         while ancestor > 0 {
             ancestor -= 1;
             if self.acc_computed[ancestor as usize] {
@@ -262,67 +166,22 @@ impl<'a> Searcher<'a> {
             "root ply 0 is always computed"
         );
 
-        // Forward replay: clone each ply from its predecessor, applying the delta.
-        // Null moves (moved_piece = None) are a pure clone with no delta.
-        for ply in (ancestor + 1)..=target_ply {
-            self.nnue_accumulator[ply as usize] = self.nnue_accumulator[ply as usize - 1].clone();
-            let entry = self.history_moves[ply as usize];
-            self.apply_move_to_accumulator(ply as usize, entry);
-            self.acc_computed[ply as usize] = true;
-        }
-    }
-
-    fn apply_move_to_accumulator(&mut self, acc_ply: usize, entry: PlyMove) {
-        let mov = entry.mov;
-        let moved_piece = match entry.moved_piece {
-            Some(p) => p,
-            None => return,
-        };
-        let from = mov.from();
-        let to = mov.to();
-        let flags = mov.flags();
-        let acc = &mut self.nnue_accumulator[acc_ply];
-
-        if let Some(captured) = entry.captured {
-            let capture_sq = if flags == MoveFlags::EnPassant {
-                let dir = if moved_piece.color() == Color::White {
-                    Dir::South
-                } else {
-                    Dir::North
-                };
-                unsafe { to.shift(dir) }
-            } else {
-                to
-            };
-            acc.remove_piece(captured, capture_sq);
+        // Replay any intermediate plies if ancestor is further than 1 ply (rare: ~3.9%)
+        for intermediate_ply in (ancestor + 1)..ply {
+            let (parent_acc, current_acc) = self.nnue_accumulator.split_at_mut(intermediate_ply as usize);
+            let parent_acc = &parent_acc[intermediate_ply as usize - 1];
+            let entry = self.history_moves[intermediate_ply as usize];
+            current_acc[0].compute_from(parent_acc, entry);
+            self.acc_computed[intermediate_ply as usize] = true;
         }
 
-        acc.move_piece(moved_piece, from, to);
-
-        if mov.is_promotion() {
-            let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
-            acc.remove_piece(moved_piece, to);
-            acc.add_piece(ColoredPiece::new(promo_piece, moved_piece.color()), to);
-        }
-
-        if mov.is_castle() {
-            let us = moved_piece.color();
-            let (rook_from, rook_to) = if flags == MoveFlags::CastleKing {
-                if us == Color::White {
-                    (Sq::H1, Sq::F1)
-                } else {
-                    (Sq::H8, Sq::F8)
-                }
-            } else {
-                if us == Color::White {
-                    (Sq::A1, Sq::D1)
-                } else {
-                    (Sq::A8, Sq::D8)
-                }
-            };
-            let rook = ColoredPiece::new(Piece::Rook, us);
-            acc.move_piece(rook, rook_from, rook_to);
-        }
+        // Fused compute + eval on the target ply (96.1% of the time directly from parent)
+        let (parent_acc, current_acc) = self.nnue_accumulator.split_at_mut(ply as usize);
+        let parent_acc = &parent_acc[ply as usize - 1];
+        let entry = self.history_moves[ply as usize];
+        let score = current_acc[0].compute_and_eval(parent_acc, entry, &self.board);
+        self.acc_computed[ply as usize] = true;
+        score
     }
 
     fn nega_max<const IS_PV: bool>(
@@ -445,6 +304,8 @@ impl<'a> Searcher<'a> {
                 captured: undo.captured_piece,
             };
 
+            // TODO: Add a does move give check function to board so we dont have make a move if we
+            // are going to futility prune it
             let move_gives_check = self.board.in_check();
 
             // Futility Pruning
@@ -630,15 +491,15 @@ impl<'a> Searcher<'a> {
             }
             if !in_check {
                 let victim_val = if mov.flags() == MoveFlags::EnPassant {
-                    PIECE_VALUES[Piece::Pawn as usize]
+                    piece_value(Piece::Pawn)
                 } else {
                     self.board
                         .piece_at(mov.to())
-                        .map_or(0, |p| PIECE_VALUES[p.piece() as usize])
+                        .map_or(0, |p| piece_value(p.piece()))
                 };
 
                 let promo_val = if mov.is_promotion() {
-                    PIECE_VALUES[Piece::Queen as usize] - PIECE_VALUES[Piece::Pawn as usize]
+                    piece_value(Piece::Queen) - piece_value(Piece::Pawn)
                 } else {
                     0
                 };

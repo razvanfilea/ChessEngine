@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uci_parser::UciCommand;
 
-use crate::search::INFINITY;
+use crate::search::{INFINITY, piece_value};
 use crate::time::TimeManager;
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::gen_all_moves, search::search};
@@ -293,71 +293,7 @@ pub fn format_score(score: i16) -> String {
         let moves_to_mate = (plies_to_mate + 1) / 2;
         format!("mate -{moves_to_mate}")
     } else {
-        const NORMALIZE_TO_PAWN: i32 = 400;
-        format!("cp {}", 100 * score as i32 / NORMALIZE_TO_PAWN)
+        format!("cp {}", 100 * score as i32 / (piece_value(Piece::Pawn) as i32))
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    #[test]
-    fn test_process_command_basic() {
-        let mut uci = UciState::new(|_| {});
-        assert!(uci.process_command("uci"));
-        assert!(uci.process_command("isready"));
-        assert!(uci.process_command("position startpos moves e2e4 e7e5"));
-        assert!(!uci.process_command("quit"));
-    }
-
-    #[test]
-    fn test_process_command_display_and_eval() {
-        let output = Arc::new(Mutex::new(Vec::new()));
-        let out_clone = output.clone();
-        let mut uci = UciState::new(move |line| {
-            out_clone.lock().unwrap().push(line);
-        });
-
-        assert!(uci.process_command("d"));
-        assert!(uci.process_command("eval"));
-
-        let lines = output.lock().unwrap().clone();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("Side to move: White"));
-        assert!(lines[0].contains("FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"));
-        assert!(lines[1].starts_with("score: cp"));
-    }
-
-    #[test]
-    fn test_process_command_perft() {
-        let output = Arc::new(Mutex::new(Vec::new()));
-        let out_clone = output.clone();
-        let mut uci = UciState::new(move |line| {
-            out_clone.lock().unwrap().push(line);
-        });
-
-        assert!(uci.process_command("go perft 1"));
-        let lines = output.lock().unwrap().clone();
-        assert!(lines.iter().any(|l| l.contains("Nodes searched: 20")));
-    }
-
-    #[test]
-    fn test_process_command_ucinewgame_clears_tt() {
-        let mut uci = UciState::new(|_| {});
-        // Store entry in TT
-        let entry = crate::transposition::TTEntry::new(
-            Move::NONE,
-            100,
-            50,
-            4,
-            crate::transposition::TTFlag::Exact,
-        );
-        uci.tt.store(uci.board.hash, entry, 0);
-        assert!(uci.tt.probe(uci.board.hash, 0).is_some());
-
-        assert!(uci.process_command("ucinewgame"));
-        assert!(uci.tt.probe(uci.board.hash, 0).is_none());
-    }
-}

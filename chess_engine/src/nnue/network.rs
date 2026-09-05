@@ -10,11 +10,6 @@ pub const SCALE: i32 = 400;
 pub const OUTPUT_BUCKETS: usize = 8;
 
 #[repr(C, align(64))]
-pub struct Accumulator {
-    pub vals: [i16; HIDDEN_SIZE],
-}
-
-#[repr(C, align(64))]
 pub struct Network {
     pub feature_weights: [[i16; HIDDEN_SIZE]; INPUT_FEATURES],
     pub feature_biases: [i16; HIDDEN_SIZE],
