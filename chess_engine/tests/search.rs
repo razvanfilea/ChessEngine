@@ -118,6 +118,19 @@ fn test_history_table_operations() {
     // Verify clear resets everything
     history.clear();
     assert_eq!(history.get(Color::White, Sq::E2, Sq::E4), 0);
+
+    // Test malus updates
+    history.update_malus(Color::White, Sq::E2, Sq::E4, 3);
+    let val_malus = history.get(Color::White, Sq::E2, Sq::E4);
+    assert!(val_malus < 0);
+
+    // Repeated malus updates stay bounded >= -10_000 without integer underflow
+    for _ in 0..100 {
+        history.update_malus(Color::White, Sq::E2, Sq::E4, 8);
+    }
+    let bounded_malus = history.get(Color::White, Sq::E2, Sq::E4);
+    assert!(bounded_malus >= -10_000);
+    assert!(bounded_malus < 0);
 }
 
 #[test]

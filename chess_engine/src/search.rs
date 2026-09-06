@@ -288,6 +288,8 @@ impl<'a> Searcher<'a> {
         let mut moves = MoveGenerator::new(move_buffer, tt_move);
         let mut legal_moves = 0;
         let mut quiet_moves = 0;
+        let mut quiets_tried = [Move::NONE; 32];
+        let mut quiets_cnt = 0;
 
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
@@ -426,17 +428,29 @@ impl<'a> Searcher<'a> {
             }
 
             if score >= beta {
-                if !mov.is_capture() {
+                if mov.is_quiet() {
                     self.set_killer_move(mov);
 
                     self.history
-                        .update(self.board.to_play, mov.from(), mov.to(), depth);
+                        .update_bonus(self.board.to_play, mov.from(), mov.to(), depth);
 
-                    // TODO: Maybe penalize previous quiet moves that failed to cause a cutoff
+                    for &prev_mov in &quiets_tried[..quiets_cnt] {
+                        self.history.update_malus(
+                            self.board.to_play,
+                            prev_mov.from(),
+                            prev_mov.to(),
+                            depth,
+                        );
+                    }
                 }
 
                 self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound);
                 return best_score;
+            }
+
+            if mov.is_quiet() && quiets_cnt < quiets_tried.len() {
+                quiets_tried[quiets_cnt] = mov;
+                quiets_cnt += 1;
             }
         }
 
