@@ -1,5 +1,5 @@
 use crate::move_gen::scoring::see_ge;
-use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove};
+use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove, gen_all_moves};
 use crate::nnue::Accumulator;
 use crate::time::{Instant, TimeManager};
 use chess_core::bitboard::{RANK_2, RANK_7};
@@ -18,6 +18,53 @@ pub use history::*;
 pub use params::*;
 pub use stack::*;
 
+pub fn search(
+    board: Board,
+    time_manager: TimeManager,
+    stop_requested: Arc<AtomicBool>,
+    tt: &TranspositionTable,
+    mut on_info: impl FnMut(String),
+) -> Move {
+    let start_time = Instant::now();
+    let max_depth = time_manager.limits.max_depth;
+
+    let mut move_buffer = [ScoredMove::default(); MAX_PLY as usize * MAX_MOVES / 2];
+    let move_ptr = MoveListPtr(move_buffer.as_mut_ptr());
+    let mut search = Searcher::new(board, stop_requested, tt, time_manager);
+    let mut best_score = -INFINITY;
+    let mut completed_best_move = Move::NONE;
+    let mut prev_best_move = Move::NONE;
+
+    'iterative: for current_depth in 1..=max_depth {
+        best_score = search.aspiration_search(move_ptr, current_depth, best_score);
+
+        if search.stopped {
+            break;
+        }
+
+        let current_best_move = search.pv_table[0][0];
+        if current_best_move != Move::NONE && search.board.legal(current_best_move) {
+            completed_best_move = current_best_move;
+        }
+
+        let line = search.uci_info(current_depth, best_score, start_time);
+        on_info(line);
+
+        let move_is_stable = current_best_move == prev_best_move;
+        prev_best_move = current_best_move;
+
+        if search.stop_requested.load(Ordering::Relaxed)
+            || search
+                .time_manager
+                .should_stop_after_depth(current_depth, move_is_stable)
+        {
+            search.stopped = true;
+            break 'iterative;
+        }
+    }
+
+    search.resolve_best_move(completed_best_move)
+}
 #[repr(C)]
 struct Searcher<'a> {
     nodes_searched: u64,
@@ -69,9 +116,48 @@ impl<'a> Searcher<'a> {
         }
     }
 
+    fn aspiration_search(&mut self, move_ptr: MoveListPtr, depth: u8, prev_score: i16) -> i16 {
+        let mut alpha = -INFINITY;
+        let mut beta = INFINITY;
+        let mut delta = ASPIRATION_INITIAL_DELTA;
+
+        if depth >= ASPIRATION_MIN_DEPTH {
+            alpha = prev_score.saturating_sub(delta).max(-INFINITY);
+            beta = prev_score.saturating_add(delta).min(INFINITY);
+        }
+
+        loop {
+            let score = self.nega_max::<true>(move_ptr, alpha, beta, depth, true);
+            if self.stopped {
+                return prev_score;
+            }
+
+            if score <= alpha && alpha > -INFINITY {
+                beta = ((alpha as i32 + beta as i32) / 2) as i16;
+                delta = delta.saturating_add(delta / 2);
+                if delta > ASPIRATION_FLUCTUATION || score < -MATE_THRESHOLD {
+                    alpha = -INFINITY;
+                    beta = INFINITY;
+                } else {
+                    alpha = prev_score.saturating_sub(delta).max(-INFINITY);
+                }
+            } else if score >= beta && beta < INFINITY {
+                delta = delta.saturating_add(delta / 2);
+                if delta > ASPIRATION_FLUCTUATION || score > MATE_THRESHOLD {
+                    alpha = -INFINITY;
+                    beta = INFINITY;
+                } else {
+                    beta = prev_score.saturating_add(delta).min(INFINITY);
+                }
+            } else {
+                return score;
+            }
+        }
+    }
+
     #[inline(always)]
     fn check_limits(&mut self) {
-        if self.nodes_searched & 2047 == 0
+        if self.nodes_searched & 4095 == 0
             && (self.stop_requested.load(Ordering::Relaxed)
                 || self
                     .time_manager
@@ -174,7 +260,7 @@ impl<'a> Searcher<'a> {
             stack.acc_computed = true;
         }
 
-        // Fused compute + eval on the target ply (96.1% of the time directly from parent)
+        // Fused compute + eval on the target ply
         let (parent_acc, current_acc) = self.nnue_accumulator.split_at_mut(ply as usize);
         let parent_acc = &parent_acc[ply as usize - 1];
         let stack = &mut self.stack[ply as usize];
@@ -216,11 +302,16 @@ impl<'a> Searcher<'a> {
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
                 if let Some(score) = entry.cutoff(depth, alpha, beta) {
-                    if IS_PV && !entry.mov.is_none() && self.board.legal(entry.mov) {
-                        self.pv_table[ply as usize][0] = entry.mov;
-                        self.stack[ply as usize].pv_length = 1;
+                    if !IS_PV {
+                        return score;
                     }
-                    return score;
+                    if entry.flag() == TTFlag::Exact {
+                        if !entry.mov.is_none() && self.board.legal(entry.mov) {
+                            self.pv_table[ply as usize][0] = entry.mov;
+                            self.stack[ply as usize].pv_length = 1;
+                        }
+                        return score;
+                    }
                 }
                 (entry.mov, entry.eval)
             }
@@ -233,14 +324,29 @@ impl<'a> Searcher<'a> {
 
         self.stack[ply as usize].eval = static_eval;
 
-        let improving = !in_check && ply >= 2 && static_eval > self.stack[ply as usize - 2].eval;
+        let improving = if !in_check && ply >= 2 {
+            let grandparent_eval = self.stack[ply as usize - 2].eval;
+            grandparent_eval != EVAL_NONE && static_eval > grandparent_eval
+        } else {
+            false
+        };
 
         // Reverse Futility Pruning
+        let rfp_margin = (RFP_MARGIN_SLOPE * depth as i16)
+            - (RFP_IMPROVING_BONUS * improving as i16)
+            + if tt_move.is_none() {
+                RFP_NO_TT_MARGIN
+            } else {
+                0
+            };
+
         if !IS_PV
             && !in_check
             && depth <= RFP_DEPTH
-            && (tt_move.is_none() || !tt_move.is_capture())
-            && static_eval >= beta.saturating_add(RFP_MARGIN * (depth as i16 - improving as i16))
+            && beta < MATE_THRESHOLD
+            && (tt_move.is_none() || !tt_move.is_tactical())
+            && self.board.has_non_pawn_material(self.board.to_play)
+            && static_eval >= beta.saturating_add(rfp_margin)
         {
             return ((static_eval as i32 + beta as i32) / 2) as i16;
         }
@@ -254,9 +360,8 @@ impl<'a> Searcher<'a> {
             && beta < MATE_THRESHOLD
             && self.board.has_non_pawn_material(self.board.to_play)
         {
-            let search_ply = self.ply() as usize;
             let undo = self.board.make_null_move();
-            self.stack[search_ply + 1].set_null_move();
+            self.stack[self.ply() as usize].set_null_move();
 
             let eval_margin = (static_eval - beta).max(0);
             let eval_bonus = ((eval_margin / NMP_EVAL_DIVISOR).min(3)) as u8;
@@ -306,7 +411,6 @@ impl<'a> Searcher<'a> {
             }
 
             let move_gives_check = self.board.gives_check(mov);
-            let search_ply = self.ply() as usize;
             let moved_piece = self.board.piece_at(mov.from());
 
             // Move Count Based Pruning (Late Move Pruning)
@@ -339,7 +443,7 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            // SEE PRUNING TODO:
+            // SEE PRUNING
             if !IS_PV
                 && depth <= 8
                 && mov.is_capture()
@@ -361,8 +465,8 @@ impl<'a> Searcher<'a> {
             }
 
             let undo = self.board.make_move_fast(mov, move_gives_check);
-            let child_ply = search_ply + 1;
-            self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
+            let child_ply = ply + 1;
+            self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
 
             // --- Search the Move ---
             let mut score;
@@ -380,7 +484,7 @@ impl<'a> Searcher<'a> {
                     && depth > 3
                     && (mov.is_quiet() || scored_mov.is_bad_capture())
                     && !in_check
-                    && !self.board.in_check()
+                    && !move_gives_check
                 {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8);
                     // Reduce one ply less when our eval is improving.
@@ -565,10 +669,9 @@ impl<'a> Searcher<'a> {
             }
 
             let moved_piece = self.board.piece_at(mov.from());
-            let search_ply = self.ply() as usize;
             let undo = self.board.make_move(mov);
-            let child_ply = search_ply + 1;
-            self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
+            let child_ply = ply + 1;
+            self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
 
             let score = -self.qsearch(moves.next_ptr(), -beta, -alpha);
             self.board.undo_move(mov, undo);
@@ -596,7 +699,7 @@ impl<'a> Searcher<'a> {
         } else if in_check {
             // We can only store as exact if in check, otherwise we didnt even check all moves
             self.store_tt(best_move, best_score, static_eval, 0, TTFlag::Exact);
-        };
+        }
 
         // In check with no legal moves is checkmate; best_score is still -INFINITY here.
         best_score
@@ -618,107 +721,31 @@ impl<'a> Searcher<'a> {
             self.tt.hashfull(),
         )
     }
-}
 
-pub fn search(
-    board: Board,
-    time_manager: TimeManager,
-    stop_requested: Arc<AtomicBool>,
-    tt: &TranspositionTable,
-    mut on_info: impl FnMut(String),
-) -> Move {
-    let start_time = Instant::now();
-    let max_depth = time_manager.limits.max_depth;
-
-    let mut move_buffer = [ScoredMove::default(); MAX_PLY as usize * MAX_MOVES / 2];
-    let move_ptr = MoveListPtr(move_buffer.as_mut_ptr());
-    let mut search = Searcher::new(board, stop_requested, tt, time_manager);
-    let mut best_score = -INFINITY;
-    let mut completed_best_move = Move::NONE;
-    let mut prev_best_move = Move::NONE;
-
-    'iterative: for current_depth in 1..=max_depth {
-        let mut alpha = -INFINITY;
-        let mut beta = INFINITY;
-        let mut delta = ASPIRATION_INITIAL_DELTA;
-
-        if current_depth >= ASPIRATION_MIN_DEPTH {
-            alpha = best_score.saturating_sub(delta).max(-INFINITY);
-            beta = best_score.saturating_add(delta).min(INFINITY);
+    fn resolve_best_move(&self, best: Move) -> Move {
+        if best != Move::NONE && self.board.legal(best) {
+            return best;
         }
 
-        'aspiration: loop {
-            let score = search.nega_max::<true>(move_ptr, alpha, beta, current_depth, true);
-            if search.stopped {
-                break 'iterative;
-            }
-
-            if score <= alpha && alpha > -INFINITY {
-                beta = ((alpha as i32 + beta as i32) / 2) as i16;
-                delta = delta.saturating_add(delta / 2);
-                if delta > ASPIRATION_FLUCTUATION || score < -MATE_THRESHOLD {
-                    alpha = -INFINITY;
-                    beta = INFINITY;
-                } else {
-                    alpha = best_score.saturating_sub(delta).max(-INFINITY);
-                }
-            } else if score >= beta && beta < INFINITY {
-                delta = delta.saturating_add(delta / 2);
-                if delta > ASPIRATION_FLUCTUATION || score > MATE_THRESHOLD {
-                    alpha = -INFINITY;
-                    beta = INFINITY;
-                } else {
-                    beta = best_score.saturating_add(delta).min(INFINITY);
-                }
-            } else {
-                best_score = score;
-                break 'aspiration;
-            }
+        let pv_move = self.pv_table[0][0];
+        if pv_move != Move::NONE && self.board.legal(pv_move) {
+            return pv_move;
         }
 
-        if search.stopped {
-            break;
+        let tt_move = self
+            .tt
+            .probe(self.board.hash, 0)
+            .map_or(Move::NONE, |e| e.mov);
+        if tt_move != Move::NONE && self.board.legal(tt_move) {
+            return tt_move;
         }
 
-        let current_best_move = search.pv_table[0][0];
-        if current_best_move != Move::NONE && search.board.legal(current_best_move) {
-            completed_best_move = current_best_move;
-        }
-
-        let line = search.uci_info(current_depth, best_score, start_time);
-        on_info(line);
-
-        let move_is_stable = current_best_move == prev_best_move;
-        prev_best_move = current_best_move;
-
-        if search.stop_requested.load(Ordering::Relaxed)
-            || search
-                .time_manager
-                .should_stop_after_depth(current_depth, move_is_stable)
-        {
-            search.stopped = true;
-            break 'iterative;
-        }
+        gen_all_moves(&self.board)
+            .as_slice()
+            .iter()
+            .copied()
+            .map(|scored| scored.mov)
+            .find(|&m| self.board.legal(m))
+            .unwrap_or(Move::NONE)
     }
-
-    if completed_best_move == Move::NONE || !search.board.legal(completed_best_move) {
-        let pv_move = search.pv_table[0][0];
-        let tt_move = tt.probe(search.board.hash, 0).map_or(Move::NONE, |e| e.mov);
-
-        completed_best_move = if pv_move != Move::NONE && search.board.legal(pv_move) {
-            pv_move
-        } else if tt_move != Move::NONE && search.board.legal(tt_move) {
-            tt_move
-        } else {
-            crate::move_gen::gen_all_moves(&search.board)
-                .as_slice()
-                .iter()
-                .copied()
-                .map(|scored| scored.mov)
-                .find(|&m| search.board.legal(m))
-                .unwrap_or(Move::NONE)
-        };
-    }
-
-    completed_best_move
 }

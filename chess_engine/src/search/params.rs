@@ -29,8 +29,10 @@ pub(super) const NMP_MIN_REDUCTION: u8 = 3;
 // classical centipawns.
 pub(super) const FUTILITY_MARGIN: i16 = piece_value(Piece::Pawn);
 pub(super) const FUTILITY_MAX_DEPTH: u8 = 8;
-pub(super) const RFP_MARGIN: i16 = piece_value(Piece::Pawn);
-pub(super) const RFP_DEPTH: u8 = 5; // TODO: test depth 6 in SPRT
+pub(super) const RFP_DEPTH: u8 = 6;
+pub(super) const RFP_MARGIN_SLOPE: i16 = 200;
+pub(super) const RFP_IMPROVING_BONUS: i16 = 200;
+pub(super) const RFP_NO_TT_MARGIN: i16 = 50;
 
 pub(super) const DELTA_MARGIN: i16 = 2 * piece_value(Piece::Pawn);
 pub(super) const GLOBAL_DELTA_MARGIN: i16 = piece_value(Piece::Queen);
@@ -39,6 +41,7 @@ pub(super) const ASPIRATION_INITIAL_DELTA: i16 = 100;
 pub(super) const ASPIRATION_FLUCTUATION: i16 = 3 * piece_value(Piece::Pawn);
 pub(super) const ASPIRATION_MIN_DEPTH: u8 = 5;
 
+// These are not based on piece values but on the PIECE_VALUES_SEE array
 pub(super) const SEE_CAPTURE_MARGIN: i32 = -100;
 pub(super) const SEE_QSEARCH_MARGIN: i32 = -100;
 

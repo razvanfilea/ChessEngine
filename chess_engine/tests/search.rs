@@ -103,13 +103,13 @@ fn test_history_table_operations() {
     assert_eq!(history.get(Color::Black, Sq::E7, Sq::E5), 0);
 
     // Apply updates
-    history.update(Color::White, Sq::E2, Sq::E4, 3);
+    history.update_bonus(Color::White, Sq::E2, Sq::E4, 3);
     let val1 = history.get(Color::White, Sq::E2, Sq::E4);
     assert!(val1 > 0);
 
     // Apply multiple updates and verify gravity damping (stays bounded <= 10_000)
     for _ in 0..100 {
-        history.update(Color::White, Sq::E2, Sq::E4, 8);
+        history.update_bonus(Color::White, Sq::E2, Sq::E4, 8);
     }
     let bounded_val = history.get(Color::White, Sq::E2, Sq::E4);
     assert!(bounded_val <= 10_000);
