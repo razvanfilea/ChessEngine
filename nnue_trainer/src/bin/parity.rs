@@ -49,7 +49,10 @@ fn main() {
         .save_format(&[
             SavedFormat::id("l0w").round().quantise::<i16>(QA),
             SavedFormat::id("l0b").round().quantise::<i16>(QA),
-            SavedFormat::id("l1w").round().transpose().quantise::<i16>(QB),
+            SavedFormat::id("l1w")
+                .round()
+                .transpose()
+                .quantise::<i16>(QB),
             SavedFormat::id("l1b").round().quantise::<i16>(QA * QB),
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
@@ -57,7 +60,8 @@ fn main() {
             let l0 = builder.new_affine("l0", 768, HIDDEN_SIZE);
             let stm = l0.forward(stm).screlu();
             let ntm = l0.forward(ntm).screlu();
-            builder.new_affine("l1", 2 * HIDDEN_SIZE, OUTPUT_BUCKETS)
+            builder
+                .new_affine("l1", 2 * HIDDEN_SIZE, OUTPUT_BUCKETS)
                 .forward(stm.concat(ntm))
                 .select(buckets)
         });
@@ -87,21 +91,33 @@ fn main() {
         if diff.abs() > TOLERANCE {
             flag = "  <== MISMATCH";
             fails += 1;
-        } else if engine_cp != 0.0 && engine_cp.signum() != bullet_cp.signum() && bullet_cp.abs() > 5.0 {
+        } else if engine_cp != 0.0
+            && engine_cp.signum() != bullet_cp.signum()
+            && bullet_cp.abs() > 5.0
+        {
             flag = "  <== SIGN";
             fails += 1;
         }
 
-        println!("{:>9.0} {:>9.1} {:>7.1}  {}{}", engine_cp, bullet_cp, diff, fen, flag);
+        println!(
+            "{:>9.0} {:>9.1} {:>7.1}  {}{}",
+            engine_cp, bullet_cp, diff, fen, flag
+        );
     }
 
     println!("{}", "-".repeat(90));
-    println!("max |diff| = {:.1} cp, tolerance = {:.0} cp, failures = {}/{}", worst, TOLERANCE, fails, FENS.len());
+    println!(
+        "max |diff| = {:.1} cp, tolerance = {:.0} cp, failures = {}/{}",
+        worst,
+        TOLERANCE,
+        fails,
+        FENS.len()
+    );
 
     if fails > 0 {
         eprintln!("PARITY FAILED — layout / quantisation / bucket bug likely.");
         std::process::exit(1);
     }
-    
+
     println!("PARITY OK — engine eval matches the bullet checkpoint.");
 }

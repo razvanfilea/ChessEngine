@@ -293,7 +293,9 @@ pub fn format_score(score: i16) -> String {
         let moves_to_mate = (plies_to_mate + 1) / 2;
         format!("mate -{moves_to_mate}")
     } else {
-        format!("cp {}", 100 * score as i32 / (piece_value(Piece::Pawn) as i32))
+        format!(
+            "cp {}",
+            100 * score as i32 / (piece_value(Piece::Pawn) as i32)
+        )
     }
 }
-

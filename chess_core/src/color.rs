@@ -1,5 +1,7 @@
 use std::ops::Not;
 
+use crate::Dir;
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum Color {
@@ -14,6 +16,22 @@ impl Color {
     #[inline(always)]
     pub const fn as_bool(self) -> bool {
         self as u8 != 0
+    }
+
+    #[inline(always)]
+    pub const fn forward(self) -> Dir {
+        match self {
+            Color::White => Dir::North,
+            Color::Black => Dir::South,
+        }
+    }
+
+    #[inline(always)]
+    pub const fn backward(self) -> Dir {
+        match self {
+            Color::White => Dir::South,
+            Color::Black => Dir::North,
+        }
     }
 }
 

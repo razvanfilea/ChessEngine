@@ -39,11 +39,17 @@ impl Accumulator {
         let bucket_index = Network::bucket_index(board.occupied().count_ones() as usize);
         let weights = &NNUE.output_weights[bucket_index];
 
-        for (val, w) in us.chunks_exact(n).zip(weights[..HIDDEN_SIZE].chunks_exact(n)) {
+        for (val, w) in us
+            .chunks_exact(n)
+            .zip(weights[..HIDDEN_SIZE].chunks_exact(n))
+        {
             let val_vec = i16x32::from_slice(simd, val);
             Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
         }
-        for (val, w) in them.chunks_exact(n).zip(weights[HIDDEN_SIZE..].chunks_exact(n)) {
+        for (val, w) in them
+            .chunks_exact(n)
+            .zip(weights[HIDDEN_SIZE..].chunks_exact(n))
+        {
             let val_vec = i16x32::from_slice(simd, val);
             Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
         }
@@ -197,16 +203,7 @@ impl Accumulator {
         };
 
         let w_cap = captured.map(|cap| {
-            let cap_sq = if flags == MoveFlags::EnPassant {
-                let dir = if moved_piece.color() == Color::White {
-                    Dir::South
-                } else {
-                    Dir::North
-                };
-                unsafe { to.shift(dir) }
-            } else {
-                to
-            };
+            let cap_sq = mov.capture_square(moved_piece.color());
             NNUE.feature_weights(Network::feature_index(perspective, cap, cap_sq))
         });
 

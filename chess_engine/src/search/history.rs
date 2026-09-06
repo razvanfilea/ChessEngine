@@ -1,5 +1,5 @@
-use chess_core::prelude::*;
 use super::params::{MAX_HISTORY, MAX_KILLER_MOVES};
+use chess_core::prelude::*;
 
 pub struct HistoryTable([[[i16; Sq::NB]; Sq::NB]; Color::NB]);
 
@@ -31,4 +31,3 @@ impl HistoryTable {
 }
 
 pub type KillerMoves = [Move; MAX_KILLER_MOVES];
-

@@ -23,7 +23,8 @@ pub(super) const MAX_PLY: u16 = 64;
 pub(super) const MAX_KILLER_MOVES: usize = 2;
 pub(super) const MAX_HISTORY: i32 = 10_000;
 
-pub(super) const NULL_MOVE_REDUCTION: u8 = 3;
+pub(super) const NMP_EVAL_DIVISOR: i16 = 250;
+pub(super) const NMP_MIN_REDUCTION: u8 = 3;
 // Margins are in NNUE eval units, where ~1 pawn ≈ 400 (the net's SCALE), not
 // classical centipawns.
 pub(super) const FUTILITY_MARGIN: i16 = piece_value(Piece::Pawn);
@@ -57,4 +58,3 @@ pub(super) static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock
 });
 
 pub(super) type LmrTable = [[(u8, u8); MAX_PLY as usize]; MAX_PLY as usize];
-

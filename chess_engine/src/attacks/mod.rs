@@ -13,7 +13,19 @@ mod sliders_attack {
 use chess_core::{piece_tables::*, prelude::*};
 
 #[inline(always)]
-pub fn pawn_attacks(sq: Sq, color: Color) -> u64 {
+pub fn piece_attack(piece: Piece, sq: Sq, color: Color, blockers: u64) -> u64 {
+    match piece {
+        Piece::Pawn => pawn_attacks(sq, color),
+        Piece::Knight => knight_attacks(sq),
+        Piece::Bishop => bishop_attacks(sq, blockers),
+        Piece::Rook => rook_attacks(sq, blockers),
+        Piece::Queen => queen_attacks(sq, blockers),
+        Piece::King => king_attacks(sq),
+    }
+}
+
+#[inline(always)]
+pub const fn pawn_attacks(sq: Sq, color: Color) -> u64 {
     PAWN_ATTACKS[color as usize][sq as usize]
 }
 

@@ -72,3 +72,19 @@ fn test_dir_is_forwards() {
     assert_eq!(Dir::SouthEast.is_forwards(), false);
     assert_eq!(Dir::SouthWest.is_forwards(), false);
 }
+
+#[test]
+fn test_capture_square() {
+    // Standard captures target the `to` square
+    let normal_cap = Move::new(Sq::E4, Sq::D5, MoveFlags::Capture);
+    assert_eq!(normal_cap.capture_square(Color::White), Sq::D5);
+    assert_eq!(normal_cap.capture_square(Color::Black), Sq::D5);
+
+    // En passant capture: White moves to D6, captured pawn is on D5 (South of D6)
+    let ep_white = Move::new(Sq::E5, Sq::D6, MoveFlags::EnPassant);
+    assert_eq!(ep_white.capture_square(Color::White), Sq::D5);
+
+    // En passant capture: Black moves to D3, captured pawn is on D4 (North of D3)
+    let ep_black = Move::new(Sq::E4, Sq::D3, MoveFlags::EnPassant);
+    assert_eq!(ep_black.capture_square(Color::Black), Sq::D4);
+}

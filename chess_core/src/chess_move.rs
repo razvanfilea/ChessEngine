@@ -1,6 +1,6 @@
 use std::hint::unreachable_unchecked;
 
-use crate::{Piece, Sq};
+use crate::{Color, Piece, Sq};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct Move(u16);
@@ -26,6 +26,16 @@ impl Move {
     #[inline(always)]
     pub const fn to(self) -> Sq {
         unsafe { Sq::from_raw_unchecked(((self.0 >> 6) & 63) as u8) }
+    }
+
+    #[inline(always)]
+    pub const fn castling_rook_squares(self, color: Color) -> (Sq, Sq) {
+        self.flags().castling_rook_squares(color)
+    }
+
+    #[inline(always)]
+    pub const fn capture_square(self, color: Color) -> Sq {
+        self.flags().capture_square(self.to(), color)
     }
 
     #[inline(always)]
@@ -109,4 +119,27 @@ pub enum MoveFlags {
     PromoCaptureBishop = 0b1101,
     PromoCaptureRook = 0b1110,
     PromoCaptureQueen = 0b1111,
+}
+
+impl MoveFlags {
+    #[inline(always)]
+    pub const fn castling_rook_squares(self, color: Color) -> (Sq, Sq) {
+        match (color, self) {
+            (Color::White, MoveFlags::CastleKing) => (Sq::H1, Sq::F1),
+            (Color::White, _) => (Sq::A1, Sq::D1),
+            (Color::Black, MoveFlags::CastleKing) => (Sq::H8, Sq::F8),
+            (Color::Black, _) => (Sq::A8, Sq::D8),
+        }
+    }
+
+    #[inline(always)]
+    pub const fn capture_square(self, to: Sq, color: Color) -> Sq {
+        match self {
+            // SAFETY: An en-passant capture can only land on rank 6 (for White)
+            // or rank 3 (for Black). Shifting one square backward is guaranteed
+            // to stay within board bounds (rank 5 or 4 respectively).
+            MoveFlags::EnPassant => unsafe { to.shift(color.backward()) },
+            _ => to,
+        }
+    }
 }

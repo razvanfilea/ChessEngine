@@ -1,19 +1,21 @@
+use std::cell::Cell;
 use std::fmt;
 use std::hint::assert_unchecked;
 
 pub mod fen;
 
-use crate::attacks::*;
+use crate::attacks::{self, *};
 use crate::move_gen::gen_all_moves;
 use crate::zobrist::ZOBRIST_KEYS;
-use chess_core::bitboard::{LIGHT_SQUARES, bb_several};
+use chess_core::bitboard::{LIGHT_SQUARES, bb_line, bb_several};
 use chess_core::{
-    bitboard::{bb_between, bb_line, bb_lsb, bb_only_one},
+    bitboard::{bb_between, bb_lsb, bb_only_one},
     for_each_bit,
     prelude::*,
 };
 
 const MAX_GAME_PLAY: usize = 1024;
+const UNCOMPUTED_PINNED: u64 = u64::MAX;
 
 #[derive(Clone, PartialEq)]
 pub struct Board {
@@ -21,7 +23,7 @@ pub struct Board {
     pub bit_colors: [u64; Color::NB],
     pub bit_pieces: [u64; Piece::NB],
     pub checkers: u64,
-    pub pinned: u64,
+    pub pinned: Cell<u64>,
 
     pub hash: u64,
     pub castling_rights: CastlingRights,
@@ -39,7 +41,7 @@ impl Default for Board {
             bit_colors: [0; Color::NB],
             bit_pieces: [0; Piece::NB],
             checkers: 0,
-            pinned: 0,
+            pinned: Cell::new(UNCOMPUTED_PINNED),
             hash: 0,
             castling_rights: CastlingRights::empty(),
             to_play: Color::White,
@@ -51,7 +53,19 @@ impl Default for Board {
     }
 }
 
-#[derive(Clone, Copy)]
+// #[derive(Default)]
+// pub struct BoardState {
+//     pub checkers: u64,
+//     pub pinned: u64,
+//     pub check_squares: [u64; Piece::NB],
+//     pub checkers_squares: u64,
+//     pub captured_piece: Option<ColoredPiece>,
+//     pub castling_rights: CastlingRights,
+//     pub en_passant_target_sq: Option<Sq>,
+//     pub half_move_clock: u8,
+// }
+
+#[derive(Clone)]
 pub struct UndoInfo {
     pub captured_piece: Option<ColoredPiece>,
     pub castling_rights: CastlingRights,
@@ -59,7 +73,6 @@ pub struct UndoInfo {
     pub half_move_clock: u8,
     pub checkers: u64,
     pub pinned: u64,
-    pub hash: u64,
 }
 
 impl Board {
@@ -226,11 +239,7 @@ impl Board {
                     return false;
                 }
 
-                let forward_dir = if us == Color::White {
-                    Dir::North
-                } else {
-                    Dir::South
-                };
+                let forward_dir = us.forward();
                 let start_rank = if us == Color::White { 1 } else { 6 };
                 let single_push_sq = unsafe { from.shift(forward_dir) };
 
@@ -306,13 +315,7 @@ impl Board {
         }
 
         if flags == MoveFlags::EnPassant {
-            let captured_pawn_sq = unsafe {
-                to.shift(if us == Color::White {
-                    Dir::South
-                } else {
-                    Dir::North
-                })
-            };
+            let captured_pawn_sq = mov.capture_square(us);
             let occ = ((occupied ^ from_bb) ^ captured_pawn_sq.bitboard()) | to_bb;
             let king_sq = self.king_sq(us);
             let attackers = self.generate_attackers(king_sq, them, occ);
@@ -321,7 +324,11 @@ impl Board {
             return (attackers & !captured_pawn_sq.bitboard()) == 0;
         }
 
-        if from_bb & self.pinned == 0 {
+        if self.pinned.get() == UNCOMPUTED_PINNED {
+            self.set_pinned();
+        }
+
+        if from_bb & self.pinned.get() == 0 {
             return true;
         }
 
@@ -332,7 +339,89 @@ impl Board {
         (to.bitboard() & ray_mask) != 0
     }
 
+    #[inline]
+    pub fn gives_check(&self, mov: Move) -> bool {
+        let from = mov.from();
+        let to = mov.to();
+        let from_bb = from.bitboard();
+        let to_bb = to.bitboard();
+        let flags = mov.flags();
+        let us = self.to_play;
+        let them = !us;
+
+        let enemy_king_sq = self.king_sq(them);
+        let enemy_king_bb = enemy_king_sq.bitboard();
+        let occupied = self.occupied();
+
+        if mov.is_castle() {
+            let (rook_from, rook_to) = flags.castling_rook_squares(us);
+            let occ_after =
+                (occupied ^ (from_bb | rook_from.bitboard())) | (to_bb | rook_to.bitboard());
+            return (attacks::rook_attacks(rook_to, occ_after) & enemy_king_bb) != 0;
+        }
+
+        if flags == MoveFlags::EnPassant {
+            let captured_pawn_sq = mov.capture_square(us);
+            let occ_after = (occupied ^ from_bb ^ captured_pawn_sq.bitboard()) | to_bb;
+            if (attacks::pawn_attacks(to, us) & enemy_king_bb) != 0 {
+                return true;
+            }
+            let our_rooks_queens =
+                (self.pieces(Piece::Rook) | self.pieces(Piece::Queen)) & self.colors(us) & !from_bb;
+            let our_bishops_queens = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen))
+                & self.colors(us)
+                & !from_bb;
+            return ((attacks::rook_attacks(enemy_king_sq, occ_after) & our_rooks_queens)
+                | (attacks::bishop_attacks(enemy_king_sq, occ_after) & our_bishops_queens))
+                != 0;
+        }
+
+        let occ_after = (occupied ^ from_bb) | to_bb;
+
+        // Direct Check
+        let piece_checking = mov
+            .promotion_piece()
+            .unwrap_or_else(|| unsafe { self.piece_at(from).unwrap_unchecked() }.piece());
+
+        if piece_checking != Piece::King
+            && (attacks::piece_attack(piece_checking, to, us, occ_after) & enemy_king_bb) != 0
+        {
+            return true;
+        }
+
+        // Discovered Check
+        let line = bb_line(from, enemy_king_sq);
+        if line != 0 && (line & to_bb) == 0 {
+            if from.file() == enemy_king_sq.file() || from.rank() == enemy_king_sq.rank() {
+                let our_rooks_queens = (self.pieces(Piece::Rook) | self.pieces(Piece::Queen))
+                    & self.colors(us)
+                    & !from_bb;
+                if (attacks::rook_attacks(enemy_king_sq, occ_after) & our_rooks_queens & line) != 0
+                {
+                    return true;
+                }
+            } else {
+                let our_bishops_queens = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen))
+                    & self.colors(us)
+                    & !from_bb;
+                if (attacks::bishop_attacks(enemy_king_sq, occ_after) & our_bishops_queens & line)
+                    != 0
+                {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    #[inline]
     pub fn make_move(&mut self, mov: Move) -> UndoInfo {
+        self.make_move_fast(mov, self.gives_check(mov))
+    }
+
+    #[inline]
+    pub fn make_move_fast(&mut self, mov: Move, mov_gives_check: bool) -> UndoInfo {
         let from = mov.from();
         let to = mov.to();
         let flags = mov.flags();
@@ -344,18 +433,7 @@ impl Board {
 
         let is_capture = mov.is_capture();
         let captured_piece = if is_capture {
-            let sq = if flags == MoveFlags::EnPassant {
-                unsafe {
-                    to.shift(if us == Color::White {
-                        Dir::South
-                    } else {
-                        Dir::North
-                    })
-                }
-            } else {
-                to
-            };
-            let piece = unsafe { self.remove_piece(sq).unwrap_unchecked() };
+            let piece = unsafe { self.remove_piece(mov.capture_square(us)).unwrap_unchecked() };
             Some(piece)
         } else {
             None
@@ -367,8 +445,7 @@ impl Board {
             en_passant_target_sq: self.en_passant_target_sq,
             half_move_clock: self.half_move_clock,
             checkers: self.checkers,
-            pinned: self.pinned,
-            hash: original_hash,
+            pinned: self.pinned.get(),
         };
 
         let mut piece = self.move_piece(from, to);
@@ -385,19 +462,7 @@ impl Board {
         }
 
         if mov.is_castle() {
-            let (rook_from, rook_to) = if flags == MoveFlags::CastleKing {
-                if us == Color::White {
-                    (Sq::H1, Sq::F1)
-                } else {
-                    (Sq::H8, Sq::F8)
-                }
-            } else {
-                if us == Color::White {
-                    (Sq::A1, Sq::D1)
-                } else {
-                    (Sq::A8, Sq::D8)
-                }
-            };
+            let (rook_from, rook_to) = flags.castling_rook_squares(us);
             self.move_piece(rook_from, rook_to);
         }
 
@@ -409,13 +474,7 @@ impl Board {
             self.hash ^= ZOBRIST_KEYS.en_passant(en_passsant);
         }
         if flags == MoveFlags::DoublePawn {
-            let target_sq = unsafe {
-                to.shift(if us == Color::White {
-                    Dir::South
-                } else {
-                    Dir::North
-                })
-            };
+            let target_sq = unsafe { to.shift(us.backward()) };
             self.hash ^= ZOBRIST_KEYS.en_passant(target_sq);
             self.en_passant_target_sq = Some(target_sq);
         }
@@ -429,13 +488,18 @@ impl Board {
         self.ply += 1;
         self.to_play = !us;
         self.hash ^= ZOBRIST_KEYS.side();
-        self.set_checkers();
-        self.set_pinned();
+        self.pinned.set(UNCOMPUTED_PINNED);
+        if mov_gives_check {
+            self.set_checkers();
+        } else {
+            self.checkers = 0;
+        }
 
         undo_info
     }
 
     /// Safety: it's the callers responsibility to make sure the UndoInfo and the Move match
+    #[inline]
     pub fn undo_move(&mut self, mov: Move, undo: UndoInfo) {
         let from = mov.from();
         let to = mov.to();
@@ -452,20 +516,8 @@ impl Board {
         }
 
         if mov.is_castle() {
-            let (rook_from, rook_to) = if flags == MoveFlags::CastleKing {
-                if us == Color::White {
-                    (Sq::F1, Sq::H1)
-                } else {
-                    (Sq::F8, Sq::H8)
-                }
-            } else {
-                if us == Color::White {
-                    (Sq::D1, Sq::A1)
-                } else {
-                    (Sq::D8, Sq::A8)
-                }
-            };
-            self.move_piece(rook_from, rook_to);
+            let (rook_from, rook_to) = flags.castling_rook_squares(us);
+            self.move_piece(rook_to, rook_from);
         }
 
         let is_capture = mov.is_capture();
@@ -473,32 +525,22 @@ impl Board {
             debug_assert!(undo.captured_piece.is_some());
             // Safety: this is a capture
             let captured_piece = unsafe { undo.captured_piece.unwrap_unchecked() };
-            let captured_sq = if flags == MoveFlags::EnPassant {
-                unsafe {
-                    to.shift(if us == Color::White {
-                        Dir::South
-                    } else {
-                        Dir::North
-                    })
-                }
-            } else {
-                to
-            };
-            self.add_piece(captured_sq, captured_piece);
+            self.add_piece(mov.capture_square(us), captured_piece);
         }
 
         self.castling_rights = undo.castling_rights;
         self.en_passant_target_sq = undo.en_passant_target_sq;
         self.half_move_clock = undo.half_move_clock;
         self.checkers = undo.checkers;
-        self.pinned = undo.pinned;
-        self.hash = undo.hash;
+        self.pinned.set(undo.pinned);
 
         self.ply -= 1;
+        self.hash = self.hash_history[self.ply as usize];
         self.hash_history[self.ply as usize] = 0;
         self.to_play = us;
     }
 
+    #[inline]
     pub fn make_null_move(&mut self) -> UndoInfo {
         debug_assert!(self.checkers == 0);
 
@@ -512,8 +554,7 @@ impl Board {
             en_passant_target_sq: self.en_passant_target_sq,
             half_move_clock: self.half_move_clock,
             checkers: 0,
-            pinned: self.pinned,
-            hash: original_hash,
+            pinned: self.pinned.get(),
         };
 
         if let Some(en_passant) = self.en_passant_target_sq.take() {
@@ -530,14 +571,15 @@ impl Board {
         info
     }
 
+    #[inline]
     pub fn undo_null_move(&mut self, info: UndoInfo) {
         self.castling_rights = info.castling_rights;
         self.en_passant_target_sq = info.en_passant_target_sq;
         self.half_move_clock = info.half_move_clock;
-        self.pinned = info.pinned;
-        self.hash = info.hash;
+        self.pinned.set(info.pinned);
 
         self.ply -= 1;
+        self.hash = self.hash_history[self.ply as usize];
         self.hash_history[self.ply as usize] = 0;
         self.to_play = !self.to_play;
     }
@@ -556,7 +598,7 @@ impl Board {
     }
 
     #[inline]
-    pub(super) fn set_pinned(&mut self) {
+    pub(super) fn set_pinned(&self) {
         let us = self.to_play;
         let king_sq = self.king_sq(us);
 
@@ -583,7 +625,7 @@ impl Board {
             }
         });
 
-        self.pinned = pinned;
+        self.pinned.set(pinned);
     }
 
     #[inline]
