@@ -1,3 +1,4 @@
+use crate::move_gen::scoring::see_ge;
 use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove};
 use crate::nnue::Accumulator;
 use crate::time::{Instant, TimeManager};
@@ -261,8 +262,13 @@ impl<'a> Searcher<'a> {
             let eval_bonus = ((eval_margin / NMP_EVAL_DIVISOR).min(3)) as u8;
             let reduction = NMP_MIN_REDUCTION + depth / 4 + eval_bonus;
 
-            let score =
-                -self.nega_max::<false>(move_buffer, -beta, -beta + 1, depth.saturating_sub(reduction), false);
+            let score = -self.nega_max::<false>(
+                move_buffer,
+                -beta,
+                -beta + 1,
+                depth.saturating_sub(reduction),
+                false,
+            );
             self.board.undo_null_move(undo);
 
             if self.stopped {
@@ -274,7 +280,7 @@ impl<'a> Searcher<'a> {
             }
         }
 
-        // TODO: Tune LMP furuther once we gave better move ordering ~8 ELO
+        // TODO: Tune LMP further once we gave better move ordering ~8 ELO
         let lmp_threshold = (5 + 2 * depth as u16 * depth as u16) / (2 - improving as u16);
         let futility_margin_eval =
             static_eval.saturating_add(FUTILITY_MARGIN.saturating_mul(depth as i16));
@@ -287,7 +293,8 @@ impl<'a> Searcher<'a> {
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
 
-        while let Some(mov) = moves.next(&self.board, killer_moves, &self.history) {
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history) {
+            let mov = scored_mov.mov;
             if !self.board.legal(mov) {
                 continue;
             }
@@ -330,6 +337,27 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
+            // SEE PRUNING TODO:
+            if !IS_PV
+                && depth <= 8
+                && mov.is_capture()
+                && !see_ge(mov, &self.board, depth as i32 * SEE_CAPTURE_MARGIN)
+            {
+                continue;
+            }
+
+            // Quiet Move SEE Pruning
+            if !IS_PV
+                && depth <= 4
+                && !mov.is_tactical()
+                && !move_gives_check
+                && mov != killer_moves[0]
+                && mov != killer_moves[1]
+                && !see_ge(mov, &self.board, -20 * (depth as i32) * (depth as i32))
+            {
+                continue;
+            }
+
             let undo = self.board.make_move_fast(mov, move_gives_check);
             let child_ply = search_ply + 1;
             self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
@@ -348,7 +376,7 @@ impl<'a> Searcher<'a> {
                 if can_null
                     && legal_moves > 3
                     && depth > 3
-                    && !mov.is_tactical()
+                    && (mov.is_quiet() || scored_mov.is_bad_capture())
                     && !in_check
                     && !self.board.in_check()
                 {
@@ -488,11 +516,13 @@ impl<'a> Searcher<'a> {
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
 
-        while let Some(mov) = moves.next(&self.board, killer_moves, &self.history) {
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history) {
+            let mov = scored_mov.mov;
             if !in_check && !mov.is_tactical() {
                 continue;
             }
             if !in_check {
+                // Delta Pruning
                 let victim_val = if mov.flags() == MoveFlags::EnPassant {
                     piece_value(Piece::Pawn)
                 } else {
@@ -508,6 +538,11 @@ impl<'a> Searcher<'a> {
                 };
 
                 if static_eval.saturating_add(victim_val + promo_val + DELTA_MARGIN) < alpha {
+                    continue;
+                }
+
+                // SEE Pruning
+                if tt_move != mov && !see_ge(mov, &self.board, SEE_QSEARCH_MARGIN) {
                     continue;
                 }
             }

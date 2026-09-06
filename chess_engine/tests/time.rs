@@ -79,6 +79,7 @@ fn test_search_movetime_limit() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_tt_not_polluted_when_stopped() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(true)); // Pre-stopped

@@ -4,6 +4,7 @@
 /benchmarks/bin/
 /benchmarks/pgn/
 /benchmarks/*.epd
+/benchmarks/*.pgn
 
 /checkpoints/
 /data/

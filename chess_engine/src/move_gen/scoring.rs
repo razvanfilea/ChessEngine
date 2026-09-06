@@ -1,11 +1,13 @@
-use chess_core::prelude::*;
+use chess_core::{bitboard::bb_lsb, prelude::*};
 
 use crate::{
+    attacks::{bishop_attacks, bishop_xray_attacks, rook_attacks, rook_xray_attacks},
     board::Board,
     search::{HistoryTable, KillerMoves},
 };
 
-const PIECE_VALUES: [i16; Piece::NB] = [1, 2, 3, 4, 5, 6]; // P, N, B, R, Q, K
+const PIECE_VALUES_MVV: [i16; Piece::NB] = [1, 2, 3, 4, 5, 6]; // P, N, B, R, Q, K
+const PIECE_VALUES_SEE: [i32; Piece::NB] = [100, 300, 300, 500, 900, 20000]; // P, N, B, R, Q, K
 
 static MVV_LVA: [[i16; Piece::NB]; Piece::NB] = const {
     let mut table = [[0; Piece::NB]; Piece::NB];
@@ -14,17 +16,17 @@ static MVV_LVA: [[i16; Piece::NB]; Piece::NB] = const {
         let mut attacker = 0;
         while attacker < Piece::NB {
             // e.g. victim * 10 - attacker
-            table[victim][attacker] = PIECE_VALUES[victim] * 10 - PIECE_VALUES[attacker];
+            table[victim][attacker] = PIECE_VALUES_MVV[victim] * 10 - PIECE_VALUES_MVV[attacker];
             attacker += 1;
         }
         victim += 1;
     }
     table
 };
-pub const GOOD_CAPTURES: i16 = 20_000;
-pub const KILLER_1: i16 = 15_000;
-pub const KILLER_2: i16 = 14_000;
-pub const BAD_CAPTURES: i16 = 5_000;
+const GOOD_CAPTURES: i16 = 20_000;
+const KILLER_1: i16 = 15_000;
+const KILLER_2: i16 = 14_000;
+const BAD_CAPTURES: i16 = -5_000;
 
 #[inline(always)]
 fn mvv_lva(victim: Piece, attacker: Piece) -> i16 {
@@ -45,12 +47,12 @@ pub fn score_capture(mov: Move, board: &Board) -> i16 {
 
     let base_score = mvv_lva(victim, attacker);
 
-    let is_good = (attacker as u8) <= (victim as u8) || mov.is_promotion();
+    let is_good = (attacker as u8) <= (victim as u8) || see_ge(mov, board, 0);
     let tier = if is_good { GOOD_CAPTURES } else { BAD_CAPTURES };
 
     let mut score = tier + base_score;
     if let Some(promo) = mov.promotion_piece() {
-        score += PIECE_VALUES[promo as usize] * 10;
+        score += PIECE_VALUES_MVV[promo as usize] * 10;
     }
     score
 }
@@ -69,4 +71,106 @@ pub fn score_quiet(
     } else {
         history.get(side, mov.from(), mov.to())
     }
+}
+
+#[inline(always)]
+fn get_least_valuable_attacker(board: &Board, attackers: u64, side: Color) -> Option<(Sq, Piece)> {
+    let side_attackers = attackers & board.colors(side);
+    if side_attackers == 0 {
+        return None;
+    }
+
+    for piece in Piece::ALL {
+        let subset = side_attackers & board.pieces(piece);
+        if subset != 0 {
+            if piece == Piece::King && (attackers & board.colors(!side)) != 0 {
+                return None;
+            }
+            let sq = unsafe { bb_lsb(subset) };
+            return Some((sq, piece));
+        }
+    }
+
+    None
+}
+
+pub fn see_ge(mov: Move, board: &Board, threshold: i32) -> bool {
+    let from = mov.from();
+    let to = mov.to();
+    let flags = mov.flags();
+    let us = board.to_play;
+
+    let Some(mut attacker) = board.piece_at(from).map(|p| p.piece()) else {
+        return false;
+    };
+
+    let is_ep = flags == MoveFlags::EnPassant;
+
+    let captured = if is_ep {
+        Some(Piece::Pawn)
+    } else {
+        board.piece_at(to).map(|p| p.piece())
+    };
+
+    let cap_val = captured.map_or(0, |p| PIECE_VALUES_SEE[p as usize]);
+
+    let promo_bonus = if let Some(promo) = mov.promotion_piece() {
+        let bonus = PIECE_VALUES_SEE[promo as usize] - PIECE_VALUES_SEE[Piece::Pawn as usize];
+        attacker = promo;
+        bonus
+    } else {
+        0
+    };
+
+    // Initial deficit: if our immediate gain without recapture is below threshold, fail
+    let mut swap = cap_val + promo_bonus - threshold;
+    if swap < 0 {
+        return false;
+    }
+
+    // Guaranteed gain: if losing our moving piece still leaves us >= threshold, succeed
+    swap = PIECE_VALUES_SEE[attacker as usize] - swap;
+    if swap <= 0 {
+        return true;
+    }
+
+    let from_bb = from.bitboard();
+    let to_bb = to.bitboard();
+
+    let mut occupied = board.occupied() ^ from_bb;
+    if is_ep {
+        occupied ^= mov.capture_square(us).bitboard();
+    }
+    occupied |= to_bb;
+
+    let mut attackers = board.attackers_to(to, occupied);
+
+    let bishops_queens = board.pieces(Piece::Bishop) | board.pieces(Piece::Queen);
+    let rooks_queens = board.pieces(Piece::Rook) | board.pieces(Piece::Queen);
+
+    let mut side = !us;
+    let mut res = 1;
+
+    while let Some((next_from, next_attacker)) = get_least_valuable_attacker(board, attackers, side)
+    {
+        occupied ^= next_from.bitboard();
+
+        if next_from.bitboard() & bishop_xray_attacks(to) != 0 {
+            attackers |= bishop_attacks(to, occupied) & bishops_queens;
+        }
+        if next_from.bitboard() & rook_xray_attacks(to) != 0 {
+            attackers |= rook_attacks(to, occupied) & rooks_queens;
+        }
+
+        attackers &= occupied;
+        side = !side;
+        res ^= 1;
+
+        swap = PIECE_VALUES_SEE[next_attacker as usize] - swap;
+        if swap < res {
+            break;
+        }
+    }
+
+    res != 0
 }

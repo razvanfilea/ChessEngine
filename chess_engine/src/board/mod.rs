@@ -150,6 +150,7 @@ impl Board {
         self.half_move_clock >= 100 || self.is_repetition() || self.has_insufficient_material()
     }
 
+    #[inline]
     pub fn generate_attackers(
         &self,
         attacked_sq: Sq,
@@ -172,6 +173,22 @@ impl Board {
             | (king_attacks(attacked_sq) & enemy_kings)
     }
 
+    #[inline]
+    pub fn attackers_to(&self, sq: Sq, occupied: u64) -> u64 {
+        let pawns = (pawn_attacks(sq, Color::Black) & self.colors(Color::White)
+            | pawn_attacks(sq, Color::White) & self.colors(Color::Black))
+            & self.pieces(Piece::Pawn);
+        let knights = knight_attacks(sq) & self.pieces(Piece::Knight);
+        let kings = king_attacks(sq) & self.pieces(Piece::King);
+        let bishops =
+            bishop_attacks(sq, occupied) & (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen));
+        let rooks =
+            rook_attacks(sq, occupied) & (self.pieces(Piece::Rook) | self.pieces(Piece::Queen));
+
+        (pawns | knights | kings | bishops | rooks) & occupied
+    }
+
+    #[inline]
     pub fn pseudo_legal(&self, mov: Move) -> bool {
         if mov.is_none() {
             return false;

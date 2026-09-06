@@ -39,6 +39,9 @@ pub(super) const ASPIRATION_INITIAL_DELTA: i16 = 100;
 pub(super) const ASPIRATION_FLUCTUATION: i16 = 3 * piece_value(Piece::Pawn);
 pub(super) const ASPIRATION_MIN_DEPTH: u8 = 5;
 
+pub(super) const SEE_CAPTURE_MARGIN: i32 = -100;
+pub(super) const SEE_QSEARCH_MARGIN: i32 = -100;
+
 pub(super) static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock::new(|| {
     let mut table = [[(0, 0); MAX_PLY as usize]; MAX_PLY as usize];
 

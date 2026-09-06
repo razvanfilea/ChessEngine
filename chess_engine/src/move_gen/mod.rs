@@ -7,7 +7,7 @@ use crate::{
 
 mod generate;
 mod move_list;
-mod scoring;
+pub mod scoring;
 mod traits;
 
 pub use generate::*;
@@ -57,7 +57,7 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
-    ) -> Option<Move> {
+    ) -> Option<ScoredMove> {
         loop {
             if self.list_index < self.len() {
                 let mov = self.pick_next();
@@ -65,15 +65,14 @@ impl MoveGenerator {
                     continue;
                 }
 
-                // TODO: Add this back after implementing SEE
-                // // First generate quiets instead of bad captures
-                // if self.stage != GenStage::Done && mov.score < GOOD_CAPTURES {
-                //     self.list_index -= 1; // add back the move we were about to return
-                //     self.advance_stage(board, killer_moves, history); // generate quiet moves
-                //     continue;
-                // }
+                // First generate quiets instead of bad captures
+                if self.stage != GenStage::Done && mov.score < 0 {
+                    self.list_index -= 1; // add back the move we were about to return
+                    self.advance_stage(board, killer_moves, history); // generate quiet moves
+                    continue;
+                }
 
-                return Some(mov.mov);
+                return Some(mov);
             }
 
             if self.stage == GenStage::Done {
@@ -132,7 +131,7 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
-    ) -> Option<Move> {
+    ) -> Option<ScoredMove> {
         if self.list_index == self.len() {
             self.end_ptr = self.start_ptr;
             self.list_index = 0;
@@ -147,7 +146,9 @@ impl MoveGenerator {
                 };
 
                 if board.pseudo_legal(self.tt_move) {
-                    return Some(self.tt_move);
+                    let mut mov = ScoredMove::new(self.tt_move);
+                    mov.score = i16::MAX;
+                    return Some(mov);
                 }
             }
             GenStage::Captures => {

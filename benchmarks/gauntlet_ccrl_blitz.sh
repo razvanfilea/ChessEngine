@@ -18,6 +18,7 @@ BIN_DIR="${SCRIPT_DIR}/bin"
 PGN_DIR="${SCRIPT_DIR}/pgn"
 
 mkdir -p "${BIN_DIR}" "${PGN_DIR}"
+chmod +x "${BIN_DIR}"/* 2>/dev/null || true
 
 # 1. Configuration & CLI overrides
 # Default TC is CCRL 2'+1" (120s + 1s). Pass custom TC as 1st arg if desired (e.g. 60+0.6 or 8+0.08).
@@ -56,19 +57,19 @@ echo " Concurrency  : ${CORES} concurrent games"
 echo " Opening Book : $(basename "${BOOK_PATH}") (plies=24 / 12 moves max)"
 echo " Engines      :"
 echo "   - lucky_dev"
+echo "   - Pawn_3557"
+echo "   - Ursus_3509"
 echo "   - Oxide_3495"
 echo "   - Bitbit_3410"
-echo "   - Princhess_3357"
-echo "   - Monolith_3261"
 echo "=========================================================="
 
 fastchess \
   -tournament roundrobin \
   -engine cmd="${BIN_DIR}/lucky_dev" name=lucky_dev \
+  -engine cmd="${BIN_DIR}/pawn-v4.0-3557" name=Pawn_3557 \
+  -engine cmd="${BIN_DIR}/ursus-ELO_3509" name=Ursus_3509 \
   -engine cmd="${BIN_DIR}/OxideV2.0.0_ELO_3495" name=Oxide_3495 \
-  -engine cmd="${BIN_DIR}/bitbit-1.7_ELO_3410" name=Bitbit_3410 \
-  -engine cmd="${BIN_DIR}/princhess_ELO_3357" name=Princhess_3357 \
-  -engine cmd="${BIN_DIR}/Monolith-linux-x86-64-pext_ELO_3261" name=Monolith_3261 \
+  -engine cmd="${BIN_DIR}/sirius-9.0_ELO_3528" name=Sirius_3528 \
   -each tc="${TC}" option.Hash=64 option.Threads=1 option.Ponder=false ${EGTB_OPT} \
   -rounds "${ROUNDS}" \
   -repeat \
@@ -84,6 +85,3 @@ rm -f "${REPO_ROOT}/config.json" "${SCRIPT_DIR}/config.json"
 
 echo ""
 echo "==> Tournament finished. PGN saved to: ${PGN_OUT}"
-if [ -f "${SCRIPT_DIR}/analyze_pgn.py" ]; then
-    python3 "${SCRIPT_DIR}/analyze_pgn.py" "${PGN_OUT}"
-fi

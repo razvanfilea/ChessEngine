@@ -7,13 +7,18 @@ pub const MAX_MOVES: usize = 256;
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct ScoredMove {
     pub mov: Move,
-    pub score: i16,
+    pub(super) score: i16,
 }
 
 impl ScoredMove {
     #[inline(always)]
     pub const fn new(mov: Move) -> Self {
         Self { mov, score: 0 }
+    }
+
+    #[inline(always)]
+    pub const fn is_bad_capture(&self) -> bool {
+        self.score < 0
     }
 }
 
@@ -48,10 +53,12 @@ impl Default for MoveList {
 }
 
 impl MoveList {
+    #[inline(always)]
     pub const fn as_ptr(&mut self) -> MoveListPtr {
         MoveListPtr(self.current_ptr())
     }
 
+    #[inline]
     pub const fn update_size(&mut self, new_position: MoveListPtr) {
         let size = unsafe { new_position.0.offset_from(self.current_ptr()) };
         self.size = size as usize;
@@ -62,10 +69,12 @@ impl MoveList {
         self.size = 0;
     }
 
+    #[inline]
     pub const fn as_slice(&self) -> &[ScoredMove] {
         unsafe { core::slice::from_raw_parts(self.moves.as_ptr().cast::<ScoredMove>(), self.size) }
     }
 
+    #[inline]
     pub const fn as_slice_mut(&mut self) -> &mut [ScoredMove] {
         unsafe {
             core::slice::from_raw_parts_mut(self.moves.as_mut_ptr().cast::<ScoredMove>(), self.size)
@@ -83,6 +92,7 @@ impl MoveList {
         self.len() == 0
     }
 
+    #[inline]
     const fn current_ptr(&mut self) -> *mut ScoredMove {
         (unsafe { self.moves.as_mut_ptr().add(self.size) }) as *mut ScoredMove
     }
