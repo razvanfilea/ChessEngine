@@ -146,8 +146,17 @@ impl Board {
         self.checkers != 0
     }
 
+    #[inline(always)]
     pub fn is_draw(&self) -> bool {
-        self.half_move_clock >= 100 || self.is_repetition() || self.has_insufficient_material()
+        if self.half_move_clock >= 100 || self.is_repetition() {
+            return true;
+        }
+
+        if self.occupied().count_ones() > 4 {
+            return false;
+        }
+
+        self.has_insufficient_material()
     }
 
     #[inline]
@@ -679,7 +688,6 @@ impl Board {
         Some(piece)
     }
 
-    #[inline(always)]
     fn has_insufficient_material(&self) -> bool {
         // If there are pawns, rooks, or queens, mate is possible
         let majors_and_pawns =

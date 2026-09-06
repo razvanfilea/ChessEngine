@@ -17,6 +17,7 @@ pub struct UciState {
     stop_requested: Arc<AtomicBool>,
     tt: Arc<TranspositionTable>,
     output_cb: OutputCallback,
+    move_overhead: u64,
 }
 
 impl Default for UciState {
@@ -35,12 +36,21 @@ impl UciState {
             stop_requested: Arc::default(),
             tt: Arc::new(TranspositionTable::new(default_tt_mb)),
             output_cb: Arc::new(output_cb),
+            move_overhead: crate::time::DEFAULT_MOVE_OVERHEAD_MS,
         }
     }
 
     #[inline(always)]
     pub fn output_line(&self, line: impl Into<String>) {
         (self.output_cb)(line.into());
+    }
+
+    pub fn move_overhead(&self) -> u64 {
+        self.move_overhead
+    }
+
+    pub fn set_move_overhead(&mut self, ms: u64) {
+        self.move_overhead = ms;
     }
 
     pub fn stop(&mut self) {
@@ -72,6 +82,27 @@ impl UciState {
             return true;
         }
 
+        if trimmed.eq_ignore_ascii_case("wait") {
+            #[cfg(not(target_family = "wasm"))]
+            if let Some(thread) = self.search_thread.take() {
+                let _ = thread.join();
+            }
+            return true;
+        }
+
+        if trimmed.eq_ignore_ascii_case("bench")
+            || trimmed.to_ascii_lowercase().starts_with("bench ")
+        {
+            let mut parts = trimmed.split_whitespace();
+            parts.next(); // "bench"
+            let depth = parts
+                .next()
+                .and_then(|s| s.parse::<u8>().ok())
+                .unwrap_or(10);
+            self.run_bench(depth);
+            return true;
+        }
+
         let command = match trimmed.parse::<UciCommand>() {
             Ok(c) => c,
             Err(e) => {
@@ -87,6 +118,7 @@ impl UciState {
 id author Razvan
 option name Hash type spin default 64 min 1 max 1024
 option name ClearHash type button
+option name Move Overhead type spin default 10 min 0 max 5000
 uciok"#,
                 );
             }
@@ -105,6 +137,12 @@ uciok"#,
                     }
                 } else if name.eq_ignore_ascii_case("ClearHash") {
                     self.tt.clear();
+                } else if name.eq_ignore_ascii_case("Move Overhead")
+                    || name.eq_ignore_ascii_case("MoveOverhead")
+                {
+                    if let Some(ms) = value.and_then(|v| v.parse().ok()) {
+                        self.move_overhead = ms;
+                    }
                 }
             }
             UciCommand::Register { .. } => self.output_line("registration ok"),
@@ -142,7 +180,11 @@ uciok"#,
                 if let Some(depth) = opts.perft {
                     self.run_perft(depth as u8);
                 } else {
-                    let time_manager = TimeManager::from_uci_options(&opts, self.board.to_play);
+                    let time_manager = TimeManager::from_uci_options(
+                        &opts,
+                        self.board.to_play,
+                        self.move_overhead,
+                    );
                     self.start_search(time_manager);
                 }
             }
@@ -184,6 +226,19 @@ uciok"#,
         let mut board = self.board.clone();
         let nodes = crate::perft::perft(&mut board, depth);
         self.output_line(format!("Nodes searched: {nodes}"));
+    }
+
+    fn run_bench(&mut self, depth: u8) {
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(thread) = self.search_thread.take() {
+            self.stop_requested.store(true, Ordering::Relaxed);
+            let _ = thread.join();
+        }
+
+        let output_cb = self.output_cb.clone();
+        crate::bench::run_bench(depth, 16, move |line| {
+            output_cb(line);
+        });
     }
 
     fn start_search(&mut self, time_manager: TimeManager) {

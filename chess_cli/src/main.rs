@@ -11,6 +11,14 @@ fn main() {
     // lucky_chess::perft::perft_pos6(5);
 
     let mut uci = UciState::new(|line| println!("{line}"));
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        let cmd = args[1..].join(" ");
+        uci.process_command(&cmd);
+        return;
+    }
+
     let stdin = io::stdin();
     let mut input_string = String::new();
     while stdin.lock().read_line(&mut input_string).unwrap_or(0) > 0 {

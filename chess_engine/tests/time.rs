@@ -25,8 +25,16 @@ fn test_time_manager_clock_allocation_white_and_black() {
     opts.btime = Some(Duration::from_millis(30_000));
     opts.binc = Some(Duration::from_millis(500));
 
-    let tm_w = TimeManager::from_uci_options(&opts, Color::White);
-    let tm_b = TimeManager::from_uci_options(&opts, Color::Black);
+    let tm_w = TimeManager::from_uci_options(
+        &opts,
+        Color::White,
+        chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
+    );
+    let tm_b = TimeManager::from_uci_options(
+        &opts,
+        Color::Black,
+        chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
+    );
 
     assert!(
         tm_w.limits.optimum_time.unwrap().as_millis()
@@ -41,7 +49,11 @@ fn test_time_manager_movestogo() {
     opts.wtime = Some(Duration::from_millis(60_000));
     opts.movestogo = Some(10);
 
-    let tm = TimeManager::from_uci_options(&opts, Color::White);
+    let tm = TimeManager::from_uci_options(
+        &opts,
+        Color::White,
+        chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
+    );
     let opt_ms = tm.limits.optimum_time.unwrap().as_millis();
 
     // 60s / 10 moves ≈ 6s per move
@@ -54,11 +66,41 @@ fn test_time_manager_panic_mode_low_time() {
     opts.wtime = Some(Duration::from_millis(50)); // 50ms left
     opts.winc = Some(Duration::from_millis(0));
 
-    let tm = TimeManager::from_uci_options(&opts, Color::White);
+    let tm = TimeManager::from_uci_options(
+        &opts,
+        Color::White,
+        chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
+    );
     assert!(tm.limits.optimum_time.is_some());
     assert!(tm.limits.max_time.is_some());
     assert!(tm.limits.optimum_time.unwrap() <= Duration::from_millis(50));
     assert!(tm.limits.max_time.unwrap() <= Duration::from_millis(50));
+}
+
+#[test]
+fn test_time_manager_move_overhead() {
+    let mut opts = UciSearchOptions::default();
+    opts.wtime = Some(Duration::from_millis(10_000));
+    opts.movestogo = Some(20);
+
+    let tm_low_overhead = TimeManager::from_uci_options(&opts, Color::White, 10);
+    let tm_high_overhead = TimeManager::from_uci_options(&opts, Color::White, 500);
+
+    assert!(
+        tm_low_overhead.limits.optimum_time.unwrap()
+            > tm_high_overhead.limits.optimum_time.unwrap()
+    );
+    assert!(tm_low_overhead.limits.max_time.unwrap() > tm_high_overhead.limits.max_time.unwrap());
+
+    // movetime with overhead
+    let mut movetime_opts = UciSearchOptions::default();
+    movetime_opts.movetime = Some(Duration::from_millis(100));
+    let tm_movetime = TimeManager::from_uci_options(&movetime_opts, Color::White, 30);
+    assert_eq!(
+        tm_movetime.limits.optimum_time,
+        Some(Duration::from_millis(70))
+    );
+    assert_eq!(tm_movetime.limits.max_time, Some(Duration::from_millis(70)));
 }
 
 #[test]

@@ -30,6 +30,8 @@ impl Instant {
     }
 }
 
+pub const DEFAULT_MOVE_OVERHEAD_MS: u64 = 10;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TimeLimits {
     pub max_depth: u8,
@@ -60,8 +62,12 @@ impl TimeManager {
     }
 
     pub fn from_movetime(movetime: Duration) -> Self {
+        Self::from_movetime_with_overhead(movetime, DEFAULT_MOVE_OVERHEAD_MS)
+    }
+
+    pub fn from_movetime_with_overhead(movetime: Duration, move_overhead_ms: u64) -> Self {
         let safe = movetime
-            .saturating_sub(Duration::from_millis(10))
+            .saturating_sub(Duration::from_millis(move_overhead_ms))
             .max(Duration::from_millis(1));
         Self {
             limits: TimeLimits {
@@ -101,7 +107,11 @@ impl TimeManager {
         }
     }
 
-    pub fn from_uci_options(opts: &UciSearchOptions, to_play: Color) -> Self {
+    pub fn from_uci_options(
+        opts: &UciSearchOptions,
+        to_play: Color,
+        move_overhead_ms: u64,
+    ) -> Self {
         let start_time = Instant::now();
         let max_depth = opts.depth.map_or(64, |d| (d as u8).clamp(1, 64));
         let max_nodes = opts.nodes.map(|n| (n as u64).max(1));
@@ -109,7 +119,7 @@ impl TimeManager {
 
         if let Some(movetime) = opts.movetime {
             let safe = movetime
-                .saturating_sub(Duration::from_millis(10))
+                .saturating_sub(Duration::from_millis(move_overhead_ms))
                 .max(Duration::from_millis(1));
             return Self {
                 limits: TimeLimits {
@@ -133,11 +143,10 @@ impl TimeManager {
             let time_ms = remaining.as_millis() as u64;
             let inc_ms = inc.as_millis() as u64;
 
-            const SAFETY_MARGIN_MS: u64 = 50;
             const MAX_TIME_MULTIPLIER: u64 = 5;
             const MAX_TIME_DIVISOR: u64 = 1;
 
-            let usable_time = time_ms.saturating_sub(SAFETY_MARGIN_MS);
+            let usable_time = time_ms.saturating_sub(move_overhead_ms);
             let mut opt_ms = (usable_time / moves_to_go) + (inc_ms * 7 / 10);
             opt_ms = opt_ms.clamp(1, usable_time.max(1));
 

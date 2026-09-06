@@ -1,4 +1,5 @@
 pub mod attacks;
+pub mod bench;
 pub mod board;
 pub mod move_gen;
 pub mod nnue;

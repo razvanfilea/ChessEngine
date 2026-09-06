@@ -36,6 +36,7 @@ pub fn search(
     let mut prev_best_move = Move::NONE;
 
     'iterative: for current_depth in 1..=max_depth {
+        search.selective_depth = 0;
         best_score = search.aspiration_search(move_ptr, current_depth, best_score);
 
         if search.stopped {
@@ -69,6 +70,7 @@ pub fn search(
 struct Searcher<'a> {
     nodes_searched: u64,
     root_ply: u16,
+    selective_depth: u8,
     stopped: bool,
     tt: &'a TranspositionTable,
     board: Board,
@@ -107,6 +109,7 @@ impl<'a> Searcher<'a> {
             lmr_table: &*LMR_TABLE,
             time_manager,
             stopped,
+            selective_depth: 0,
             nodes_searched: 0,
             nnue_accumulator,
             stack,
@@ -231,6 +234,9 @@ impl<'a> Searcher<'a> {
     #[inline]
     fn eval_position(&mut self) -> i16 {
         let ply = self.ply();
+        unsafe {
+            std::hint::assert_unchecked(ply < MAX_PLY);
+        }
         if self.stack[ply as usize].acc_computed {
             return self.nnue_accumulator[ply as usize].eval(&self.board);
         }
@@ -410,8 +416,17 @@ impl<'a> Searcher<'a> {
                 quiet_moves += 1;
             }
 
+            // SEE PRUNING
+            if !IS_PV
+                && depth <= 8
+                && mov.is_capture()
+                && scored_mov.is_bad_capture()
+                && !see_ge(mov, &self.board, depth as i32 * SEE_CAPTURE_MARGIN)
+            {
+                continue;
+            }
+
             let move_gives_check = self.board.gives_check(mov);
-            let moved_piece = self.board.piece_at(mov.from());
 
             // Move Count Based Pruning (Late Move Pruning)
             if !IS_PV
@@ -443,15 +458,6 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            // SEE PRUNING
-            if !IS_PV
-                && depth <= 8
-                && mov.is_capture()
-                && !see_ge(mov, &self.board, depth as i32 * SEE_CAPTURE_MARGIN)
-            {
-                continue;
-            }
-
             // Quiet Move SEE Pruning
             if !IS_PV
                 && depth <= 4
@@ -464,6 +470,7 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
+            let moved_piece = self.board.piece_at(mov.from());
             let undo = self.board.make_move_fast(mov, move_gives_check);
             let child_ply = ply + 1;
             self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
@@ -589,6 +596,9 @@ impl<'a> Searcher<'a> {
         if ply >= MAX_PLY - 1 {
             return self.eval_position();
         }
+        if ply > self.selective_depth as u16 {
+            self.selective_depth = ply as u8;
+        }
 
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
@@ -660,7 +670,10 @@ impl<'a> Searcher<'a> {
                 }
 
                 // SEE Pruning
-                if tt_move != mov && !see_ge(mov, &self.board, SEE_QSEARCH_MARGIN) {
+                if tt_move != mov
+                    && scored_mov.is_bad_capture()
+                    && !see_ge(mov, &self.board, SEE_QSEARCH_MARGIN)
+                {
                     continue;
                 }
             }
@@ -715,7 +728,8 @@ impl<'a> Searcher<'a> {
         let elapsed = start_time.elapsed().as_millis().max(1);
         let nps = (self.nodes_searched as u128 * 1000 / elapsed) as u64;
         format!(
-            "info depth {depth} score {} time {elapsed} nps {nps} nodes {} hashfull {} pv {pv_str}",
+            "info depth {depth} seldepth {} score {} time {elapsed} nps {nps} nodes {} hashfull {} pv {pv_str}",
+            self.selective_depth,
             crate::uci::format_score(score),
             self.nodes_searched,
             self.tt.hashfull(),
