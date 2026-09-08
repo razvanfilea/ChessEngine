@@ -290,6 +290,11 @@ impl<'a> Searcher<'a> {
 
         let in_check = self.board.in_check();
         self.stack[ply as usize].pv_length = 0;
+        // TODO: While it makes sence, this lowers the ELO by 10, add it back after adding
+        // continuation history
+        // if (ply as usize) + 1 < MAX_PLY as usize {
+        //     self.stack[(ply + 1) as usize].killer_moves = [Move::NONE; 2];
+        // }
         self.nodes_searched += 1;
         self.check_limits();
 
@@ -330,11 +335,19 @@ impl<'a> Searcher<'a> {
 
         self.stack[ply as usize].eval = static_eval;
 
-        let improving = if !in_check && ply >= 2 {
-            let grandparent_eval = self.stack[ply as usize - 2].eval;
-            grandparent_eval != EVAL_NONE && static_eval > grandparent_eval
-        } else {
+        let improving = if in_check || ply < 2 {
             false
+        } else if let parent_eval = self.stack[ply as usize - 2].eval
+            && parent_eval != EVAL_NONE
+        {
+            static_eval > parent_eval
+        } else if ply >= 4
+            && let grandparent_eval = self.stack[ply as usize - 4].eval
+            && grandparent_eval != EVAL_NONE
+        {
+            static_eval > grandparent_eval
+        } else {
+            true
         };
 
         // Reverse Futility Pruning
@@ -407,7 +420,11 @@ impl<'a> Searcher<'a> {
         let killer_moves = self.get_killer_moves();
 
         while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history) {
+            if self.stopped {
+                return 0;
+            }
             let mov = scored_mov.mov;
+            let move_buffer = moves.next_ptr();
             if !self.board.legal(mov) {
                 continue;
             }
@@ -476,50 +493,47 @@ impl<'a> Searcher<'a> {
             self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
 
             // --- Search the Move ---
-            let mut score;
+            let mut score = -INFINITY;
             let mut do_full_search = true;
 
-            let is_late_move = legal_moves > 1;
-
-            if is_late_move {
+            // PVS Zero-Window Search with LMR
+            if legal_moves > 1 {
                 do_full_search = false;
 
                 let mut reduction = 0;
-                // PVS Zero-Window Search with LMR
                 if can_null
-                    && legal_moves > 3
-                    && depth > 3
+                    && legal_moves > 2
+                    && depth >= 3
                     && (mov.is_quiet() || scored_mov.is_bad_capture())
                     && !in_check
                     && !move_gives_check
                 {
-                    reduction = self.get_lmr(IS_PV, depth, legal_moves as u8);
-                    // Reduce one ply less when our eval is improving.
-                    reduction = reduction.saturating_sub(improving as u8);
+                    reduction = self.get_lmr(IS_PV, depth, legal_moves as u8) as i8;
+                    reduction -= improving as i8;
+                    // TODO: Test late-capture LMR (extend condition with is_late_capture)
+                    // TODO: Test killer reduction (reduction -= is_killer as i8)
+                    let hist = self.history.get(self.board.to_play, mov.from(), mov.to()) as i32;
+                    reduction -= (hist / 8000) as i8; // TODO: Test
+                    reduction = reduction.clamp(0, depth as i8 - 2);
                 }
 
-                let lmr_depth = depth.saturating_sub(reduction).saturating_sub(1);
+                let lmr_depth = depth - 1 - reduction as u8;
 
-                score =
-                    -self.nega_max::<false>(moves.next_ptr(), -alpha - 1, -alpha, lmr_depth, true);
+                score = -self.nega_max::<false>(move_buffer, -alpha - 1, -alpha, lmr_depth, true);
 
-                if score > alpha {
-                    if reduction > 0 {
-                        // If a reduced search failed high, we MUST re-search at full depth.
-                        do_full_search = true;
-                    } else if IS_PV && score < beta {
-                        // If it wasn't reduced (reduction == 0), it was already a full-depth zero-window search.
-                        // If we are in a PV node and it failed high, we only need to open the window.
-                        do_full_search = true;
-                    }
+                if reduction > 0 && score > alpha {
+                    score =
+                        -self.nega_max::<false>(move_buffer, -alpha - 1, -alpha, depth - 1, true);
                 }
-            } else {
-                // Not a late move (it's the first move), we need a full search right away.
-                score = -INFINITY;
+
+                // ONLY for PV nodes, if it still beats alpha after full-depth search, open the window
+                if IS_PV && score > alpha && score < beta {
+                    do_full_search = true
+                }
             }
 
-            if do_full_search && !self.stopped {
-                score = -self.nega_max::<IS_PV>(moves.next_ptr(), -beta, -alpha, depth - 1, true);
+            if do_full_search {
+                score = -self.nega_max::<IS_PV>(move_buffer, -beta, -alpha, depth - 1, true);
             }
             self.board.undo_move(mov, undo);
 
