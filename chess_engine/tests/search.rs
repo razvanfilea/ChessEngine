@@ -2,7 +2,7 @@ use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::move_gen::gen_all_moves;
 use chess_engine::nnue::Accumulator;
-use chess_engine::search::{HistoryTable, PlyMove, search};
+use chess_engine::search::{HistoryTable, StackMove, search};
 use chess_engine::time::TimeManager;
 use chess_engine::transposition::{TTEntry, TTFlag, TranspositionTable};
 use std::sync::Arc;
@@ -29,7 +29,7 @@ fn test_lazy_acc_single_move_parity() {
         let mut lazy = Accumulator::default();
         lazy.compute_from(
             &root_acc,
-            PlyMove {
+            StackMove {
                 mov,
                 moved_piece: Some(moved_piece),
                 captured: undo.captured_piece,
@@ -68,7 +68,7 @@ fn test_lazy_acc_two_move_parity() {
         let mut lazy1 = Accumulator::default();
         lazy1.compute_from(
             &root_acc,
-            PlyMove {
+            StackMove {
                 mov: mov1,
                 moved_piece: Some(mp1),
                 captured: undo1.captured_piece,
@@ -78,7 +78,7 @@ fn test_lazy_acc_two_move_parity() {
         let mut lazy2 = Accumulator::default();
         lazy2.compute_from(
             &lazy1,
-            PlyMove {
+            StackMove {
                 mov: mov2,
                 moved_piece: Some(mp2),
                 captured: undo2.captured_piece,

@@ -7,7 +7,7 @@ pub const MAX_MOVES: usize = 256;
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct ScoredMove {
     pub mov: Move,
-    pub(super) score: i16,
+    pub score: i16,
 }
 
 impl ScoredMove {

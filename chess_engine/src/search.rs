@@ -81,6 +81,7 @@ struct Searcher<'a> {
     stack: [StackEntry; MAX_PLY as usize],
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     history: HistoryTable,
+    cont_history: ContinuationHistoryTable,
 }
 
 impl<'a> Searcher<'a> {
@@ -113,9 +114,10 @@ impl<'a> Searcher<'a> {
             nodes_searched: 0,
             nnue_accumulator,
             stack,
-            history: HistoryTable::default(),
             root_ply,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
+            history: HistoryTable::default(),
+            cont_history: ContinuationHistoryTable::default(),
         }
     }
 
@@ -142,7 +144,7 @@ impl<'a> Searcher<'a> {
                     alpha = -INFINITY;
                     beta = INFINITY;
                 } else {
-                    alpha = prev_score.saturating_sub(delta).max(-INFINITY);
+                    alpha = score.saturating_sub(delta).max(-INFINITY);
                 }
             } else if score >= beta && beta < INFINITY {
                 delta = delta.saturating_add(delta / 2);
@@ -150,7 +152,7 @@ impl<'a> Searcher<'a> {
                     alpha = -INFINITY;
                     beta = INFINITY;
                 } else {
-                    beta = prev_score.saturating_add(delta).min(INFINITY);
+                    beta = score.saturating_add(delta).min(INFINITY);
                 }
             } else {
                 return score;
@@ -196,6 +198,31 @@ impl<'a> Searcher<'a> {
 
         *second_killer = *first_killer;
         *first_killer = current_move;
+    }
+
+    fn update_quiet_history(
+        &mut self,
+        best: Move,
+        tried: &[Move],
+        prev_ctx: Option<(Piece, Sq)>,
+        depth: u8,
+    ) {
+        let side = self.board.to_play;
+        self.history.update_bonus(side, best.from(), best.to(), depth);
+
+        for &m in tried {
+            self.history.update_malus(side, m.from(), m.to(), depth);
+        }
+
+        if let Some((prev_piece, prev_to)) = prev_ctx {
+            let curr_piece = self.board.piece_at(best.from()).unwrap().piece();
+            self.cont_history.update_bonus(prev_piece, prev_to, curr_piece, best.to(), depth);
+
+            for &m in tried {
+                let piece = self.board.piece_at(m.from()).unwrap().piece();
+                self.cont_history.update_malus(prev_piece, prev_to, piece, m.to(), depth);
+            }
+        }
     }
 
     #[inline(always)]
@@ -290,19 +317,13 @@ impl<'a> Searcher<'a> {
 
         let in_check = self.board.in_check();
         self.stack[ply as usize].pv_length = 0;
-        // TODO: While it makes sence, this lowers the ELO by 10, add it back after adding
-        // continuation history
-        // if (ply as usize) + 1 < MAX_PLY as usize {
-        //     self.stack[(ply + 1) as usize].killer_moves = [Move::NONE; 2];
-        // }
+        if (ply as usize) + 1 < MAX_PLY as usize {
+            self.stack[(ply + 1) as usize].killer_moves = [Move::NONE; 2];
+        }
         self.nodes_searched += 1;
         self.check_limits();
 
-        if self.stopped {
-            return 0;
-        }
-
-        if ply > 0 && self.board.is_draw() {
+        if self.stopped || ( ply > 0 && self.board.is_draw()) {
             return 0;
         }
 
@@ -412,14 +433,18 @@ impl<'a> Searcher<'a> {
         let mut moves = MoveGenerator::new(move_buffer, tt_move);
         let mut legal_moves = 0;
         let mut quiet_moves = 0;
-        let mut quiets_tried = [Move::NONE; 32];
-        let mut quiets_cnt = 0;
+        let mut quiets_tried = QuietsTried::default();
 
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
+        let prev_ctx: Option<(Piece, Sq)> = {
+            let pm = &self.stack[ply as usize].ply_move;
+            pm.moved_piece.map(|cp| (cp.piece(), pm.mov.to()))
+        };
+        let conthist = self.stack[ply as usize].conthist;
 
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history) {
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, conthist) {
             if self.stopped {
                 return 0;
             }
@@ -433,7 +458,7 @@ impl<'a> Searcher<'a> {
                 quiet_moves += 1;
             }
 
-            // SEE PRUNING
+            // SEE Pruning
             if !IS_PV
                 && depth <= 8
                 && mov.is_capture()
@@ -475,6 +500,17 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
+            // History Pruning
+            if !IS_PV
+                && depth <= HISTORY_PRUNING_DEPTH
+                && !mov.is_tactical()
+                && !move_gives_check
+                && best_score > -MATE_THRESHOLD
+                && scored_mov.score < -(depth as i16 * HISTORY_PRUNING_MARGIN)
+            {
+                continue;
+            }
+
             // Quiet Move SEE Pruning
             if !IS_PV
                 && depth <= 4
@@ -488,9 +524,12 @@ impl<'a> Searcher<'a> {
             }
 
             let moved_piece = self.board.piece_at(mov.from());
+            let us = self.board.to_play;
             let undo = self.board.make_move_fast(mov, move_gives_check);
             let child_ply = ply + 1;
             self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
+            self.stack[child_ply as usize].conthist = moved_piece
+                .map(|cp| self.cont_history.entry_ptr(cp.piece(), mov.to()));
 
             // --- Search the Move ---
             let mut score = -INFINITY;
@@ -501,8 +540,7 @@ impl<'a> Searcher<'a> {
                 do_full_search = false;
 
                 let mut reduction = 0;
-                if can_null
-                    && legal_moves > 2
+                if legal_moves > 2
                     && depth >= 3
                     && (mov.is_quiet() || scored_mov.is_bad_capture())
                     && !in_check
@@ -512,8 +550,9 @@ impl<'a> Searcher<'a> {
                     reduction -= improving as i8;
                     // TODO: Test late-capture LMR (extend condition with is_late_capture)
                     // TODO: Test killer reduction (reduction -= is_killer as i8)
-                    let hist = self.history.get(self.board.to_play, mov.from(), mov.to()) as i32;
-                    reduction -= (hist / 8000) as i8; // TODO: Test
+                    let hist = self.history.get(us, mov.from(), mov.to()) as i32
+                        + conthist_score(conthist, moved_piece.unwrap().piece(), mov.to()) as i32;
+                    reduction -= (hist / 8000) as i8;
                     reduction = reduction.clamp(0, depth as i8 - 2);
                 }
 
@@ -555,27 +594,15 @@ impl<'a> Searcher<'a> {
             if score >= beta {
                 if mov.is_quiet() {
                     self.set_killer_move(mov);
-
-                    self.history
-                        .update_bonus(self.board.to_play, mov.from(), mov.to(), depth);
-
-                    for &prev_mov in &quiets_tried[..quiets_cnt] {
-                        self.history.update_malus(
-                            self.board.to_play,
-                            prev_mov.from(),
-                            prev_mov.to(),
-                            depth,
-                        );
-                    }
+                    self.update_quiet_history(mov, quiets_tried.as_slice(), prev_ctx, depth);
                 }
 
                 self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound);
                 return best_score;
             }
 
-            if mov.is_quiet() && quiets_cnt < quiets_tried.len() {
-                quiets_tried[quiets_cnt] = mov;
-                quiets_cnt += 1;
+            if mov.is_quiet() {
+                quiets_tried.push_move(mov);
             }
         }
 
@@ -658,7 +685,7 @@ impl<'a> Searcher<'a> {
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
 
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history) {
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, None) {
             let mov = scored_mov.mov;
             if !in_check && !mov.is_tactical() {
                 continue;

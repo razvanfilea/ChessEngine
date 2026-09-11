@@ -1,4 +1,4 @@
-use crate::{board::Board, search::PlyMove};
+use crate::{board::Board, search::StackMove};
 use chess_core::{for_each_bit, prelude::*};
 use fearless_simd::{Level, Simd, dispatch, i16x32, i32x16, prelude::*};
 
@@ -100,19 +100,19 @@ impl Accumulator {
     }
 
     #[inline(always)]
-    pub fn compute_from(&mut self, parent: &Accumulator, entry: PlyMove) {
+    pub fn compute_from(&mut self, parent: &Accumulator, entry: StackMove) {
         self.update::<false>(parent, entry, None);
     }
 
     #[inline(always)]
-    pub fn compute_and_eval(&mut self, parent: &Accumulator, entry: PlyMove, board: &Board) -> i16 {
+    pub fn compute_and_eval(&mut self, parent: &Accumulator, entry: StackMove, board: &Board) -> i16 {
         self.update::<true>(parent, entry, Some(board))
     }
 
     fn update<const WITH_EVAL: bool>(
         &mut self,
         parent: &Accumulator,
-        entry: PlyMove,
+        entry: StackMove,
         board: Option<&Board>,
     ) -> i16 {
         let moved_piece = match entry.moved_piece {

@@ -2,7 +2,7 @@ use chess_core::prelude::*;
 
 use crate::{
     board::Board,
-    search::{HistoryTable, KillerMoves},
+    search::{ContHistPtr, HistoryTable, KillerMoves, conthist_score},
 };
 
 mod generate;
@@ -57,6 +57,7 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
+        conthist: ContHistPtr,
     ) -> Option<ScoredMove> {
         loop {
             if self.list_index < self.len() {
@@ -68,7 +69,7 @@ impl MoveGenerator {
                 // First generate quiets instead of bad captures
                 if self.stage != GenStage::Done && mov.score < 0 {
                     self.list_index -= 1; // add back the move we were about to return
-                    self.advance_stage(board, killer_moves, history); // generate quiet moves
+                    self.advance_stage(board, killer_moves, history, conthist);
                     continue;
                 }
 
@@ -79,7 +80,7 @@ impl MoveGenerator {
                 return None;
             }
 
-            if let Some(mov) = self.advance_stage(board, killer_moves, history) {
+            if let Some(mov) = self.advance_stage(board, killer_moves, history, conthist) {
                 return Some(mov);
             }
         }
@@ -131,6 +132,7 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
+        conthist: ContHistPtr,
     ) -> Option<ScoredMove> {
         if self.list_index == self.len() {
             self.end_ptr = self.start_ptr;
@@ -179,8 +181,11 @@ impl MoveGenerator {
                 self.end_ptr = ptr;
 
                 for scored_move in &mut self.as_slice_mut()[remaining_captures..] {
+                    let mov = scored_move.mov;
+                    let piece = unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
+                    let bonus = conthist_score(conthist, piece, mov.to());
                     scored_move.score =
-                        scoring::score_quiet(scored_move.mov, killer_moves, history, board.to_play);
+                        scoring::score_quiet(mov, killer_moves, history, board.to_play) + bonus;
                 }
 
                 self.stage = GenStage::Done;
@@ -194,10 +199,14 @@ impl MoveGenerator {
                 self.end_ptr = ptr;
 
                 for scored_move in self.as_slice_mut() {
-                    scored_move.score = if scored_move.mov.is_tactical() {
-                        scoring::score_capture(scored_move.mov, board)
+                    let mov = scored_move.mov;
+                    scored_move.score = if mov.is_tactical() {
+                        scoring::score_capture(mov, board)
                     } else {
-                        scoring::score_quiet(scored_move.mov, killer_moves, history, board.to_play)
+                        let piece =
+                            unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
+                        let bonus = conthist_score(conthist, piece, mov.to());
+                        scoring::score_quiet(mov, killer_moves, history, board.to_play) + bonus
                     };
                 }
 

@@ -49,7 +49,7 @@ fastchess \
   -openings file="${BOOK_PATH}" format=epd order=random \
   -each tc="${TC}" option.Hash=64 option.Threads=1 \
   -sprt elo0="${ELO0}" elo1="${ELO1}" alpha=0.05 beta=0.05 \
-  -rounds 500 \
+  -rounds 1000 \
   -repeat \
   -concurrency "${CORES}" \
   -draw movenumber=40 movecount=8 score=10 \
