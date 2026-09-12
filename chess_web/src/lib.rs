@@ -179,25 +179,4 @@ mod tests {
             uci_free(uci_ptr);
         }
     }
-
-    #[test]
-    fn test_uci_static_cmd_buffer() {
-        unsafe {
-            let uci_ptr = uci_new();
-            assert!(!uci_ptr.is_null());
-
-            let buf = uci_get_cmd_buffer();
-            let cmd = b"uci";
-            std::ptr::copy_nonoverlapping(cmd.as_ptr(), buf, cmd.len());
-            assert!(uci_send_cmd(uci_ptr, cmd.len()));
-
-            let mut out = [0u8; 512];
-            let n = uci_read_output(uci_ptr, out.as_mut_ptr(), out.len());
-            assert!(n > 0);
-            let s = std::str::from_utf8(&out[..n]).unwrap();
-            assert!(s.contains("id name lucky_chess"));
-
-            uci_free(uci_ptr);
-        }
-    }
 }

@@ -44,3 +44,17 @@ UCI options:
 - `Hash` (1–1024 MB, default 64) — transposition table size
 - `ClearHash` — clear the transposition table
 - `Move Overhead` (0–5000 ms, default 10) — time buffer for communication delay
+
+## Acknowledgments & Credits
+
+While the codebase is original, Lucky Chess stands on the shoulders of the open-source chess programming community:
+
+- **[Stockfish](https://github.com/official-stockfish/Stockfish)**
+- **[Alexandria](https://github.com/mhouppin/alexandria)**
+- **[jw1912](https://github.com/jw1912)** — creator of the [`bullet`](https://github.com/jw1912/bullet) training framework.
+- **[Chess Programming Wiki](https://www.chessprogramming.org/)** — invaluable resource for chess algorithms, magic bitboards, and search techniques.
+- **Tools & Libraries**:
+  - `uci-parser` for UCI command parsing
+  - `fearless_simd` for portable SIMD acceleration
+  - `fastchess` for automated SPRT testing
+

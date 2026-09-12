@@ -114,8 +114,8 @@ impl UciState {
         match command {
             UciCommand::Uci => {
                 self.output_line(
-                    r#"id name lucky_chess 1.0
-id author Razvan
+                    r#"id name Lucky Chess 2.0
+id author Răzvan Filea
 option name Hash type spin default 64 min 1 max 1024
 option name ClearHash type button
 option name Move Overhead type spin default 10 min 0 max 5000

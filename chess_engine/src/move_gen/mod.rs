@@ -184,7 +184,7 @@ impl MoveGenerator {
                     let mov = scored_move.mov;
                     let mut score = scoring::score_quiet(mov, killer_moves, history, board.to_play);
                     if mov != killer_moves[0] && mov != killer_moves[1] {
-                        let piece = unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
+                        let piece = unsafe { board.piece_type_at(mov.from()) };
                         score += conthist_score(conthist, piece, mov.to());
                     }
                     scored_move.score = score;
@@ -208,8 +208,7 @@ impl MoveGenerator {
                         let mut score =
                             scoring::score_quiet(mov, killer_moves, history, board.to_play);
                         if mov != killer_moves[0] && mov != killer_moves[1] {
-                            let piece =
-                                unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
+                            let piece = unsafe { board.piece_type_at(mov.from()) };
                             score += conthist_score(conthist, piece, mov.to());
                         }
                         score

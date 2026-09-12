@@ -1,6 +1,5 @@
 use std::cell::Cell;
 use std::fmt;
-use std::hint::assert_unchecked;
 
 pub mod fen;
 
@@ -123,6 +122,15 @@ impl Board {
     #[inline(always)]
     pub fn piece_at(&self, sq: Sq) -> Option<ColoredPiece> {
         self.mailbox[sq as usize]
+    }
+
+    /// # Safety
+    /// The caller must ensure the piece exists at the given square
+    #[inline(always)]
+    pub unsafe fn piece_type_at(&self, sq: Sq) -> Piece {
+        let piece = self.mailbox[sq as usize];
+        debug_assert!(piece.is_some());
+        unsafe { piece.unwrap_unchecked() }.piece()
     }
 
     #[inline(always)]
@@ -310,11 +318,8 @@ impl Board {
         let us = self.to_play;
         let them = !us;
 
-        let moved_piece = self.piece_at(mov.from());
-        unsafe {
-            assert_unchecked(moved_piece.is_some());
-        }
-        if moved_piece.map(|p| p.piece()) == Some(Piece::King) {
+        let moved_piece = unsafe { self.piece_type_at(mov.from()) };
+        if moved_piece == Piece::King {
             if mov.is_castle() {
                 let path = if flags == MoveFlags::CastleKing {
                     if self.to_play == Color::White {
@@ -407,7 +412,7 @@ impl Board {
         // Direct Check
         let piece_checking = mov
             .promotion_piece()
-            .unwrap_or_else(|| unsafe { self.piece_at(from).unwrap_unchecked() }.piece());
+            .unwrap_or_else(|| unsafe { self.piece_type_at(from) });
 
         if piece_checking != Piece::King
             && (attacks::piece_attack(piece_checking, to, us, occ_after) & enemy_king_bb) != 0

@@ -1,10 +1,96 @@
-use crate::search::EVAL_NONE;
+use crate::search::{EVAL_NONE, MAX_PLY};
 
 use super::history::{ContHistPtr, KillerMoves};
 use chess_core::prelude::*;
 
+pub const STACK_ENTRIES_EXTRA_SIZE: usize = 32;
+pub const STACK_OFFSET: usize = STACK_ENTRIES_EXTRA_SIZE / 2;
+pub const STACK_SIZE: usize = MAX_PLY as usize + STACK_ENTRIES_EXTRA_SIZE;
+
+#[derive(Clone)]
+pub struct SearchStack {
+    entries: [StackEntry; STACK_SIZE],
+}
+
+impl Default for SearchStack {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SearchStack {
+    pub fn new() -> Self {
+        let mut entries = [StackEntry::default(); STACK_SIZE];
+        entries[STACK_OFFSET].acc_computed = true;
+        Self { entries }
+    }
+
+    #[inline(always)]
+    pub fn get(&self, ply: u16) -> &StackEntry {
+        let idx = STACK_OFFSET + ply as usize;
+        debug_assert!(idx < STACK_SIZE);
+        unsafe { self.entries.get_unchecked(idx) }
+    }
+
+    #[inline(always)]
+    pub fn get_mut(&mut self, ply: u16) -> &mut StackEntry {
+        let idx = STACK_OFFSET + ply as usize;
+        debug_assert!(idx < STACK_SIZE);
+        unsafe { self.entries.get_unchecked_mut(idx) }
+    }
+
+    #[inline(always)]
+    pub fn relative(&self, ply: u16, offset: i32) -> &StackEntry {
+        let idx = STACK_OFFSET as i32 + ply as i32 + offset;
+        debug_assert!(idx >= 0 && (idx as usize) < STACK_SIZE);
+        unsafe { self.entries.get_unchecked(idx as usize) }
+    }
+
+    #[inline(always)]
+    pub fn relative_mut(&mut self, ply: u16, offset: i32) -> &mut StackEntry {
+        let idx = STACK_OFFSET as i32 + ply as i32 + offset;
+        debug_assert!(idx >= 0 && (idx as usize) < STACK_SIZE);
+        unsafe { self.entries.get_unchecked_mut(idx as usize) }
+    }
+
+    #[inline(always)]
+    pub fn clear_killers(&mut self, ply: u16) {
+        self.get_mut(ply).killer_moves = [Move::NONE; 2];
+    }
+
+    #[inline(always)]
+    pub fn get_killers(&self, ply: u16) -> KillerMoves {
+        self.get(ply).killer_moves
+    }
+
+    #[inline(always)]
+    pub fn set_killer(&mut self, ply: u16, mov: Move) {
+        let [first_killer, second_killer] = &mut self.get_mut(ply).killer_moves;
+        if *first_killer == mov {
+            return;
+        }
+        *second_killer = *first_killer;
+        *first_killer = mov;
+    }
+}
+
+impl std::ops::Index<u16> for SearchStack {
+    type Output = StackEntry;
+    #[inline(always)]
+    fn index(&self, ply: u16) -> &Self::Output {
+        self.get(ply)
+    }
+}
+
+impl std::ops::IndexMut<u16> for SearchStack {
+    #[inline(always)]
+    fn index_mut(&mut self, ply: u16) -> &mut Self::Output {
+        self.get_mut(ply)
+    }
+}
+
 #[derive(Clone, Copy)]
-pub(super) struct StackEntry {
+pub struct StackEntry {
     pub killer_moves: KillerMoves,
     pub eval: i16,
     pub pv_length: u16,

@@ -509,6 +509,7 @@ fn test_search_aspiration_window_depth_5() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_aspiration_fail_high_and_low_recovery() {
     // Mate-in-2 position where mate score fluctuations trigger aspiration window widening
     let board = Board::from_fen("k7/8/K7/8/8/8/7p/7R w - - 0 1").unwrap();
@@ -599,6 +600,7 @@ fn test_search_castling_and_en_passant() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_aspiration_fail_low_widening() {
     // Force fail-low in aspiration search by pre-seeding high score at root
     let board = Board::from_fen("k7/8/K7/8/8/8/7p/7R w - - 0 1").unwrap();

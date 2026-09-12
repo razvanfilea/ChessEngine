@@ -105,7 +105,12 @@ impl Accumulator {
     }
 
     #[inline(always)]
-    pub fn compute_and_eval(&mut self, parent: &Accumulator, entry: StackMove, board: &Board) -> i16 {
+    pub fn compute_and_eval(
+        &mut self,
+        parent: &Accumulator,
+        entry: StackMove,
+        board: &Board,
+    ) -> i16 {
         self.update::<true>(parent, entry, Some(board))
     }
 

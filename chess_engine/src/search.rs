@@ -18,8 +18,6 @@ pub use history::*;
 pub use params::*;
 pub use stack::*;
 
-const STACK_ENTRIES_EXTRA_SIZE: usize = 32;
-
 pub fn search(
     board: Board,
     time_manager: TimeManager,
@@ -80,7 +78,7 @@ struct Searcher<'a> {
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
     nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
-    stack: [StackEntry; MAX_PLY as usize + STACK_ENTRIES_EXTRA_SIZE],
+    stack: SearchStack,
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     history: HistoryTable,
     cont_history: ContinuationHistoryTable,
@@ -102,8 +100,7 @@ impl<'a> Searcher<'a> {
                 .unwrap();
         nnue_accumulator[0] = Accumulator::from_board(&board);
 
-        let mut stack = [StackEntry::default(); MAX_PLY as usize + STACK_ENTRIES_EXTRA_SIZE];
-        stack[0].acc_computed = true;
+        let stack = SearchStack::new();
 
         Self {
             board,
@@ -164,7 +161,7 @@ impl<'a> Searcher<'a> {
 
     #[inline(always)]
     fn check_limits(&mut self) {
-        if self.nodes_searched & 4095 == 0
+        if self.nodes_searched & TIME_CHECK_MASK == 0
             && (self.stop_requested.load(Ordering::Relaxed)
                 || self
                     .time_manager
@@ -180,28 +177,6 @@ impl<'a> Searcher<'a> {
         self.board.ply - self.root_ply
     }
 
-    #[inline(always)]
-    fn get_killer_moves(&self) -> KillerMoves {
-        let ply = self.ply() as usize;
-        debug_assert!(ply < MAX_PLY as usize);
-        unsafe { *self.stack.get_unchecked(ply) }.killer_moves
-    }
-
-    fn set_killer_move(&mut self, current_move: Move) {
-        let ply = self.ply() as usize;
-        if ply >= MAX_PLY as usize {
-            return;
-        }
-
-        let [first_killer, second_killer] = &mut self.stack[ply].killer_moves;
-        if *first_killer == current_move {
-            return;
-        }
-
-        *second_killer = *first_killer;
-        *first_killer = current_move;
-    }
-
     fn update_quiet_history(
         &mut self,
         best: Move,
@@ -210,13 +185,14 @@ impl<'a> Searcher<'a> {
         depth: u8,
     ) {
         let side = self.board.to_play;
-        self.history.update_bonus(side, best.from(), best.to(), depth);
+        self.history
+            .update_bonus(side, best.from(), best.to(), depth);
 
         for &m in tried {
             self.history.update_malus(side, m.from(), m.to(), depth);
         }
 
-        let curr_piece = self.board.piece_at(best.from()).unwrap().piece();
+        let curr_piece = unsafe { self.board.piece_type_at(best.from()) };
         let bonus = history_depth_bonus(depth);
         for (i, &ptr) in conthist.iter().enumerate() {
             let scaled = bonus >> i;
@@ -224,7 +200,7 @@ impl<'a> Searcher<'a> {
         }
 
         for &m in tried {
-            let piece = self.board.piece_at(m.from()).unwrap().piece();
+            let piece = unsafe { self.board.piece_type_at(m.from()) };
             for (i, &ptr) in conthist.iter().enumerate() {
                 let scaled = bonus >> i;
                 conthist_update(ptr, piece, m.to(), -scaled);
@@ -243,13 +219,9 @@ impl<'a> Searcher<'a> {
 
     #[inline(always)]
     fn update_pv(&mut self, ply: u16, mov: Move) {
-        let ply = ply as usize;
-        if ply >= MAX_PLY as usize - 1 {
-            return;
-        }
-        self.pv_table[ply][0] = mov;
-        let next_len = (self.stack[ply + 1].pv_length as usize).min(MAX_PLY as usize - 1 - ply);
-        let (current, rest) = self.pv_table[ply..].split_at_mut(1);
+        self.pv_table[ply as usize][0] = mov;
+        let next_len = (self.stack[ply + 1].pv_length.min(MAX_PLY - 1 - ply)) as usize;
+        let (current, rest) = self.pv_table[ply as usize..].split_at_mut(1);
         for (dst, &src) in current[0][1..1 + next_len]
             .iter_mut()
             .zip(&rest[0][..next_len])
@@ -271,7 +243,7 @@ impl<'a> Searcher<'a> {
         unsafe {
             std::hint::assert_unchecked(ply < MAX_PLY);
         }
-        if self.stack[ply as usize].acc_computed {
+        if self.stack[ply].acc_computed {
             return self.nnue_accumulator[ply as usize].eval(&self.board);
         }
 
@@ -279,23 +251,22 @@ impl<'a> Searcher<'a> {
         let mut ancestor = ply;
         while ancestor > 0 {
             ancestor -= 1;
-            if self.stack[ancestor as usize].acc_computed {
+            if self.stack[ancestor].acc_computed {
                 break;
             }
         }
-
         debug_assert!(
-            self.stack[ancestor as usize].acc_computed,
+            self.stack[ancestor].acc_computed,
             "root ply 0 is always computed"
         );
 
-        // Replay any intermediate plies if ancestor is further than 1 ply (rare: ~3.9%)
+        // Replay any intermediate plies if ancestor is further than 1 ply (rare)
         for intermediate_ply in (ancestor + 1)..ply {
             let (parent_acc, current_acc) = self
                 .nnue_accumulator
                 .split_at_mut(intermediate_ply as usize);
             let parent_acc = &parent_acc[intermediate_ply as usize - 1];
-            let stack = &mut self.stack[intermediate_ply as usize];
+            let stack = &mut self.stack[intermediate_ply];
             current_acc[0].compute_from(parent_acc, stack.stack_move);
             stack.acc_computed = true;
         }
@@ -303,7 +274,7 @@ impl<'a> Searcher<'a> {
         // Fused compute + eval on the target ply
         let (parent_acc, current_acc) = self.nnue_accumulator.split_at_mut(ply as usize);
         let parent_acc = &parent_acc[ply as usize - 1];
-        let stack = &mut self.stack[ply as usize];
+        let stack = &mut self.stack[ply];
         let score = current_acc[0].compute_and_eval(parent_acc, stack.stack_move, &self.board);
         stack.acc_computed = true;
         score
@@ -323,14 +294,13 @@ impl<'a> Searcher<'a> {
         }
 
         let in_check = self.board.in_check();
-        self.stack[ply as usize].pv_length = 0;
-        if (ply as usize) + 1 < MAX_PLY as usize {
-            self.stack[(ply + 1) as usize].killer_moves = [Move::NONE; 2];
-        }
+        let has_non_pawn = self.board.has_non_pawn_material(self.board.to_play);
+        self.stack[ply].pv_length = 0;
+        self.stack.clear_killers(ply + 1);
         self.nodes_searched += 1;
         self.check_limits();
 
-        if self.stopped || ( ply > 0 && self.board.is_draw()) {
+        if self.stopped || (ply > 0 && self.board.is_draw()) {
             return 0;
         }
 
@@ -340,14 +310,14 @@ impl<'a> Searcher<'a> {
 
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
-                if let Some(score) = entry.cutoff(depth, alpha, beta) {
+                if ply > 0 && let Some(score) = entry.cutoff(depth, alpha, beta) {
                     if !IS_PV {
                         return score;
                     }
                     if entry.flag() == TTFlag::Exact {
                         if !entry.mov.is_none() && self.board.legal(entry.mov) {
                             self.pv_table[ply as usize][0] = entry.mov;
-                            self.stack[ply as usize].pv_length = 1;
+                            self.stack[ply].pv_length = 1;
                         }
                         return score;
                     }
@@ -361,19 +331,14 @@ impl<'a> Searcher<'a> {
             static_eval = self.eval_position();
         }
 
-        self.stack[ply as usize].eval = static_eval;
+        self.stack[ply].eval = static_eval;
 
         let improving = if in_check || ply < 2 {
             false
-        } else if let parent_eval = self.stack[ply as usize - 2].eval
-            && parent_eval != EVAL_NONE
-        {
-            static_eval > parent_eval
-        } else if ply >= 4
-            && let grandparent_eval = self.stack[ply as usize - 4].eval
-            && grandparent_eval != EVAL_NONE
-        {
-            static_eval > grandparent_eval
+        } else if self.stack.relative(ply, -2).eval != EVAL_NONE {
+            static_eval > self.stack.relative(ply, -2).eval
+        } else if self.stack.relative(ply, -4).eval != EVAL_NONE {
+            static_eval > self.stack.relative(ply, -4).eval
         } else {
             true
         };
@@ -392,7 +357,7 @@ impl<'a> Searcher<'a> {
             && depth <= RFP_DEPTH
             && beta < MATE_THRESHOLD
             && (tt_move.is_none() || !tt_move.is_tactical())
-            && self.board.has_non_pawn_material(self.board.to_play)
+            && has_non_pawn
             && static_eval >= beta.saturating_add(rfp_margin)
         {
             return ((static_eval as i32 + beta as i32) / 2) as i16;
@@ -405,14 +370,15 @@ impl<'a> Searcher<'a> {
             && depth >= NMP_MIN_REDUCTION
             && static_eval >= beta
             && beta < MATE_THRESHOLD
-            && self.board.has_non_pawn_material(self.board.to_play)
+            && has_non_pawn
         {
             let undo = self.board.make_null_move();
-            self.stack[self.ply() as usize].set_null_move();
+            self.stack[ply + 1].set_null_move();
 
             let eval_margin = (static_eval - beta).max(0);
-            let eval_bonus = ((eval_margin / NMP_EVAL_DIVISOR).min(3)) as u8;
-            let reduction = NMP_MIN_REDUCTION + depth / 4 + eval_bonus;
+            let eval_bonus =
+                ((eval_margin / NMP_EVAL_DIVISOR).min(NMP_MAX_EVAL_BONUS as i16)) as u8;
+            let reduction = NMP_MIN_REDUCTION + depth / NMP_DEPTH_DIVISOR + eval_bonus;
 
             let score = -self.nega_max::<false>(
                 move_buffer,
@@ -433,7 +399,7 @@ impl<'a> Searcher<'a> {
         }
 
         // TODO: Tune LMP further once we gave better move ordering ~8 ELO
-        let lmp_threshold = (5 + 2 * depth as u16 * depth as u16) / (2 - improving as u16);
+        let lmp_threshold = lmp_threshold(depth, improving);
         let futility_margin_eval =
             static_eval.saturating_add(FUTILITY_MARGIN.saturating_mul(depth as i16));
         let orig_alpha = alpha;
@@ -441,16 +407,18 @@ impl<'a> Searcher<'a> {
         let mut legal_moves = 0;
         let mut quiet_moves = 0;
         let mut quiets_tried = QuietsTried::default();
+        let mut skip_quiets = false;
 
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
-        let killer_moves = self.get_killer_moves();
+        let killer_moves = self.stack.get_killers(ply);
         let conthist: ContHistPtrs = [
-            self.stack[ply as usize].conthist,
-            if ply >= 1 { self.stack[(ply - 1) as usize].conthist } else { None },
+            self.stack[ply].conthist,
+            self.stack.relative(ply, -1).conthist,
         ];
 
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, &conthist) {
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, &conthist)
+        {
             if self.stopped {
                 return 0;
             }
@@ -466,7 +434,7 @@ impl<'a> Searcher<'a> {
 
             // SEE Pruning
             if !IS_PV
-                && depth <= 8
+                && depth <= CAPTURE_SEE_MAX_DEPTH
                 && mov.is_capture()
                 && scored_mov.is_bad_capture()
                 && !see_ge(mov, &self.board, depth as i32 * SEE_CAPTURE_MARGIN)
@@ -476,23 +444,28 @@ impl<'a> Searcher<'a> {
 
             let move_gives_check = self.board.gives_check(mov);
 
+            if skip_quiets && !mov.is_tactical() && !move_gives_check {
+                continue;
+            }
+
             // Move Count Based Pruning (Late Move Pruning)
             if !IS_PV
                 && !in_check
-                && depth <= 5
+                && depth <= LMP_MAX_DEPTH
                 && quiet_moves > lmp_threshold
                 && !mov.is_tactical()
                 && !move_gives_check
                 && best_score > -MATE_THRESHOLD
-                && self.board.has_non_pawn_material(self.board.to_play)
+                && has_non_pawn
             {
+                skip_quiets = true;
                 continue;
             }
 
             // Futility Pruning
             if !IS_PV
                 && depth < FUTILITY_MAX_DEPTH
-                && legal_moves > 3
+                && legal_moves > FUTILITY_MIN_LEGAL_MOVES
                 && !(alpha > MATE_THRESHOLD)
                 && !in_check
                 && futility_margin_eval <= alpha
@@ -503,6 +476,7 @@ impl<'a> Searcher<'a> {
                 if static_eval > best_score {
                     best_score = static_eval;
                 }
+                skip_quiets = true;
                 continue;
             }
 
@@ -514,17 +488,22 @@ impl<'a> Searcher<'a> {
                 && best_score > -MATE_THRESHOLD
                 && scored_mov.score < -(depth as i16 * HISTORY_PRUNING_MARGIN)
             {
+                skip_quiets = true;
                 continue;
             }
 
             // Quiet Move SEE Pruning
             if !IS_PV
-                && depth <= 4
+                && depth <= QUIET_SEE_MAX_DEPTH
                 && !mov.is_tactical()
                 && !move_gives_check
                 && mov != killer_moves[0]
                 && mov != killer_moves[1]
-                && !see_ge(mov, &self.board, -20 * (depth as i32) * (depth as i32))
+                && !see_ge(
+                    mov,
+                    &self.board,
+                    QUIET_SEE_COEFF * (depth as i32) * (depth as i32),
+                )
             {
                 continue;
             }
@@ -533,9 +512,9 @@ impl<'a> Searcher<'a> {
             let us = self.board.to_play;
             let undo = self.board.make_move_fast(mov, move_gives_check);
             let child_ply = ply + 1;
-            self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
-            self.stack[child_ply as usize].conthist = moved_piece
-                .map(|cp| self.cont_history.entry_ptr(cp.piece(), mov.to()));
+            self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
+            self.stack[child_ply].conthist =
+                moved_piece.map(|cp| self.cont_history.entry_ptr(cp.piece(), mov.to()));
 
             // --- Search the Move ---
             let mut score = -INFINITY;
@@ -546,8 +525,8 @@ impl<'a> Searcher<'a> {
                 do_full_search = false;
 
                 let mut reduction = 0;
-                if legal_moves > 2
-                    && depth >= 3
+                if legal_moves > LMR_MIN_LEGAL_MOVES
+                    && depth >= LMR_MIN_DEPTH
                     && (mov.is_quiet() || scored_mov.is_bad_capture())
                     && !in_check
                     && !move_gives_check
@@ -558,8 +537,9 @@ impl<'a> Searcher<'a> {
                     // TODO: Test killer reduction (reduction -= is_killer as i8)
                     let hist = self.history.get(us, mov.from(), mov.to()) as i32
                         + conthist_score(&conthist, moved_piece.unwrap().piece(), mov.to()) as i32;
-                    reduction -= (hist / 12000) as i8;
-                    reduction = reduction.clamp(0, depth as i8 - 2);
+                    reduction -= (hist / LMR_HISTORY_DIVISOR) as i8;
+                    // Avoid Ord::clamp here: it has an internal assert!(min <= max) that fails to inline
+                    reduction = reduction.max(0).min(depth as i8 - 2);
                 }
 
                 let lmr_depth = depth - 1 - reduction as u8;
@@ -599,7 +579,7 @@ impl<'a> Searcher<'a> {
 
             if score >= beta {
                 if mov.is_quiet() {
-                    self.set_killer_move(mov);
+                    self.stack.set_killer(ply, mov);
                     self.update_quiet_history(mov, quiets_tried.as_slice(), &conthist, depth);
                 }
 
@@ -689,10 +669,12 @@ impl<'a> Searcher<'a> {
 
         let mut moves = MoveGenerator::quiescence(move_buffer, tt_move);
         let mut best_move = Move::NONE;
-        let killer_moves = self.get_killer_moves();
+        let killer_moves = self.stack.get_killers(ply);
 
         let no_conthist: ContHistPtrs = [None; CONTHIST_LAYERS];
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, &no_conthist) {
+        while let Some(scored_mov) =
+            moves.next(&self.board, killer_moves, &self.history, &no_conthist)
+        {
             let mov = scored_mov.mov;
             if !in_check && !mov.is_tactical() {
                 continue;
@@ -732,7 +714,7 @@ impl<'a> Searcher<'a> {
             let moved_piece = self.board.piece_at(mov.from());
             let undo = self.board.make_move(mov);
             let child_ply = ply + 1;
-            self.stack[child_ply as usize].set_move(mov, moved_piece, undo.captured_piece);
+            self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
 
             let score = -self.qsearch(moves.next_ptr(), -beta, -alpha);
             self.board.undo_move(mov, undo);

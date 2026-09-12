@@ -91,12 +91,11 @@ pub fn run_bench(depth: u8, tt_mb: usize, mut output_cb: impl FnMut(String)) -> 
 
         let mut nodes = 0u64;
         let _best = search(board, tm, stop_requested.clone(), &tt, |line| {
-            if let Some(idx) = line.find("nodes ") {
-                if let Some(token) = line[idx + 6..].split_whitespace().next() {
-                    if let Ok(n) = token.parse::<u64>() {
-                        nodes = n;
-                    }
-                }
+            if let Some(idx) = line.find("nodes ")
+                && let Some(token) = line[idx + 6..].split_whitespace().next()
+                && let Ok(n) = token.parse::<u64>()
+            {
+                nodes = n;
             }
         });
 

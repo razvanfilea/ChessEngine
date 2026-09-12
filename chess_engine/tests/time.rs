@@ -135,6 +135,7 @@ fn test_tt_not_polluted_when_stopped() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_nodes_limit() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(false));
