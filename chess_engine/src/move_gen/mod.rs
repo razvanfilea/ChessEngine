@@ -2,7 +2,7 @@ use chess_core::prelude::*;
 
 use crate::{
     board::Board,
-    search::{ContHistPtr, HistoryTable, KillerMoves, conthist_score},
+    search::{ContHistPtrs, HistoryTable, KillerMoves, conthist_score},
 };
 
 mod generate;
@@ -57,7 +57,7 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
-        conthist: ContHistPtr,
+        conthist: &ContHistPtrs,
     ) -> Option<ScoredMove> {
         loop {
             if self.list_index < self.len() {
@@ -132,7 +132,7 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
-        conthist: ContHistPtr,
+        conthist: &ContHistPtrs,
     ) -> Option<ScoredMove> {
         if self.list_index == self.len() {
             self.end_ptr = self.start_ptr;
@@ -182,10 +182,12 @@ impl MoveGenerator {
 
                 for scored_move in &mut self.as_slice_mut()[remaining_captures..] {
                     let mov = scored_move.mov;
-                    let piece = unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
-                    let bonus = conthist_score(conthist, piece, mov.to());
-                    scored_move.score =
-                        scoring::score_quiet(mov, killer_moves, history, board.to_play) + bonus;
+                    let mut score = scoring::score_quiet(mov, killer_moves, history, board.to_play);
+                    if mov != killer_moves[0] && mov != killer_moves[1] {
+                        let piece = unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
+                        score += conthist_score(conthist, piece, mov.to());
+                    }
+                    scored_move.score = score;
                 }
 
                 self.stage = GenStage::Done;
@@ -203,10 +205,14 @@ impl MoveGenerator {
                     scored_move.score = if mov.is_tactical() {
                         scoring::score_capture(mov, board)
                     } else {
-                        let piece =
-                            unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
-                        let bonus = conthist_score(conthist, piece, mov.to());
-                        scoring::score_quiet(mov, killer_moves, history, board.to_play) + bonus
+                        let mut score =
+                            scoring::score_quiet(mov, killer_moves, history, board.to_play);
+                        if mov != killer_moves[0] && mov != killer_moves[1] {
+                            let piece =
+                                unsafe { board.piece_at(mov.from()).unwrap_unchecked() }.piece();
+                            score += conthist_score(conthist, piece, mov.to());
+                        }
+                        score
                     };
                 }
 

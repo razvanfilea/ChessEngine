@@ -12,7 +12,7 @@ fn gravity(entry: &mut i16, bonus: i32) {
 }
 
 #[inline(always)]
-fn depth_bonus(depth: u8) -> i32 {
+pub fn history_depth_bonus(depth: u8) -> i32 {
     (depth as i32 * depth as i32).min(MAX_HISTORY)
 }
 
@@ -38,7 +38,7 @@ impl HistoryTable {
     pub fn update_bonus(&mut self, side: Color, from: Sq, to: Sq, depth: u8) {
         gravity(
             &mut self.0[side as usize][from as usize][to as usize],
-            depth_bonus(depth),
+            history_depth_bonus(depth),
         );
     }
 
@@ -46,7 +46,7 @@ impl HistoryTable {
     pub fn update_malus(&mut self, side: Color, from: Sq, to: Sq, depth: u8) {
         gravity(
             &mut self.0[side as usize][from as usize][to as usize],
-            -depth_bonus(depth),
+            -history_depth_bonus(depth),
         );
     }
 }
@@ -55,6 +55,8 @@ pub type KillerMoves = [Move; MAX_KILLER_MOVES];
 
 pub type ContHistEntry = [[i16; Sq::NB]; Piece::NB];
 pub type ContHistPtr = Option<NonNull<ContHistEntry>>;
+pub const CONTHIST_LAYERS: usize = 2;
+pub type ContHistPtrs = [ContHistPtr; CONTHIST_LAYERS];
 
 pub struct ContinuationHistoryTable(pub [[ContHistEntry; Sq::NB]; Piece::NB]);
 
@@ -69,45 +71,29 @@ impl ContinuationHistoryTable {
     pub fn entry_ptr(&mut self, piece: Piece, to: Sq) -> NonNull<ContHistEntry> {
         NonNull::from(&mut self.0[piece as usize][to as usize])
     }
+}
 
-    #[inline(always)]
-    pub fn update_bonus(
-        &mut self,
-        prev_piece: Piece,
-        prev_to: Sq,
-        curr_piece: Piece,
-        curr_to: Sq,
-        depth: u8,
-    ) {
-        gravity(
-            &mut self.0[prev_piece as usize][prev_to as usize][curr_piece as usize]
-                [curr_to as usize],
-            depth_bonus(depth),
-        );
-    }
-
-    #[inline(always)]
-    pub fn update_malus(
-        &mut self,
-        prev_piece: Piece,
-        prev_to: Sq,
-        curr_piece: Piece,
-        curr_to: Sq,
-        depth: u8,
-    ) {
-        gravity(
-            &mut self.0[prev_piece as usize][prev_to as usize][curr_piece as usize]
-                [curr_to as usize],
-            -depth_bonus(depth),
-        );
+#[inline(always)]
+pub fn conthist_score_single(ptr: ContHistPtr, piece: Piece, to: Sq) -> i16 {
+    match ptr {
+        Some(entry) => unsafe { (*entry.as_ptr())[piece as usize][to as usize] },
+        None => 0,
     }
 }
 
 #[inline(always)]
-pub fn conthist_score(ptr: ContHistPtr, piece: Piece, to: Sq) -> i16 {
-    match ptr {
-        Some(entry) => unsafe { (*entry.as_ptr())[piece as usize][to as usize] },
-        None => 0,
+pub fn conthist_score(ptrs: &ContHistPtrs, piece: Piece, to: Sq) -> i16 {
+    let mut score: i32 = 0;
+    for &ptr in ptrs {
+        score += conthist_score_single(ptr, piece, to) as i32;
+    }
+    score.clamp(i16::MIN as i32, i16::MAX as i32) as i16
+}
+
+#[inline(always)]
+pub fn conthist_update(ptr: ContHistPtr, piece: Piece, to: Sq, bonus: i32) {
+    if let Some(entry) = ptr {
+        unsafe { gravity(&mut (*entry.as_ptr())[piece as usize][to as usize], bonus) };
     }
 }
 

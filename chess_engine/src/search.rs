@@ -18,6 +18,8 @@ pub use history::*;
 pub use params::*;
 pub use stack::*;
 
+const STACK_ENTRIES_EXTRA_SIZE: usize = 32;
+
 pub fn search(
     board: Board,
     time_manager: TimeManager,
@@ -78,7 +80,7 @@ struct Searcher<'a> {
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
     nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
-    stack: [StackEntry; MAX_PLY as usize],
+    stack: [StackEntry; MAX_PLY as usize + STACK_ENTRIES_EXTRA_SIZE],
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     history: HistoryTable,
     cont_history: ContinuationHistoryTable,
@@ -100,7 +102,7 @@ impl<'a> Searcher<'a> {
                 .unwrap();
         nnue_accumulator[0] = Accumulator::from_board(&board);
 
-        let mut stack = [StackEntry::default(); MAX_PLY as usize];
+        let mut stack = [StackEntry::default(); MAX_PLY as usize + STACK_ENTRIES_EXTRA_SIZE];
         stack[0].acc_computed = true;
 
         Self {
@@ -204,7 +206,7 @@ impl<'a> Searcher<'a> {
         &mut self,
         best: Move,
         tried: &[Move],
-        prev_ctx: Option<(Piece, Sq)>,
+        conthist: &ContHistPtrs,
         depth: u8,
     ) {
         let side = self.board.to_play;
@@ -214,13 +216,18 @@ impl<'a> Searcher<'a> {
             self.history.update_malus(side, m.from(), m.to(), depth);
         }
 
-        if let Some((prev_piece, prev_to)) = prev_ctx {
-            let curr_piece = self.board.piece_at(best.from()).unwrap().piece();
-            self.cont_history.update_bonus(prev_piece, prev_to, curr_piece, best.to(), depth);
+        let curr_piece = self.board.piece_at(best.from()).unwrap().piece();
+        let bonus = history_depth_bonus(depth);
+        for (i, &ptr) in conthist.iter().enumerate() {
+            let scaled = bonus >> i;
+            conthist_update(ptr, curr_piece, best.to(), scaled);
+        }
 
-            for &m in tried {
-                let piece = self.board.piece_at(m.from()).unwrap().piece();
-                self.cont_history.update_malus(prev_piece, prev_to, piece, m.to(), depth);
+        for &m in tried {
+            let piece = self.board.piece_at(m.from()).unwrap().piece();
+            for (i, &ptr) in conthist.iter().enumerate() {
+                let scaled = bonus >> i;
+                conthist_update(ptr, piece, m.to(), -scaled);
             }
         }
     }
@@ -289,7 +296,7 @@ impl<'a> Searcher<'a> {
                 .split_at_mut(intermediate_ply as usize);
             let parent_acc = &parent_acc[intermediate_ply as usize - 1];
             let stack = &mut self.stack[intermediate_ply as usize];
-            current_acc[0].compute_from(parent_acc, stack.ply_move);
+            current_acc[0].compute_from(parent_acc, stack.stack_move);
             stack.acc_computed = true;
         }
 
@@ -297,7 +304,7 @@ impl<'a> Searcher<'a> {
         let (parent_acc, current_acc) = self.nnue_accumulator.split_at_mut(ply as usize);
         let parent_acc = &parent_acc[ply as usize - 1];
         let stack = &mut self.stack[ply as usize];
-        let score = current_acc[0].compute_and_eval(parent_acc, stack.ply_move, &self.board);
+        let score = current_acc[0].compute_and_eval(parent_acc, stack.stack_move, &self.board);
         stack.acc_computed = true;
         score
     }
@@ -438,13 +445,12 @@ impl<'a> Searcher<'a> {
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
-        let prev_ctx: Option<(Piece, Sq)> = {
-            let pm = &self.stack[ply as usize].ply_move;
-            pm.moved_piece.map(|cp| (cp.piece(), pm.mov.to()))
-        };
-        let conthist = self.stack[ply as usize].conthist;
+        let conthist: ContHistPtrs = [
+            self.stack[ply as usize].conthist,
+            if ply >= 1 { self.stack[(ply - 1) as usize].conthist } else { None },
+        ];
 
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, conthist) {
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, &conthist) {
             if self.stopped {
                 return 0;
             }
@@ -551,8 +557,8 @@ impl<'a> Searcher<'a> {
                     // TODO: Test late-capture LMR (extend condition with is_late_capture)
                     // TODO: Test killer reduction (reduction -= is_killer as i8)
                     let hist = self.history.get(us, mov.from(), mov.to()) as i32
-                        + conthist_score(conthist, moved_piece.unwrap().piece(), mov.to()) as i32;
-                    reduction -= (hist / 8000) as i8;
+                        + conthist_score(&conthist, moved_piece.unwrap().piece(), mov.to()) as i32;
+                    reduction -= (hist / 12000) as i8;
                     reduction = reduction.clamp(0, depth as i8 - 2);
                 }
 
@@ -594,7 +600,7 @@ impl<'a> Searcher<'a> {
             if score >= beta {
                 if mov.is_quiet() {
                     self.set_killer_move(mov);
-                    self.update_quiet_history(mov, quiets_tried.as_slice(), prev_ctx, depth);
+                    self.update_quiet_history(mov, quiets_tried.as_slice(), &conthist, depth);
                 }
 
                 self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound);
@@ -685,7 +691,8 @@ impl<'a> Searcher<'a> {
         let mut best_move = Move::NONE;
         let killer_moves = self.get_killer_moves();
 
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, None) {
+        let no_conthist: ContHistPtrs = [None; CONTHIST_LAYERS];
+        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, &no_conthist) {
             let mov = scored_mov.mov;
             if !in_check && !mov.is_tactical() {
                 continue;

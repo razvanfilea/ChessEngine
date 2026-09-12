@@ -8,7 +8,7 @@ pub(super) struct StackEntry {
     pub killer_moves: KillerMoves,
     pub eval: i16,
     pub pv_length: u16,
-    pub ply_move: StackMove,
+    pub stack_move: StackMove,
     pub conthist: ContHistPtr,
     pub acc_computed: bool,
 }
@@ -20,7 +20,7 @@ impl Default for StackEntry {
             killer_moves: [Move::NONE; 2],
             eval: EVAL_NONE,
             pv_length: 0,
-            ply_move: StackMove::default(),
+            stack_move: StackMove::default(),
             conthist: None,
             acc_computed: false,
         }
@@ -35,13 +35,13 @@ impl StackEntry {
         moved_piece: Option<ColoredPiece>,
         captured: Option<ColoredPiece>,
     ) {
-        self.ply_move = StackMove::new(mov, moved_piece, captured);
+        self.stack_move = StackMove::new(mov, moved_piece, captured);
         self.acc_computed = false;
     }
 
     #[inline(always)]
     pub fn set_null_move(&mut self) {
-        self.ply_move = StackMove::default();
+        self.stack_move = StackMove::default();
         self.conthist = None;
         self.acc_computed = false;
     }

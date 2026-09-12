@@ -35,7 +35,7 @@ pub(super) const RFP_IMPROVING_BONUS: i16 = 200;
 pub(super) const RFP_NO_TT_MARGIN: i16 = 50;
 
 pub(super) const HISTORY_PRUNING_DEPTH: u8 = 8;
-pub(super) const HISTORY_PRUNING_MARGIN: i16 = 1500;
+pub(super) const HISTORY_PRUNING_MARGIN: i16 = 2250;
 
 pub(super) const DELTA_MARGIN: i16 = 2 * piece_value(Piece::Pawn);
 pub(super) const GLOBAL_DELTA_MARGIN: i16 = piece_value(Piece::Queen);
