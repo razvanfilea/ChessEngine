@@ -18,12 +18,13 @@ default-members = [
 version = "2.0.0"
 edition = "2024"
 authors = ["Răzvan Filea"]
+license = "GPL-3.0-only"
 
 [workspace.dependencies]
 chess_core = { path = "chess_core" }
 chess_engine = { path = "chess_engine" }
 bitflags = "2.13.1"
-uci-parser = { version = "1.1.0", features = ["clamp-negatives", "validate-promotion-moves", "types", "parse-go-perft"] }
+uci-parser = { version = "1.1.0", features = ["clamp-negatives", "types", "parse-go-perft"] }
 fearless_simd = "0.7.0"
 
 [profile.release]

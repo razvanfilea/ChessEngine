@@ -58,3 +58,6 @@ While the codebase is original, Lucky Chess stands on the shoulders of the open-
   - `fearless_simd` for portable SIMD acceleration
   - `fastchess` for automated SPRT testing
 
+## License
+
+Lucky Chess is free and open-source software licensed under the [GNU General Public License v3.0](LICENSE.txt).
