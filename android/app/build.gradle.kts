@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.compose.compiler)
 }
 
@@ -14,7 +13,14 @@ android {
         targetSdk = Versions.Sdk.target
         versionCode = Versions.App.code
         versionName = Versions.App.name
-        resourceConfigurations += listOf("en")
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    androidResources {
+        localeFilters += listOf("en")
     }
 
     compileOptions {

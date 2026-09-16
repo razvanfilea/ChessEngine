@@ -50,14 +50,12 @@ class SettingsDataStore private constructor(private val application: Application
 
     suspend fun setDifficultyLevel(value: Int) = dataStore().edit { preferences ->
         preferences[SEARCH_DEPTH] = if (value == 0 || value == 1) value + 2 else value + 3
-        preferences[QUIET_SEARCH] = value != 0
     }
 
     fun getEngineSettings(): Flow<SearchOptions> =
         dataStore().data.map {
             SearchOptions(
                 searchDepth = it[SEARCH_DEPTH] ?: DEFAULT_SEARCH_DEPTH,
-                quietSearch = it[QUIET_SEARCH] ?: DEFAULT_QUIET_SEARCH,
                 searchTime = (it[SEARCH_TIME] ?: DEFAULT_SEARCH_TIME).seconds,
                 threadCount = it[THREADS] ?: DEFAULT_THREADS,
                 hashSize = it[HASH_SIZE] ?: DEFAULT_HASH_SIZE,
@@ -67,14 +65,10 @@ class SettingsDataStore private constructor(private val application: Application
     suspend fun setEngineSettings(searchOptions: SearchOptions) =
         dataStore().edit { preferences ->
             preferences[SEARCH_DEPTH] = searchOptions.searchDepth
-            preferences[QUIET_SEARCH] = searchOptions.quietSearch
             preferences[SEARCH_TIME] = searchOptions.searchTime.inWholeSeconds.toInt()
             preferences[THREADS] = searchOptions.threadCount
             preferences[HASH_SIZE] = searchOptions.hashSize
         }
-
-    fun allowBook(): Flow<Boolean> =
-        dataStore().data.map { it[ALLOW_BOOK] ?: true }
 
     fun showBasicDebug(): Flow<Boolean> =
         dataStore().data.map { it[SHOW_DEBUG_BASIC] ?: false }
@@ -104,11 +98,9 @@ class SettingsDataStore private constructor(private val application: Application
         val CENTER_BOARD = booleanPreferencesKey("center_board")
 
         val SEARCH_DEPTH = intPreferencesKey("search_depth")
-        val QUIET_SEARCH = booleanPreferencesKey("quiet_search")
         val SEARCH_TIME = intPreferencesKey("search_time")
         val THREADS = intPreferencesKey("threads")
         val HASH_SIZE = intPreferencesKey("hash_size")
-        val ALLOW_BOOK = booleanPreferencesKey("allow_book")
 
         val SHOW_DEBUG_BASIC = booleanPreferencesKey("show_debug_basic")
         val SHOW_DEBUG_ADVANCED = booleanPreferencesKey("show_debug_advanced")
@@ -121,7 +113,6 @@ class SettingsDataStore private constructor(private val application: Application
 
         // These will be overridden by the default [SearchOptions] in the Native Code
         const val DEFAULT_SEARCH_DEPTH = 1
-        const val DEFAULT_QUIET_SEARCH = true
         const val DEFAULT_SEARCH_TIME = 30
         const val DEFAULT_THREADS = 1
         const val DEFAULT_HASH_SIZE = 64

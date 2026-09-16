@@ -91,6 +91,17 @@ impl Move {
         self.0
     }
 
+    /// Creates a `Move` from raw 16-bit encoding, validating that flag bits are valid.
+    #[inline(always)]
+    pub const fn from_bits(val: u16) -> Option<Self> {
+        let flags = (val >> 12) as u8;
+        if flags == 6 || flags == 7 {
+            None
+        } else {
+            Some(Self(val))
+        }
+    }
+
     /// Creates a `Move` from raw 16-bit encoding.
     ///
     /// # Safety

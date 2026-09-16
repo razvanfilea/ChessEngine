@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlinAndroid)
     alias(libs.plugins.compose.compiler)
 }
 
@@ -11,9 +10,12 @@ android {
 
     defaultConfig {
         minSdk = Versions.Sdk.min
-        resourceConfigurations += listOf("en")
 
         consumerProguardFiles("consumer-rules.pro")
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     compileOptions {
@@ -22,23 +24,41 @@ android {
     }
 
     buildFeatures.compose = true
+}
 
-    buildTypes {
-        release {
-            externalNativeBuild {
-                cmake {
-                    arguments += listOf("-DCMAKE_BUILD_TYPE=Release")
-                }
-            }
-        }
+val buildRustTask = tasks.register<Exec>("buildRust") {
+    val ndkProvider = androidComponents.sdkComponents.ndkDirectory
+    workingDir = rootDir.parentFile
+
+    doFirst {
+        val ndkHome = ndkProvider.get().asFile.absolutePath
+        environment("ANDROID_NDK_HOME", ndkHome)
     }
 
-    externalNativeBuild {
-        cmake {
-            version = "3.31.1"
-            path("CMakeLists.txt")
-        }
+    inputs.dir("${rootDir.parentFile}/chess_android/src")
+    inputs.dir("${rootDir.parentFile}/chess_core/src")
+    inputs.dir("${rootDir.parentFile}/chess_engine/src")
+    inputs.file("${rootDir.parentFile}/Cargo.toml")
+    inputs.file("${rootDir.parentFile}/Cargo.lock")
+    outputs.dir("${projectDir}/src/main/jniLibs")
+
+    val isRelease = gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+    val cargoCmd = mutableListOf(
+        "cargo", "ndk",
+        "-t", "arm64-v8a",
+        "-t", "x86_64",
+        "-o", "${projectDir}/src/main/jniLibs",
+        "build",
+        "-p", "chess_android"
+    )
+    if (isRelease) {
+        cargoCmd.add("--release")
     }
+    commandLine(cargoCmd)
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
+    dependsOn(buildRustTask)
 }
 
 dependencies {

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Lucky Chess</string>
-    <string name="debug_stats">Time Needed: %s\nCurrent Board Evaluation: %d\n%s</string>
+    <string name="debug_stats">Time Needed: %1$s\nCurrent Board Evaluation: %2$d</string>
     <string name="new_game">New Game</string>
     <string name="side">Side:</string>
     <string name="side_white">White Side</string>
@@ -54,14 +54,10 @@
     <string name="pref_category_difficulty">Difficulty</string>
     <string name="pref_search_depth">Search Depth</string>
     <string name="pref_search_depth_desc">The maximum amount of moves that the engine may look ahead. (This is set by the difficulty)</string>
-    <string name="pref_quiet_search">Quiet Search (Recommended)</string>
-    <string name="pref_quiet_search_desc">Perform a Quiescence Search at the end of each normal search. (This is set by the difficulty)</string>
     <string name="pref_search_time">Search Time</string>
     <string name="pref_search_time_desc">The maximum time the engine is allowed to think in seconds</string>
 
     <string name="pref_category_other">Other Algorithm Settings</string>
-    <string name="pref_allow_opening_book">Allow Opening Book</string>
-    <string name="pref_allow_opening_book_desc">Allow the engine to use an Opening Book in the beginning of the game in order to make random moves</string>
     <string name="pref_thread_count">Thread Count</string>
     <string name="pref_thread_count_desc">Number of Search Threads to be used</string>
     <string name="pref_cache_size">Cache Size</string>

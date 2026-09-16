@@ -15,7 +15,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import net.theluckycoder.chess.R
 import net.theluckycoder.chess.common.Pgn
-import net.theluckycoder.chess.common.cpp.Native
 import net.theluckycoder.chess.common.model.GameState
 import net.theluckycoder.chess.common.ui.ChooseSidesToggle
 import net.theluckycoder.chess.common.viewmodel.HomeViewModel
@@ -108,11 +107,11 @@ private fun NewGameDialog(viewModel: HomeViewModel = viewModel()) {
 
 @Composable
 private fun SharePositionDialog(viewModel: HomeViewModel = viewModel()) {
-    val currentFen = remember { Native.getCurrentFen() }
+    val currentFen = remember { viewModel.getCurrentFen() }
     val pgn = remember {
         Pgn.export(
             viewModel.playerPlayingWhite.value,
-            Native.getStartFen(),
+            viewModel.getStartFen(),
             viewModel.movesHistory.value,
             viewModel.gameState.value
         )
@@ -229,7 +228,7 @@ private fun ImportPositionDialog(viewModel: HomeViewModel = viewModel()) {
                         else -> Random.nextBoolean()
                     }
 
-                    if (Native.loadFen(playerWhite, newFen)) {
+                    if (viewModel.loadFen(playerWhite, newFen)) {
                         failedToLoad = false
                         viewModel.showImportDialog.value = false
                         Toast.makeText(

@@ -5,6 +5,7 @@ members = [
     "chess_engine",
     "chess_cli",
     "chess_web",
+    "chess_android",
     "nnue_trainer",
 ]
 default-members = [

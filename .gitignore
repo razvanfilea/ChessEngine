@@ -11,3 +11,5 @@
 
 config.json
 
+/chess_web/www/version.js
+/android/common/src/main/jniLibs/

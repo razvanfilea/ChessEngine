@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import net.theluckycoder.chess.R
 import net.theluckycoder.chess.common.cpp.Native
 import net.theluckycoder.chess.common.model.Move
+import net.theluckycoder.chess.common.model.Piece
 import net.theluckycoder.chess.common.ui.CapturedPiecesLists
 import net.theluckycoder.chess.common.ui.ChessBoard
 import net.theluckycoder.chess.common.ui.MovesHistory
@@ -133,14 +134,21 @@ private fun HomeChessBoard(
         gameState = gameState,
         onPieceClick = { viewModel.showPossibleMoves(it.square) },
         onShowPromotion = { showPromotionDialog.value = it },
+        onMove = { viewModel.makeMove(it) },
     )
 
     if (showPromotionDialog.value.isNotEmpty())
-        PromotionDialog(showPromotionDialog)
+        PromotionDialog(
+            showPromotionDialog = showPromotionDialog,
+            onMove = { viewModel.makeMove(it) },
+        )
 }
 
 @Composable
-private fun PromotionDialog(showPromotionDialog: MutableState<List<Move>>) {
+private fun PromotionDialog(
+    showPromotionDialog: MutableState<List<Move>>,
+    onMove: (Move) -> Unit,
+) {
     val promotionResources = remember {
         intArrayOf(
             R.drawable.w_queen, R.drawable.w_rook,
@@ -157,7 +165,16 @@ private fun PromotionDialog(showPromotionDialog: MutableState<List<Move>>) {
                     IconButton(
                         modifier = Modifier.weight(1f),
                         onClick = {
-                            Native.makeMove(showPromotionDialog.value[index])
+                            val targetType = when (index) {
+                                0 -> Piece.QUEEN
+                                1 -> Piece.ROOK
+                                2 -> Piece.KNIGHT
+                                3 -> Piece.BISHOP
+                                else -> Piece.QUEEN
+                            }
+                            val move = showPromotionDialog.value.firstOrNull { it.promotedPieceType == targetType }
+                                ?: showPromotionDialog.value[index]
+                            onMove(move)
                             showPromotionDialog.value = emptyList()
                         }
                     ) {
@@ -247,14 +264,14 @@ private fun AppBarActions(viewModel: HomeViewModel = viewModel()) {
                 DropdownMenuItem(
                     onClick = {
                         showActionsMenu = false
-                        Native.makeEngineMove()
+                        viewModel.triggerEngineMove()
                     },
                     text = { Text(text = stringResource(id = R.string.action_make_engine_move)) })
 
                 if (isEngineThinking) {
                     DropdownMenuItem(onClick = {
                         showActionsMenu = false
-                        Native.stopSearch()
+                        viewModel.stopSearch()
                     }, text = { Text(text = stringResource(id = R.string.action_stop_search)) })
                 }
             }
@@ -272,17 +289,27 @@ private fun ActionsBar(
     horizontalAlignment = Alignment.CenterHorizontally,
 ) {
     val basicDebug by viewModel.dataStore.showBasicDebug().collectAsState(false)
+    val advancedDebug by viewModel.dataStore.showAdvancedDebug().collectAsState(false)
 
     if (basicDebug) {
         val debugStats by viewModel.debugStats.collectAsState()
 
+        val text = buildString {
+            append(
+                stringResource(
+                    id = R.string.debug_stats,
+                    debugStats.searchTimeNeeded.toString(),
+                    debugStats.boardEvaluation
+                )
+            )
+            if (advancedDebug && debugStats.advancedStats.isNotEmpty()) {
+                append("\n")
+                append(debugStats.advancedStats)
+            }
+        }
+
         Text(
-            text = stringResource(
-                id = R.string.debug_stats,
-                debugStats.searchTimeNeeded.toString(),
-                debugStats.boardEvaluation,
-                debugStats.advancedStats
-            ),
+            text = text,
             fontSize = 13.5.sp,
         )
     }
@@ -297,7 +324,7 @@ private fun ActionsBar(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         IconButton(
-            onClick = { Native.undoMoves() },
+            onClick = { viewModel.undo() },
             enabled = movesIndex >= 0,
         ) {
             Icon(
@@ -307,7 +334,7 @@ private fun ActionsBar(
         }
 
         IconButton(
-            onClick = { Native.redoMoves() },
+            onClick = { viewModel.redo() },
             enabled = movesIndex != movesHistory.lastIndex,
         ) {
             Icon(

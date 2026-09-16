@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.theluckycoder.chess.common.R
 import net.theluckycoder.chess.common.SettingsDataStore
-import net.theluckycoder.chess.common.cpp.Native
 import net.theluckycoder.chess.common.model.GameState
 import net.theluckycoder.chess.common.model.IndexedPiece
 import net.theluckycoder.chess.common.model.Move
@@ -53,7 +52,7 @@ private val PIECES_RESOURCES = intArrayOf(
 @Composable
 private fun getPieceDrawable(piece: Piece): Painter {
     val type = if (piece.isWhite) piece.type.toInt() else piece.type.toInt() + 6
-    return painterResource(PIECES_RESOURCES[type - 1])
+    return painterResource(PIECES_RESOURCES[type])
 }
 
 @Composable
@@ -65,6 +64,7 @@ fun ChessBoard(
     gameState: GameState,
     onPieceClick: (piece: Piece) -> Unit,
     onShowPromotion: (List<Move>) -> Unit,
+    onMove: (Move) -> Unit = {},
 ) = BoxWithConstraints(
     modifier = modifier
 ) {
@@ -79,7 +79,7 @@ fun ChessBoard(
     val showCoordinates by dataStore.showCoordinates().collectAsState(false)
     val showPossibleMoves by dataStore.showPieceDestination().collectAsState(false)
 
-    BoardTiles(boardSize, tileSize, isPlayerWhite, tiles, showPossibleMoves, onShowPromotion)
+    BoardTiles(boardSize, tileSize, isPlayerWhite, tiles, showPossibleMoves, onShowPromotion, onMove)
 
     BoardPieces(tileSize, isPlayerWhite, pieces, gameState, onPieceClick)
 
@@ -95,7 +95,8 @@ private fun BoardTiles(
     isPlayerWhite: Boolean,
     tiles: List<Tile>,
     showPossibleMoves: Boolean,
-    onShowPromotion: (List<Move>) -> Unit
+    onShowPromotion: (List<Move>) -> Unit,
+    onMove: (Move) -> Unit,
 ) {
     val currentDensity = LocalDensity.current
 
@@ -128,7 +129,7 @@ private fun BoardTiles(
             when (tile.state) {
                 is Tile.State.PossibleMove -> if (showPossibleMoves) {
                     val moves = tile.state.moves
-                    if (moves.first().flags.capture) {
+                    if (moves.first().isCapture) {
                         possibleCapturePath.translate(offset)
                         drawPath(path = possibleCapturePath, color = possibleTileColor)
                         possibleCapturePath.translate(-offset)
@@ -163,7 +164,7 @@ private fun BoardTiles(
                         val moves = state.moves
                         when {
                             moves.size > 1 -> onShowPromotion(moves)
-                            else -> Native.makeMove(moves.first())
+                            else -> onMove(moves.first())
                         }
                     }
             )

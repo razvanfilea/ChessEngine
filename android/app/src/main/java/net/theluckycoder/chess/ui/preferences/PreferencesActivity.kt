@@ -116,13 +116,6 @@ private fun getPreferenceItems(
                 defaultValue = SettingsDataStore.DEFAULT_SEARCH_DEPTH,
                 valueRange = 2..13,
             ),
-            SwitchPreferenceItem(
-                title = stringResource(id = R.string.pref_quiet_search),
-                summary = stringResource(id = R.string.pref_quiet_search_desc),
-                prefKey = SettingsDataStore.QUIET_SEARCH,
-                icon = painterResource(id = R.drawable.ic_pref_quiet_search),
-                defaultValue = SettingsDataStore.DEFAULT_QUIET_SEARCH,
-            ),
             SeekbarIntPreferenceItem(
                 title = stringResource(id = R.string.pref_search_time),
                 summary = stringResource(id = R.string.pref_search_time_desc),
@@ -144,13 +137,6 @@ private fun getPreferenceItems(
                 icon = painterResource(id = R.drawable.ic_pref_thread_count),
                 valueRange = 1..Runtime.getRuntime().availableProcessors(),
                 defaultValue = SettingsDataStore.DEFAULT_THREADS
-            ),
-            SwitchPreferenceItem(
-                title = stringResource(id = R.string.pref_allow_opening_book),
-                summary = stringResource(id = R.string.pref_allow_opening_book_desc),
-                prefKey = SettingsDataStore.ALLOW_BOOK,
-                icon = painterResource(id = R.drawable.ic_pref_book),
-                defaultValue = true
             ),
             SeekbarIntPreferenceItem(
                 title = stringResource(id = R.string.pref_cache_size),

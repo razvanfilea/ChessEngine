@@ -14,22 +14,10 @@ data class DebugStats(
     constructor() : this(Duration.ZERO, 0, "")
 
     companion object {
-        fun get() = DebugStats(
-            getNativeSearchTime().milliseconds,
-            getNativeBoardEvaluation(),
-            getNativeAdvancedStats(),
+        fun fromBoardState(state: BoardState) = DebugStats(
+            searchTimeNeeded = state.searchTimeMs.milliseconds,
+            boardEvaluation = state.evalScore,
+            advancedStats = state.uciInfo,
         )
-
-        @JvmStatic
-        private external fun getNativeSearchTime(): Long
-
-        @JvmStatic
-        private external fun getNativeBoardEvaluation(): Int
-
-        @JvmStatic
-        private external fun getNativeAdvancedStats(): String
-
-        @JvmStatic
-        external fun enable(enabled: Boolean)
     }
 }

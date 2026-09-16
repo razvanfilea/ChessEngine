@@ -1,36 +1,28 @@
 package net.theluckycoder.chess.common.cpp
 
-import net.theluckycoder.chess.common.model.IndexedPiece
+import androidx.annotation.Keep
+import net.theluckycoder.chess.common.model.BoardState
 import net.theluckycoder.chess.common.model.Move
 
+@Keep
 object Native {
 
-    external fun initBoard(boardChangeListener: BoardChangeListener, isPlayerWhite: Boolean)
-    external fun initBook(bookPath: String)
-    external fun enableBook(enable: Boolean)
-    external fun setSearchListener(searchListener: SearchListener)
+    private val EMPTY_MOVES = IntArray(0)
 
-    external fun loadFen(playerWhite: Boolean, fen: String): Boolean
-    external fun loadFenMoves(playerWhite: Boolean, fen: String, moves: IntArray)
+    external fun initBoard(isPlayerWhite: Boolean = true): BoardState
+    external fun loadFenMoves(fen: String, moves: IntArray = EMPTY_MOVES, isPlayerWhite: Boolean = true): BoardState?
 
-    external fun isEngineBusy(): Boolean
-    external fun isPlayerWhite(): Boolean
-    external fun isPlayersTurn(): Boolean
+    fun makeMove(move: Move): BoardState = makeMove(move.content)
+    external fun makeMove(move: Int): BoardState
 
-    external fun getPieces(): Array<IndexedPiece>
-    external fun getPossibleMoves(square: Byte): Array<Move>
+    external fun undo(): BoardState?
+    external fun redo(): BoardState?
 
-    fun makeMove(move: Move) = makeMove(move.content)
-    private external fun makeMove(move: Int)
-    external fun makeEngineMove()
-
-    external fun stopSearch()
-
-    external fun undoMoves()
-    external fun redoMoves()
-
+    external fun getBoardState(): BoardState
+    external fun getPossibleMoves(square: Byte): IntArray
     external fun getCurrentFen(): String
     external fun getStartFen(): String
-    external fun getMovesHistory(): Array<Move>
-    external fun getCurrentMoveIndex(): Int
+
+    external fun search(depth: Int, maxTimeMs: Long, hashSizeMb: Int, threadCount: Int): Int
+    external fun stopSearch()
 }

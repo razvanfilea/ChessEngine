@@ -5,6 +5,7 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.theluckycoder.chess.common.cpp.Native
+import net.theluckycoder.chess.common.model.BoardState
 import net.theluckycoder.chess.common.model.Move
 import java.io.File
 import java.io.FileNotFoundException
@@ -12,6 +13,11 @@ import java.io.FileNotFoundException
 object SaveManager {
 
     private const val SAVE_FILE_NAME = "moves.save"
+
+    data class SavedGame(
+        val state: BoardState,
+        val playerWhite: Boolean,
+    )
 
     suspend fun saveToFileAsync(
         application: Application,
@@ -44,21 +50,23 @@ object SaveManager {
         }
     }
 
-    fun loadFromFile(context: Context): Boolean = try {
+    fun loadFromFile(context: Context): SavedGame? = try {
         context.openFileInput(SAVE_FILE_NAME).bufferedReader().use { reader ->
             val lines = reader.readLines().toMutableList()
 
-            val fen = lines.removeFirst()
-            val playerWhite = lines.removeFirst().toInt() == 1
+            val fen = lines.removeFirstOrNull() ?: return null
+            val playerWhite = (lines.removeFirstOrNull()?.toIntOrNull() ?: 1) == 1
 
-            val moves = lines.map { it.toInt() }
+            val moves = lines.mapNotNull { it.toIntOrNull() }
 
-            return if (fen.isNotBlank() && moves.isNotEmpty()) {
-                Native.loadFenMoves(playerWhite, fen, moves.toIntArray())
-                true
-            } else false
+            if (fen.isNotBlank() && moves.isNotEmpty()) {
+                val state = Native.loadFenMoves(fen, moves.toIntArray(), playerWhite)
+                if (state != null) {
+                    SavedGame(state, playerWhite)
+                } else null
+            } else null
         }
-    } catch (e: FileNotFoundException) {
-        false
+    } catch (e: Exception) {
+        null
     }
 }

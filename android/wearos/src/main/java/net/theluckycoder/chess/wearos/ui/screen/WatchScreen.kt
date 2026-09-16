@@ -42,8 +42,8 @@ import androidx.wear.compose.material.dialog.Alert
 import androidx.wear.compose.material.dialog.Dialog
 import androidx.wear.compose.material.itemsIndexed
 import kotlinx.coroutines.delay
-import net.theluckycoder.chess.common.cpp.Native
 import net.theluckycoder.chess.common.model.Move
+import net.theluckycoder.chess.common.model.Piece
 import net.theluckycoder.chess.common.ui.ChessBoard
 import net.theluckycoder.chess.common.viewmodel.HomeViewModel
 import net.theluckycoder.chess.wearos.R
@@ -168,15 +168,22 @@ private fun WatchChessBoard(
         pieces = pieces,
         gameState = gameState,
         onPieceClick = { viewModel.showPossibleMoves(it.square) },
-        onShowPromotion = { showPromotionDialog.value = it }
+        onShowPromotion = { showPromotionDialog.value = it },
+        onMove = { viewModel.makeMove(it) }
     )
 
     if (showPromotionDialog.value.isNotEmpty())
-        PromotionDialog(showPromotionDialog)
+        PromotionDialog(
+            showPromotionDialog = showPromotionDialog,
+            onMove = { viewModel.makeMove(it) }
+        )
 }
 
 @Composable
-private fun PromotionDialog(showPromotionDialog: MutableState<List<Move>>) {
+private fun PromotionDialog(
+    showPromotionDialog: MutableState<List<Move>>,
+    onMove: (Move) -> Unit,
+) {
     val promotionResources = remember {
         intArrayOf(
             R.drawable.w_queen, R.drawable.w_rook,
@@ -195,7 +202,16 @@ private fun PromotionDialog(showPromotionDialog: MutableState<List<Move>>) {
             Button(
                 colors = ButtonDefaults.secondaryButtonColors(),
                 onClick = {
-                    Native.makeMove(showPromotionDialog.value[index])
+                    val targetType = when (index) {
+                        0 -> Piece.QUEEN
+                        1 -> Piece.ROOK
+                        2 -> Piece.KNIGHT
+                        3 -> Piece.BISHOP
+                        else -> Piece.QUEEN
+                    }
+                    val move = showPromotionDialog.value.firstOrNull { it.promotedPieceType == targetType }
+                        ?: showPromotionDialog.value[index]
+                    onMove(move)
                     showPromotionDialog.value = emptyList()
                 }
             ) {
@@ -234,7 +250,7 @@ private fun UndoRedoActions(
     val movesHistory by viewModel.movesHistory.collectAsState()
 
     TextIconButton(
-        onClick = { Native.undoMoves() },
+        onClick = { viewModel.undo() },
         enabled = movesIndex >= 0,
         text = stringResource(R.string.action_undo_move),
     ) {
@@ -245,7 +261,7 @@ private fun UndoRedoActions(
     }
 
     TextIconButton(
-        onClick = { Native.redoMoves() },
+        onClick = { viewModel.redo() },
         enabled = movesIndex != movesHistory.lastIndex,
         text = stringResource(R.string.action_redo_move)
     ) {

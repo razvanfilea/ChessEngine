@@ -1,7 +1,7 @@
 object Versions {
     object App {
-        private const val major = 1
-        private const val minor = 3
+        private const val major = 2
+        private const val minor = 0
         private const val patch = 0
 
         const val code = major * 100 + minor * 10 + patch

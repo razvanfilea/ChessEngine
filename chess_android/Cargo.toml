@@ -1,0 +1,16 @@
+[package]
+name = "chess_android"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+name = "chess"
+crate-type = ["cdylib"]
+
+[dependencies]
+chess_core.workspace = true
+chess_engine.workspace = true
+jni = { version = "0.22.4", default-features = false }
+

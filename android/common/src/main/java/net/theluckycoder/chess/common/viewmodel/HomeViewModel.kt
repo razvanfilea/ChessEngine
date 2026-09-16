@@ -5,23 +5,30 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.theluckycoder.chess.common.SaveManager
 import net.theluckycoder.chess.common.SettingsDataStore
-import net.theluckycoder.chess.common.cpp.BoardChangeListener
 import net.theluckycoder.chess.common.cpp.Native
-import net.theluckycoder.chess.common.cpp.SearchListener
-import net.theluckycoder.chess.common.model.*
+import net.theluckycoder.chess.common.model.BoardState
+import net.theluckycoder.chess.common.model.DebugStats
+import net.theluckycoder.chess.common.model.GameState
+import net.theluckycoder.chess.common.model.IndexedPiece
+import net.theluckycoder.chess.common.model.Move
+import net.theluckycoder.chess.common.model.Tile
 
-class HomeViewModel(application: Application) : AndroidViewModel(application),
-    BoardChangeListener, SearchListener {
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private var initialized = false
+    private var searchJob: Job? = null
     val dataStore = SettingsDataStore.get(application)
 
     /*
@@ -29,6 +36,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application),
      */
     private val isEngineBusyFlow = MutableStateFlow(false)
     private val playerPlayingWhiteFlow = MutableStateFlow(true)
+    private val isWhiteTurnFlow = MutableStateFlow(true)
     private val tilesFlow = MutableStateFlow(getEmptyTiles())
     private val piecesFlow = MutableStateFlow(emptyList<IndexedPiece>())
     private val gameStateFlow = MutableStateFlow(GameState.NONE)
@@ -54,27 +62,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application),
 
     init {
         resetBoard()
-        Native.setSearchListener(this)
 
         viewModelScope.launch(Dispatchers.IO) {
             launch {
-                dataStore.showAdvancedDebug().distinctUntilChanged().collectLatest {
-                    ensureActive()
-                    DebugStats.enable(it)
-                }
-            }
-
-            launch {
-                dataStore.getEngineSettings().distinctUntilChanged().collectLatest {
-                    ensureActive()
-                    SearchOptions.setNativeSearchOptions(it)
-                }
-            }
-
-            launch {
-                dataStore.allowBook().distinctUntilChanged().collectLatest {
-                    ensureActive()
-                    Native.enableBook(it)
+                dataStore.showBasicDebug().distinctUntilChanged().collectLatest { enabled ->
+                    if (enabled) {
+                        debugStatsFlow.value = DebugStats.fromBoardState(Native.getBoardState())
+                    }
                 }
             }
 
@@ -82,12 +76,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application),
                 movesHistoryFlow.collectLatest {
                     ensureActive()
                     val state = gameState.value
-                    if (it.isNotEmpty() && (state != GameState.WINNER_BLACK || state != GameState.WINNER_WHITE)) {
+                    val currentIndex = currentMoveIndexFlow.value
+                    if (it.isNotEmpty() && currentIndex >= 0 && state != GameState.WINNER_BLACK && state != GameState.WINNER_WHITE && state != GameState.DRAW) {
+                        val activeMoves = it.take(currentIndex + 1)
                         SaveManager.saveToFileAsync(
                             getApplication(),
                             Native.getStartFen(),
                             playerPlayingWhite.value,
-                            it
+                            activeMoves
                         )
                     }
                 }
@@ -96,88 +92,159 @@ class HomeViewModel(application: Application) : AndroidViewModel(application),
     }
 
     fun resetBoard(playerWhite: Boolean = true) {
-        if (initialized) {
-            if (isEngineBusy.value)
-                Native.stopSearch()
+        stopSearch()
 
-            Native.initBoard(this, playerWhite)
+        if (initialized) {
+            playerPlayingWhiteFlow.value = playerWhite
+            val state = Native.initBoard(playerWhite)
+            onBoardUpdated(state)
         } else {
             // First time it is called, load the last game
-            Native.initBoard(this, true)
-            SaveManager.loadFromFile(getApplication())
-
+            val saved = SaveManager.loadFromFile(getApplication())
+            val state = if (saved != null) {
+                playerPlayingWhiteFlow.value = saved.playerWhite
+                saved.state
+            } else {
+                playerPlayingWhiteFlow.value = true
+                Native.initBoard(true)
+            }
             initialized = true
-
-            makeEngineMove()
+            onBoardUpdated(state)
         }
     }
 
-    private fun updatePiecesList() {
-        piecesFlow.value = Native.getPieces().toList()
+    fun loadFen(playerWhite: Boolean, fen: String): Boolean {
+        stopSearch()
+        val state = Native.loadFenMoves(fen, isPlayerWhite = playerWhite) ?: return false
+        playerPlayingWhiteFlow.value = playerWhite
+        onBoardUpdated(state)
+        return true
     }
 
     fun updateDifficulty(level: Int) = viewModelScope.launch(Dispatchers.IO) {
         dataStore.setDifficultyLevel(level)
     }
 
-    fun showPossibleMoves(square: Int) {
-        val moves = Native.getPossibleMoves(square.toByte()).toList()
+    private var selectedSquare: Int? = null
 
-        tilesFlow.value = tilesFlow.value
-            .map { tile ->
-                val possibleMoves = moves.filter { it.to.toInt() == tile.square }
-                when {
-                    tile.square == square && moves.isNotEmpty() -> // Mark the selected piece's square
-                        tile.copy(state = Tile.State.Selected)
-                    possibleMoves.isNotEmpty() -> // Mark each possible square
-                        tile.copy(state = Tile.State.PossibleMove(possibleMoves))
-                    tile.state is Tile.State.PossibleMove || tile.state is Tile.State.Selected -> {
-                        // Clear any invalid Possible Moves
-                        tile.copy(state = Tile.State.None)
-                    }
-                    else -> tile
+    fun getCurrentFen(): String = Native.getCurrentFen()
+    fun getStartFen(): String = Native.getStartFen()
+
+    fun showPossibleMoves(square: Int) {
+        if (selectedSquare == square) {
+            selectedSquare = null
+            updateTiles(emptyList())
+            return
+        }
+
+        val rawMoves = Native.getPossibleMoves(square.toByte())
+        if (rawMoves.isEmpty()) {
+            selectedSquare = null
+            updateTiles(emptyList())
+            return
+        }
+
+        selectedSquare = square
+        val moves = rawMoves.map { Move(it) }
+        updateTiles(moves)
+    }
+
+    private fun updateTiles(possibleMoves: List<Move>) {
+        val currentMove = movesHistoryFlow.value.getOrNull(currentMoveIndexFlow.value)
+        val movesByDest = possibleMoves.groupBy { it.to.toInt() }
+
+        tilesFlow.value = List(64) { sq ->
+            val destMoves = movesByDest[sq]
+            val state = when {
+                destMoves != null -> Tile.State.PossibleMove(destMoves)
+                sq == selectedSquare -> Tile.State.Selected
+                currentMove != null && (sq.toByte() == currentMove.from || sq.toByte() == currentMove.to) -> Tile.State.Moved
+                else -> Tile.State.None
+            }
+            Tile(sq, state)
+        }
+    }
+
+    fun makeMove(move: Move) {
+        val state = Native.makeMove(move)
+        onBoardUpdated(state)
+    }
+
+    fun makeMove(moveContent: Int) {
+        val state = Native.makeMove(moveContent)
+        onBoardUpdated(state)
+    }
+
+    fun undo() {
+        stopSearch()
+        val state = Native.undo() ?: return
+        onBoardUpdated(state)
+    }
+
+    fun redo() {
+        stopSearch()
+        val state = Native.redo() ?: return
+        onBoardUpdated(state)
+    }
+
+    private fun onBoardUpdated(state: BoardState) {
+        selectedSquare = null
+        isWhiteTurnFlow.value = state.isWhiteTurn
+        val newGameState = GameState.getState(state.gameState)
+        gameStateFlow.value = newGameState
+
+        val movesHistoryList = state.movesHistory.map { Move(it) }
+        movesHistoryFlow.value = movesHistoryList
+        currentMoveIndexFlow.value = state.currentMoveIndex
+        debugStatsFlow.value = DebugStats.fromBoardState(state)
+
+        updateTiles(emptyList())
+
+        piecesFlow.value = state.pieces.map { IndexedPiece(it) }
+        triggerEngineMove()
+    }
+
+    fun triggerEngineMove(force: Boolean = false) {
+        if (!initialized) return
+        val isPlayersTurn = isWhiteTurnFlow.value == playerPlayingWhite.value
+        if (!force && isPlayersTurn) return
+        if (currentMoveIndex.value != movesHistory.value.lastIndex) return
+
+        val state = gameState.value
+        if (state == GameState.WINNER_BLACK || state == GameState.WINNER_WHITE || state == GameState.DRAW) {
+            return
+        }
+
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch(Dispatchers.Default) {
+            isEngineBusyFlow.value = true
+            val settings = dataStore.getEngineSettings().first()
+            val bestMove = Native.search(
+                settings.searchDepth,
+                settings.searchTime.inWholeMilliseconds,
+                settings.hashSize,
+                settings.threadCount
+            )
+            isEngineBusyFlow.value = false
+
+            if (isActive && bestMove != 0) {
+                withContext(Dispatchers.Main) {
+                    makeMove(bestMove)
                 }
             }
+        }
     }
 
-    override fun boardChanged(gameStateInt: Int) {
-        val gameState = GameState.getState(gameStateInt)
-
-        playerPlayingWhiteFlow.value = Native.isPlayerWhite()
-
-        gameStateFlow.value = gameState
-        val movesHistoryList = Native.getMovesHistory().toList()
-        movesHistoryFlow.value = movesHistoryList
-        val moveIndex = Native.getCurrentMoveIndex()
-        currentMoveIndexFlow.value = moveIndex
-        debugStatsFlow.value = DebugStats.get()
-
-        val currentIndex = currentMoveIndexFlow.value
-        val currentMove = movesHistoryList.getOrNull(currentIndex)
-
-        tilesFlow.value = if (currentMove != null) {
-            getEmptyTiles().map {
-                if (it.square.toByte() == currentMove.from || it.square.toByte() == currentMove.to)
-                    it.copy(state = Tile.State.Moved)
-                else it
-            }
-        } else
-            getEmptyTiles()
-
-        updatePiecesList()
-        makeEngineMove()
+    fun stopSearch() {
+        searchJob?.cancel()
+        Native.stopSearch()
+        isEngineBusyFlow.value = false
     }
 
-    private fun makeEngineMove() {
-        if (initialized && !Native.isPlayersTurn() && currentMoveIndex.value == movesHistory.value.lastIndex)
-            Native.makeEngineMove()
-
-        isEngineBusyFlow.value = Native.isEngineBusy()
-    }
-
-    override fun onFinish(success: Boolean) {
-        if (!success)
-            makeEngineMove()
+    override fun onCleared() {
+        super.onCleared()
+        searchJob?.cancel()
+        Native.stopSearch()
     }
 
     private companion object {

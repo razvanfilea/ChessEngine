@@ -2,13 +2,21 @@ package net.theluckycoder.chess.common.model
 
 import androidx.annotation.Keep
 
-@Keep // Used by native code
-class IndexedPiece(
-    val id: Int,
-    private val square: Int,
-    private val type: Byte,
-    private val isWhite: Boolean
-) {
+@Keep
+class IndexedPiece(val packed: Int) {
+    val id: Int get() = packed and 0xFF
+    val square: Int get() = (packed shr 8) and 0xFF
+    val type: Byte get() = ((packed shr 16) and 0xFF).toByte()
+    val isWhite: Boolean get() = ((packed shr 24) and 1) != 0
+
+    @Suppress("unused")
+    constructor(
+        id: Int,
+        square: Int,
+        type: Byte,
+        isWhite: Boolean
+    ) : this((id and 0xFF) or ((square and 0xFF) shl 8) or ((type.toInt() and 0xFF) shl 16) or (if (isWhite) 1 shl 24 else 0))
+
     fun toPiece() = Piece(square, type, isWhite)
 }
 
@@ -29,12 +37,12 @@ data class Piece(
         }
 
     companion object {
-        const val NONE: Byte = 0
-        const val PAWN: Byte = 1
-        const val KNIGHT: Byte = 2
-        const val BISHOP: Byte = 3
-        const val ROOK: Byte = 4
-        const val QUEEN: Byte = 5
-        const val KING: Byte = 6
+        const val NONE: Byte = -1
+        const val PAWN: Byte = 0
+        const val KNIGHT: Byte = 1
+        const val BISHOP: Byte = 2
+        const val ROOK: Byte = 3
+        const val QUEEN: Byte = 4
+        const val KING: Byte = 5
     }
 }
