@@ -310,7 +310,9 @@ impl<'a> Searcher<'a> {
 
         let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
-                if ply > 0 && let Some(score) = entry.cutoff(depth, alpha, beta) {
+                if ply > 0
+                    && let Some(score) = entry.cutoff(depth, alpha, beta)
+                {
                     if !IS_PV {
                         return score;
                     }

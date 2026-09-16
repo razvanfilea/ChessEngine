@@ -1,7 +1,7 @@
-use crate::board::Board;
-use crate::search::search;
-use crate::time::{Instant, TimeManager};
-use crate::transposition::TranspositionTable;
+use chess_engine::board::Board;
+use chess_engine::search::search;
+use chess_engine::time::{Instant, TimeManager};
+use chess_engine::transposition::TranspositionTable;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 

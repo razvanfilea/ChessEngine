@@ -248,9 +248,7 @@ mod tests {
     #[test]
     fn test_game_accessible_during_search() {
         let board = game().board().clone();
-        let handle = std::thread::spawn(move || {
-            ENGINE.search(board, 20, 5000, 16)
-        });
+        let handle = std::thread::spawn(move || ENGINE.search(board, 20, 5000, 16));
 
         std::thread::sleep(std::time::Duration::from_millis(10));
 

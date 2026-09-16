@@ -92,10 +92,13 @@ pub struct ChessGame {
 
 fn init_piece_ids(board: &Board) -> [u8; 64] {
     let mut ids = [NO_PIECE; 64];
-    for sq in 0..64 {
-        if board.mailbox[sq].is_some() {
-            ids[sq] = sq as u8;
-        }
+    for (sq, _) in board
+        .mailbox
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.is_some())
+    {
+        ids[sq] = sq as u8;
     }
     ids
 }
@@ -308,7 +311,8 @@ impl ChessGame {
             }
         }
 
-        let mut moves_history: Vec<i32> = self.history.iter().map(|e| e.mov.bits() as i32).collect();
+        let mut moves_history: Vec<i32> =
+            self.history.iter().map(|e| e.mov.bits() as i32).collect();
         for entry in self.redo_stack.iter().rev() {
             moves_history.push(entry.mov.bits() as i32);
         }
@@ -369,7 +373,11 @@ mod tests {
         assert_eq!(snap1.current_move_index, 0);
 
         // Verify that the piece on E4 has the same ID as the starting piece on E2
-        let e4_piece = snap1.pieces.iter().find(|&&p| ((p >> 8) & 0xFF) == Sq::E4 as i32).unwrap();
+        let e4_piece = snap1
+            .pieces
+            .iter()
+            .find(|&&p| ((p >> 8) & 0xFF) == Sq::E4 as i32)
+            .unwrap();
         let e4_id = e4_piece & 0xFF;
         assert_eq!(e4_id, Sq::E2 as i32);
     }
@@ -422,15 +430,31 @@ mod tests {
         game.make_move(ks_castle);
         let snap = game.get_snapshot();
 
-        let g1_piece = snap.pieces.iter().find(|&&p| ((p >> 8) & 0xFF) == Sq::G1 as i32).unwrap();
-        let f1_piece = snap.pieces.iter().find(|&&p| ((p >> 8) & 0xFF) == Sq::F1 as i32).unwrap();
+        let g1_piece = snap
+            .pieces
+            .iter()
+            .find(|&&p| ((p >> 8) & 0xFF) == Sq::G1 as i32)
+            .unwrap();
+        let f1_piece = snap
+            .pieces
+            .iter()
+            .find(|&&p| ((p >> 8) & 0xFF) == Sq::F1 as i32)
+            .unwrap();
         assert_eq!(g1_piece & 0xFF, Sq::E1 as i32);
         assert_eq!(f1_piece & 0xFF, Sq::H1 as i32);
 
         game.undo_single_ply();
         let snap = game.get_snapshot();
-        let e1_piece = snap.pieces.iter().find(|&&p| ((p >> 8) & 0xFF) == Sq::E1 as i32).unwrap();
-        let h1_piece = snap.pieces.iter().find(|&&p| ((p >> 8) & 0xFF) == Sq::H1 as i32).unwrap();
+        let e1_piece = snap
+            .pieces
+            .iter()
+            .find(|&&p| ((p >> 8) & 0xFF) == Sq::E1 as i32)
+            .unwrap();
+        let h1_piece = snap
+            .pieces
+            .iter()
+            .find(|&&p| ((p >> 8) & 0xFF) == Sq::H1 as i32)
+            .unwrap();
         assert_eq!(e1_piece & 0xFF, Sq::E1 as i32);
         assert_eq!(h1_piece & 0xFF, Sq::H1 as i32);
     }

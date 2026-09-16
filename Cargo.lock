@@ -116,6 +116,7 @@ dependencies = [
 name = "chess_cli"
 version = "2.0.0"
 dependencies = [
+ "chess_core",
  "chess_engine",
 ]
 

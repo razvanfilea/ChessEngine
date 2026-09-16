@@ -6,8 +6,8 @@ use crate::{
     search::{HistoryTable, KillerMoves},
 };
 
-const PIECE_VALUES_MVV: [i16; Piece::NB] = [1, 2, 3, 4, 5, 6]; // P, N, B, R, Q, K
-const PIECE_VALUES_SEE: [i32; Piece::NB] = [100, 300, 300, 500, 900, 20000]; // P, N, B, R, Q, K
+const MVV_RANK: [i16; Piece::NB] = [1, 2, 3, 4, 5, 6]; // P, N, B, R, Q, K
+const SEE_ORDERING_TIER: [i32; Piece::NB] = [100, 300, 300, 500, 900, 20000]; // P, N, B, R, Q, K
 
 static MVV_LVA: [[i16; Piece::NB]; Piece::NB] = const {
     let mut table = [[0; Piece::NB]; Piece::NB];
@@ -16,7 +16,7 @@ static MVV_LVA: [[i16; Piece::NB]; Piece::NB] = const {
         let mut attacker = 0;
         while attacker < Piece::NB {
             // e.g. victim * 10 - attacker
-            table[victim][attacker] = PIECE_VALUES_MVV[victim] * 10 - PIECE_VALUES_MVV[attacker];
+            table[victim][attacker] = MVV_RANK[victim] * 10 - MVV_RANK[attacker];
             attacker += 1;
         }
         victim += 1;
@@ -52,7 +52,7 @@ pub fn score_capture(mov: Move, board: &Board) -> i16 {
 
     let mut score = tier + base_score;
     if let Some(promo) = mov.promotion_piece() {
-        score += PIECE_VALUES_MVV[promo as usize] * 10;
+        score += MVV_RANK[promo as usize] * 10;
     }
     score
 }
@@ -112,10 +112,10 @@ pub fn see_ge(mov: Move, board: &Board, threshold: i32) -> bool {
         board.piece_at(to).map(|p| p.piece())
     };
 
-    let cap_val = captured.map_or(0, |p| PIECE_VALUES_SEE[p as usize]);
+    let cap_val = captured.map_or(0, |p| SEE_ORDERING_TIER[p as usize]);
 
     let promo_bonus = if let Some(promo) = mov.promotion_piece() {
-        let bonus = PIECE_VALUES_SEE[promo as usize] - PIECE_VALUES_SEE[Piece::Pawn as usize];
+        let bonus = SEE_ORDERING_TIER[promo as usize] - SEE_ORDERING_TIER[Piece::Pawn as usize];
         attacker = promo;
         bonus
     } else {
@@ -129,7 +129,7 @@ pub fn see_ge(mov: Move, board: &Board, threshold: i32) -> bool {
     }
 
     // Guaranteed gain: if losing our moving piece still leaves us >= threshold, succeed
-    swap = PIECE_VALUES_SEE[attacker as usize] - swap;
+    swap = SEE_ORDERING_TIER[attacker as usize] - swap;
     if swap <= 0 {
         return true;
     }
@@ -166,7 +166,7 @@ pub fn see_ge(mov: Move, board: &Board, threshold: i32) -> bool {
         side = !side;
         res ^= 1;
 
-        swap = PIECE_VALUES_SEE[next_attacker as usize] - swap;
+        swap = SEE_ORDERING_TIER[next_attacker as usize] - swap;
         if swap < res {
             break;
         }

@@ -8,4 +8,5 @@ name = "lucky_chess"
 path = "src/main.rs"
 
 [dependencies]
+chess_core.workspace = true
 chess_engine.workspace = true

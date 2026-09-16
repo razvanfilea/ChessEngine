@@ -39,7 +39,13 @@ impl SearchEngine {
         self.stop_flag.store(true, Ordering::Relaxed);
     }
 
-    pub fn search(&self, board: Board, depth: i32, max_time_ms: i64, hash_size_mb: i32) -> SearchResult {
+    pub fn search(
+        &self,
+        board: Board,
+        depth: i32,
+        max_time_ms: i64,
+        hash_size_mb: i32,
+    ) -> SearchResult {
         // Reset stop flag
         self.stop_flag.store(false, Ordering::Relaxed);
 
@@ -62,7 +68,8 @@ impl SearchEngine {
         let mut tt = self.tt.lock().unwrap();
         if hash_size_mb > 0 && hash_size_mb as usize != self.tt_size_mb.load(Ordering::Relaxed) {
             *tt = TranspositionTable::new(hash_size_mb as usize);
-            self.tt_size_mb.store(hash_size_mb as usize, Ordering::Relaxed);
+            self.tt_size_mb
+                .store(hash_size_mb as usize, Ordering::Relaxed);
         }
         tt.new_search();
 
@@ -70,15 +77,10 @@ impl SearchEngine {
         let stop_clone = self.stop_flag.clone();
         let mut last_info = String::new();
 
-        let best_move = chess_engine::search::search(
-            board.clone(),
-            time_manager,
-            stop_clone,
-            &tt,
-            |info| {
+        let best_move =
+            chess_engine::search::search(board.clone(), time_manager, stop_clone, &tt, |info| {
                 last_info = info;
-            },
-        );
+            });
         let elapsed = start.elapsed().as_millis() as u64;
 
         let best_move_bits = if best_move == Move::NONE || !board.legal(best_move) {
@@ -112,9 +114,8 @@ mod tests {
     fn test_engine_stop() {
         let engine = Arc::new(SearchEngine::new(16));
         let engine_clone = engine.clone();
-        let handle = std::thread::spawn(move || {
-            engine_clone.search(Board::start_pos(), 30, 30_000, 16)
-        });
+        let handle =
+            std::thread::spawn(move || engine_clone.search(Board::start_pos(), 30, 30_000, 16));
         std::thread::sleep(Duration::from_millis(20));
         engine.stop();
         let res = handle.join().unwrap();

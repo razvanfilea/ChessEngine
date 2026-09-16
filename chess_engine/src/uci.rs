@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uci_parser::UciCommand;
 
-use crate::search::{INFINITY, piece_value};
+use crate::search::{INFINITY, MATE_THRESHOLD, piece_value};
 use crate::time::TimeManager;
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::gen_all_moves, search::search};
@@ -87,19 +87,6 @@ impl UciState {
             if let Some(thread) = self.search_thread.take() {
                 let _ = thread.join();
             }
-            return true;
-        }
-
-        if trimmed.eq_ignore_ascii_case("bench")
-            || trimmed.to_ascii_lowercase().starts_with("bench ")
-        {
-            let mut parts = trimmed.split_whitespace();
-            parts.next(); // "bench"
-            let depth = parts
-                .next()
-                .and_then(|s| s.parse::<u8>().ok())
-                .unwrap_or(10);
-            self.run_bench(depth);
             return true;
         }
 
@@ -335,8 +322,6 @@ pub fn format_move(mov: Move) -> String {
 }
 
 pub fn format_score(score: i16) -> String {
-    const MATE_THRESHOLD: i16 = 29_000;
-
     if score > MATE_THRESHOLD {
         // We are mating the opponent
         let plies_to_mate = INFINITY - score;
