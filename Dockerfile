@@ -19,7 +19,7 @@ RUN cargo build-wasm && \
 FROM busybox:musl
 
 WORKDIR /www
-COPY chess_web/www/ ./
+COPY --from=wasm-builder /app/chess_web/www/ ./
 COPY --from=wasm-builder /app/lucky_chess.wasm ./
 
 EXPOSE 8080

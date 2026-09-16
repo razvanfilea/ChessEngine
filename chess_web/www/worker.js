@@ -9,7 +9,7 @@ const decoder = new TextDecoder();
 
 async function initEngine(wasmPath = 'lucky_chess.wasm') {
   try {
-    const response = await fetch(wasmPath);
+    const response = await fetch(wasmPath, { cache: 'no-cache' });
     if (!response.ok) {
       throw new Error(`Failed to load WASM binary: ${response.statusText}`);
     }
@@ -100,22 +100,27 @@ function handleEngineOutput(line) {
 }
 
 self.onmessage = (event) => {
-  const { type, cmd, wasmPath } = event.data;
+  try {
+    const { type, cmd, wasmPath } = event.data;
 
-  switch (type) {
-    case 'init':
-      initEngine(wasmPath);
-      break;
-    case 'cmd':
-      sendCommand(cmd);
-      break;
-    case 'stop':
-      if (wasmExports && ffiStatePtr) {
-        wasmExports.uci_stop(ffiStatePtr);
-        drainOutputs();
-      }
-      break;
-    default:
-      console.warn('Unknown worker message type:', type);
+    switch (type) {
+      case 'init':
+        initEngine(wasmPath);
+        break;
+      case 'cmd':
+        sendCommand(cmd);
+        break;
+      case 'stop':
+        if (wasmExports && ffiStatePtr) {
+          wasmExports.uci_stop(ffiStatePtr);
+          drainOutputs();
+        }
+        break;
+      default:
+        console.warn('Unknown worker message type:', type);
+    }
+  } catch (err) {
+    console.error('Worker error:', err);
+    postMessage({ type: 'error', message: err.message || String(err) });
   }
 };

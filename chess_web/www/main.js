@@ -1,5 +1,6 @@
 import { Chessground } from 'https://esm.sh/@lichess-org/chessground@10.1.1';
 import { Chess } from 'https://esm.sh/chess.js@1.4.0';
+import { ENGINE_VERSION } from './version.js';
 
 // Elements
 const boardEl = document.getElementById('board');
@@ -62,7 +63,7 @@ function initWorker() {
     }
   };
 
-  worker.postMessage({ type: 'init', wasmPath: 'lucky_chess.wasm' });
+  worker.postMessage({ type: 'init', wasmPath: `lucky_chess.wasm?v=${ENGINE_VERSION}` });
 }
 
 function calculateDests() {

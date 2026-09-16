@@ -6,6 +6,7 @@ rustflags = [
     "-C", "strip=symbols",
     "-C", "panic=abort",
     "-C", "target-feature=+simd128",
+    "-C", "link-arg=-zstack-size=16777216",
 ]
 
 [alias]
