@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -56,6 +58,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Rust toolchain & musl tools
         run: |
@@ -94,6 +98,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Rust toolchain & aarch64 cross-linker
         run: |
@@ -124,6 +130,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -150,6 +158,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Install Rust Nightly with wasm target & binaryen
         run: |
