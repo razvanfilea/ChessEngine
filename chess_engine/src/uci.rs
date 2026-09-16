@@ -124,12 +124,11 @@ uciok"#,
                     }
                 } else if name.eq_ignore_ascii_case("ClearHash") {
                     self.tt.clear();
-                } else if name.eq_ignore_ascii_case("Move Overhead")
-                    || name.eq_ignore_ascii_case("MoveOverhead")
+                } else if (name.eq_ignore_ascii_case("Move Overhead")
+                    || name.eq_ignore_ascii_case("MoveOverhead"))
+                    && let Some(ms) = value.and_then(|v| v.parse().ok())
                 {
-                    if let Some(ms) = value.and_then(|v| v.parse().ok()) {
-                        self.move_overhead = ms;
-                    }
+                    self.move_overhead = ms;
                 }
             }
             UciCommand::Register { .. } => self.output_line("registration ok"),
@@ -213,19 +212,6 @@ uciok"#,
         let mut board = self.board.clone();
         let nodes = crate::perft::perft(&mut board, depth);
         self.output_line(format!("Nodes searched: {nodes}"));
-    }
-
-    fn run_bench(&mut self, depth: u8) {
-        #[cfg(not(target_family = "wasm"))]
-        if let Some(thread) = self.search_thread.take() {
-            self.stop_requested.store(true, Ordering::Relaxed);
-            let _ = thread.join();
-        }
-
-        let output_cb = self.output_cb.clone();
-        crate::bench::run_bench(depth, 16, move |line| {
-            output_cb(line);
-        });
     }
 
     fn start_search(&mut self, time_manager: TimeManager) {

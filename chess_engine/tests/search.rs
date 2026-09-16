@@ -487,8 +487,9 @@ fn test_search_quiescence_in_check_evasions() {
 
 #[test]
 fn test_search_aspiration_window_depth_5() {
-    // Search at depth 5 activates aspiration windows (ASPIRATION_MIN_DEPTH = 5)
-    // using a minimal branching mate-in-2 position for lightning fast execution
+    // Search at depth 5 activates aspiration windows (ASPIRATION_MIN_DEPTH = 5).
+    // In Miri, depth 3 is used to quickly exercise continuation history / stack borrows without hanging.
+    let depth = if cfg!(miri) { 3 } else { 5 };
     let board = Board::from_fen("k7/8/K7/8/8/8/7p/7R w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
@@ -496,7 +497,7 @@ fn test_search_aspiration_window_depth_5() {
     let mut info_lines = Vec::new();
     let best_move = search(
         board,
-        TimeManager::from_depth(5),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |info| info_lines.push(info),
@@ -504,8 +505,8 @@ fn test_search_aspiration_window_depth_5() {
 
     assert_eq!(best_move.from(), Sq::H1);
     assert_eq!(best_move.to(), Sq::H2);
-    assert_eq!(info_lines.len(), 5);
-    assert!(info_lines[4].starts_with("info depth 5"));
+    assert_eq!(info_lines.len(), depth as usize);
+    assert!(info_lines[depth as usize - 1].starts_with(&format!("info depth {depth}")));
 }
 
 #[test]

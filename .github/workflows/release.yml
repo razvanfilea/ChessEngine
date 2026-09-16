@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release Tag Name (e.g. v2.0.0)"
+        required: false
+        default: "v2.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x86-64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile Windows Binaries (SSE4.1, AVX2, AVX-512)
+        shell: bash
+        run: |
+          mkdir -p dist
+
+          RUSTFLAGS="-C target-cpu=x86-64-v2 -C target-feature=+crt-static" cargo build --release --bin lucky_chess
+          cp target/release/lucky_chess.exe dist/lucky-chess-windows-x86_64-sse41.exe
+
+          RUSTFLAGS="-C target-cpu=x86-64-v3 -C target-feature=+crt-static" cargo build --release --bin lucky_chess
+          cp target/release/lucky_chess.exe dist/lucky-chess-windows-x86_64-avx2.exe
+
+          RUSTFLAGS="-C target-cpu=x86-64-v4 -C target-feature=+crt-static" cargo build --release --bin lucky_chess
+          cp target/release/lucky_chess.exe dist/lucky-chess-windows-x86_64-avx512.exe
+
+          cd dist
+          7z a ../lucky-chess-windows-x86_64.zip *.exe ../LICENSE.txt
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-binaries
+          path: |
+            dist/*.exe
+            lucky-chess-windows-x86_64.zip
+
+  build-linux-x86:
+    name: Build Linux x86-64 (musl)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain & musl tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Compile Linux musl Binaries
+        run: |
+          mkdir -p dist
+
+          RUSTFLAGS="-C target-cpu=x86-64-v2" cargo build --release --target x86_64-unknown-linux-musl --bin lucky_chess
+          strip target/x86_64-unknown-linux-musl/release/lucky_chess
+          cp target/x86_64-unknown-linux-musl/release/lucky_chess dist/lucky-chess-linux-x86_64-sse41
+
+          RUSTFLAGS="-C target-cpu=x86-64-v3" cargo build --release --target x86_64-unknown-linux-musl --bin lucky_chess
+          strip target/x86_64-unknown-linux-musl/release/lucky_chess
+          cp target/x86_64-unknown-linux-musl/release/lucky_chess dist/lucky-chess-linux-x86_64-avx2
+
+          RUSTFLAGS="-C target-cpu=x86-64-v4" cargo build --release --target x86_64-unknown-linux-musl --bin lucky_chess
+          strip target/x86_64-unknown-linux-musl/release/lucky_chess
+          cp target/x86_64-unknown-linux-musl/release/lucky_chess dist/lucky-chess-linux-x86_64-avx512
+
+          tar -czf lucky-chess-linux-x86_64-musl.tar.gz -C dist . LICENSE.txt
+
+      - name: Upload Linux x86 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86-binaries
+          path: |
+            dist/*
+            lucky-chess-linux-x86_64-musl.tar.gz
+
+  build-linux-arm64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain & aarch64 cross-linker
+        run: |
+          sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+          rustup target add aarch64-unknown-linux-gnu
+
+      - name: Compile Linux ARM64
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: |
+          mkdir -p dist
+          cargo build --release --target aarch64-unknown-linux-gnu --bin lucky_chess
+          aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/lucky_chess
+          cp target/aarch64-unknown-linux-gnu/release/lucky_chess dist/lucky-chess-linux-aarch64
+          tar -czf lucky-chess-linux-aarch64.tar.gz -C dist . LICENSE.txt
+
+      - name: Upload Linux ARM64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-binaries
+          path: |
+            dist/*
+            lucky-chess-linux-aarch64.tar.gz
+
+  build-macos:
+    name: Build macOS Apple Silicon
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compile macOS ARM64 Binary
+        run: |
+          mkdir -p dist
+          cargo build --release --bin lucky_chess
+          strip target/release/lucky_chess
+          cp target/release/lucky_chess dist/lucky-chess-macos-aarch64
+          tar -czf lucky-chess-macos-aarch64.tar.gz -C dist . LICENSE.txt
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: |
+            dist/*
+            lucky-chess-macos-aarch64.tar.gz
+
+  build-wasm:
+    name: Build WASM & Web Client
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Nightly with wasm target & binaryen
+        run: |
+          sudo apt-get update && sudo apt-get install -y binaryen
+          rustup toolchain install nightly --target wasm32-unknown-unknown
+
+      - name: Compile and Optimize WASM
+        run: |
+          rustup run nightly cargo build-wasm
+          wasm-opt -O3 --all-features \
+            target/wasm32-unknown-unknown/release/lucky_chess.wasm \
+            -o lucky_chess.wasm
+
+          mkdir -p dist_web
+          cp -r chess_web/www/* dist_web/
+          cp lucky_chess.wasm dist_web/
+          zip -r lucky-chess-web-bundle.zip dist_web/
+
+      - name: Upload WASM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-binaries
+          path: |
+            lucky_chess.wasm
+            lucky-chess-web-bundle.zip
+
+  release:
+    name: Publish Release Assets
+    needs: [build-windows, build-linux-x86, build-linux-arm64, build-macos, build-wasm]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksums
+        working-directory: release-assets
+        run: |
+          sha256sum * > SHA256SUMS.txt || true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: Lucky Chess ${{ github.event.inputs.tag_name || github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release-assets/*

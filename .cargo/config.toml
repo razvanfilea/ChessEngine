@@ -9,6 +9,9 @@ rustflags = [
     "-C", "link-arg=-zstack-size=16777216",
 ]
 
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [alias]
 build-wasm = "build -p chess_web --target wasm32-unknown-unknown --release"
 
