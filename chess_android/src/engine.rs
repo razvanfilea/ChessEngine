@@ -77,10 +77,16 @@ impl SearchEngine {
         let stop_clone = self.stop_flag.clone();
         let mut last_info = String::new();
 
-        let best_move =
-            chess_engine::search::search(board.clone(), time_manager, stop_clone, &tt, |info| {
+        let best_move = chess_engine::search::search(
+            board.clone(),
+            &[],
+            time_manager,
+            stop_clone,
+            &tt,
+            |info| {
                 last_info = info;
-            });
+            },
+        );
         let elapsed = start.elapsed().as_millis() as u64;
 
         let best_move_bits = if best_move == Move::NONE || !board.legal(best_move) {

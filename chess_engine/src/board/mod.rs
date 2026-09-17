@@ -13,7 +13,6 @@ use chess_core::{
     prelude::*,
 };
 
-const MAX_GAME_PLAY: usize = 1024;
 const UNCOMPUTED_PINNED: u64 = u64::MAX;
 
 #[derive(Clone, PartialEq)]
@@ -30,7 +29,6 @@ pub struct Board {
     pub en_passant_target_sq: Option<Sq>,
     pub half_move_clock: u8, // 50 move draw rule
     pub ply: u16,
-    pub hash_history: Box<[u64; MAX_GAME_PLAY]>,
 }
 
 impl Default for Board {
@@ -47,11 +45,11 @@ impl Default for Board {
             en_passant_target_sq: None,
             half_move_clock: 0,
             ply: 0,
-            hash_history: Box::new([0; MAX_GAME_PLAY]),
         }
     }
 }
 
+// TODO: Implement checker squares and lazy chckers/pinned calculation
 // #[derive(Default)]
 // pub struct BoardState {
 //     pub checkers: u64,
@@ -72,6 +70,7 @@ pub struct UndoInfo {
     pub half_move_clock: u8,
     pub checkers: u64,
     pub pinned: u64,
+    pub hash: u64,
 }
 
 impl Board {
@@ -156,7 +155,7 @@ impl Board {
 
     #[inline(always)]
     pub fn is_draw(&self) -> bool {
-        if self.half_move_clock >= 100 || self.is_repetition() {
+        if self.half_move_clock >= 100 {
             return true;
         }
 
@@ -458,7 +457,6 @@ impl Board {
         let flags = mov.flags();
         let us = self.to_play;
         let original_hash = self.hash;
-        self.hash_history[self.ply as usize] = original_hash;
 
         debug_assert!(self.piece_at(from).is_some());
 
@@ -477,6 +475,7 @@ impl Board {
             half_move_clock: self.half_move_clock,
             checkers: self.checkers,
             pinned: self.pinned.get(),
+            hash: original_hash,
         };
 
         let mut piece = self.move_piece(from, to);
@@ -506,8 +505,11 @@ impl Board {
         }
         if flags == MoveFlags::DoublePawn {
             let target_sq = unsafe { to.shift(us.backward()) };
-            self.hash ^= ZOBRIST_KEYS.en_passant(target_sq);
-            self.en_passant_target_sq = Some(target_sq);
+            let attackers = pawn_attacks(target_sq, us) & self.color_piece(Piece::Pawn, !us);
+            if attackers != 0 {
+                self.hash ^= ZOBRIST_KEYS.en_passant(target_sq);
+                self.en_passant_target_sq = Some(target_sq);
+            }
         }
 
         if is_pawn || is_capture {
@@ -566,18 +568,13 @@ impl Board {
         self.pinned.set(undo.pinned);
 
         self.ply -= 1;
-        self.hash = self.hash_history[self.ply as usize];
-        self.hash_history[self.ply as usize] = 0;
+        self.hash = undo.hash;
         self.to_play = us;
     }
 
     #[inline]
     pub fn make_null_move(&mut self) -> UndoInfo {
         debug_assert!(self.checkers == 0);
-
-        let us = self.to_play;
-        let original_hash = self.hash;
-        self.hash_history[self.ply as usize] = original_hash;
 
         let info = UndoInfo {
             captured_piece: None,
@@ -586,6 +583,7 @@ impl Board {
             half_move_clock: self.half_move_clock,
             checkers: 0,
             pinned: self.pinned.get(),
+            hash: self.hash,
         };
 
         if let Some(en_passant) = self.en_passant_target_sq.take() {
@@ -594,7 +592,7 @@ impl Board {
 
         self.half_move_clock += 1;
         self.ply += 1;
-        self.to_play = !us;
+        self.to_play = !self.to_play;
         self.hash ^= ZOBRIST_KEYS.side();
         self.checkers = 0;
         self.set_pinned();
@@ -610,8 +608,7 @@ impl Board {
         self.pinned.set(info.pinned);
 
         self.ply -= 1;
-        self.hash = self.hash_history[self.ply as usize];
-        self.hash_history[self.ply as usize] = 0;
+        self.hash = info.hash;
         self.to_play = !self.to_play;
     }
 
@@ -693,7 +690,7 @@ impl Board {
         Some(piece)
     }
 
-    fn has_insufficient_material(&self) -> bool {
+    pub fn has_insufficient_material(&self) -> bool {
         // If there are pawns, rooks, or queens, mate is possible
         let majors_and_pawns =
             self.pieces(Piece::Pawn) | self.pieces(Piece::Rook) | self.pieces(Piece::Queen);
@@ -723,26 +720,6 @@ impl Board {
             if bb_only_one(white_bishops) && bb_only_one(black_bishops) {
                 return (white_bishops & LIGHT_SQUARES != 0)
                     == (black_bishops & LIGHT_SQUARES != 0);
-            }
-        }
-
-        false
-    }
-
-    #[inline(always)]
-    fn is_repetition(&self) -> bool {
-        let current_hash = self.hash;
-        let count = self.half_move_clock as usize;
-        let len = self.ply as usize;
-        let limit = count.min(len);
-
-        if limit < 4 {
-            return false;
-        }
-
-        for i in (4..=limit).step_by(2) {
-            if self.hash_history[len - i] == current_hash {
-                return true;
             }
         }
 

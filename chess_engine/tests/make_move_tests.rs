@@ -215,7 +215,8 @@ fn test_quiet_pawn_pushes() {
 fn test_double_pawn_pushes_and_en_passant_target() {
     let mut board = Board::start_pos();
 
-    // White plays e2 -> e4 (DoublePawn)
+    // White plays e2 -> e4 (DoublePawn) from startpos
+    // No Black pawn in position to capture e.p. -> target square is None
     let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
     board.make_move(mov);
 
@@ -224,13 +225,14 @@ fn test_double_pawn_pushes_and_en_passant_target() {
         board.piece_at(Sq::E4),
         Some(ColoredPiece::new(Piece::Pawn, Color::White))
     );
-    assert_eq!(board.en_passant_target_sq, Some(Sq::E3));
+    assert_eq!(board.en_passant_target_sq, None);
     assert_eq!(board.half_move_clock, 0);
     assert_eq!(board.ply, 1);
     assert_eq!(board.to_play, Color::Black);
     assert_board_invariants(&board);
 
     // Black plays d7 -> d5 (DoublePawn)
+    // White's pawn is on e4 (not e5), so no e.p. capture is possible
     let mov = Move::new(Sq::D7, Sq::D5, MoveFlags::DoublePawn);
     board.make_move(mov);
 
@@ -239,18 +241,34 @@ fn test_double_pawn_pushes_and_en_passant_target() {
         board.piece_at(Sq::D5),
         Some(ColoredPiece::new(Piece::Pawn, Color::Black))
     );
-    assert_eq!(board.en_passant_target_sq, Some(Sq::D6));
+    assert_eq!(board.en_passant_target_sq, None);
     assert_eq!(board.half_move_clock, 0);
     assert_eq!(board.ply, 2);
     assert_eq!(board.to_play, Color::White);
     assert_board_invariants(&board);
 
-    // White plays quiet move g1 -> f3, EP target should be reset to None
-    let mov = Move::new(Sq::G1, Sq::F3, MoveFlags::Quiet);
-    board.make_move(mov);
-    assert_eq!(board.en_passant_target_sq, None);
-    assert_eq!(board.half_move_clock, 1);
-    assert_board_invariants(&board);
+    // With adjacent Black pawn on d4, White playing e2 -> e4 sets e.p. target
+    let fen_with_attacker = "rnbqkbnr/pppppppp/8/8/3p4/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let mut board_with_attacker = Board::from_fen(fen_with_attacker).unwrap();
+    board_with_attacker.make_move(Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn));
+    assert_eq!(board_with_attacker.en_passant_target_sq, Some(Sq::E3));
+
+    // Next quiet move resets e.p. target
+    board_with_attacker.make_move(Move::new(Sq::G8, Sq::F6, MoveFlags::Quiet));
+    assert_eq!(board_with_attacker.en_passant_target_sq, None);
+    assert_board_invariants(&board_with_attacker);
+}
+
+fn rank_with_pawn(file: u8, ch: char) -> String {
+    let mut s = String::new();
+    if file > 0 {
+        s.push_str(&file.to_string());
+    }
+    s.push(ch);
+    if file < 7 {
+        s.push_str(&(7 - file).to_string());
+    }
+    s
 }
 
 #[test]
@@ -261,7 +279,21 @@ fn test_all_files_double_pawn_push_ep_square() {
         let to_w = Sq::new(file, 3).unwrap();
         let expected_ep_w = Sq::new(file, 2).unwrap();
 
-        let mut board = Board::start_pos();
+        // Without adjacent Black pawn on rank 4, EP square is None
+        let mut board_no_enemy = Board::start_pos();
+        board_no_enemy.make_move(Move::new(from_w, to_w, MoveFlags::DoublePawn));
+        assert_eq!(
+            board_no_enemy.en_passant_target_sq, None,
+            "White EP square should be None when no enemy pawn attacks file {file}"
+        );
+
+        // With adjacent Black pawn on rank 4 (index 3), EP square is Some
+        let adj_file = if file > 0 { file - 1 } else { file + 1 };
+        let fen_w = format!(
+            "rnbqkbnr/pppppppp/8/8/{}/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            rank_with_pawn(adj_file, 'p')
+        );
+        let mut board = Board::from_fen(&fen_w).unwrap();
         board.make_move(Move::new(from_w, to_w, MoveFlags::DoublePawn));
         assert_eq!(
             board.en_passant_target_sq,
@@ -275,8 +307,21 @@ fn test_all_files_double_pawn_push_ep_square() {
         let to_b = Sq::new(file, 4).unwrap();
         let expected_ep_b = Sq::new(file, 5).unwrap();
 
-        let mut b = Board::start_pos();
-        b.to_play = Color::Black;
+        // Without adjacent White pawn on rank 5, EP square is None
+        let mut b_no_enemy = Board::start_pos();
+        b_no_enemy.to_play = Color::Black;
+        b_no_enemy.make_move(Move::new(from_b, to_b, MoveFlags::DoublePawn));
+        assert_eq!(
+            b_no_enemy.en_passant_target_sq, None,
+            "Black EP square should be None when no enemy pawn attacks file {file}"
+        );
+
+        // With adjacent White pawn on rank 5 (index 4), EP square is Some
+        let fen_b = format!(
+            "rnbqkbnr/pppppppp/8/{}/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+            rank_with_pawn(adj_file, 'P')
+        );
+        let mut b = Board::from_fen(&fen_b).unwrap();
         b.make_move(Move::new(from_b, to_b, MoveFlags::DoublePawn));
         assert_eq!(
             b.en_passant_target_sq,

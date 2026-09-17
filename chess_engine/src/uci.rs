@@ -12,6 +12,7 @@ pub type OutputCallback = Arc<dyn Fn(String) + Send + Sync>;
 
 pub struct UciState {
     board: Board,
+    game_history: Vec<u64>,
     #[cfg(not(target_family = "wasm"))]
     search_thread: Option<std::thread::JoinHandle<()>>,
     stop_requested: Arc<AtomicBool>,
@@ -29,8 +30,11 @@ impl Default for UciState {
 impl UciState {
     pub fn new(output_cb: impl Fn(String) + Send + Sync + 'static) -> Self {
         let default_tt_mb = if cfg!(miri) { 1 } else { 64 };
+        let board = Board::start_pos();
+        let game_history = vec![board.hash];
         Self {
-            board: Board::start_pos(),
+            board,
+            game_history,
             #[cfg(not(target_family = "wasm"))]
             search_thread: None,
             stop_requested: Arc::default(),
@@ -106,6 +110,7 @@ id author Răzvan Filea
 option name Hash type spin default 64 min 1 max 1024
 option name ClearHash type button
 option name Move Overhead type spin default 10 min 0 max 5000
+option name Threads type spin default 1 min 1 max 1
 uciok"#,
                 );
             }
@@ -129,6 +134,8 @@ uciok"#,
                     && let Some(ms) = value.and_then(|v| v.parse().ok())
                 {
                     self.move_overhead = ms;
+                } else if name.eq_ignore_ascii_case("Threads") {
+                    // Lucky Chess is currently single-threaded
                 }
             }
             UciCommand::Register { .. } => self.output_line("registration ok"),
@@ -140,6 +147,7 @@ uciok"#,
                 }
                 self.stop_requested.store(false, Ordering::Relaxed);
                 self.board = Board::start_pos();
+                self.game_history = vec![self.board.hash];
                 self.tt.clear();
             }
             UciCommand::Position { fen, moves } => {
@@ -153,9 +161,12 @@ uciok"#,
                     Board::start_pos()
                 };
 
+                self.game_history = vec![self.board.hash];
+
                 for uci_move in moves {
                     if let Some(mov) = self.find_move(uci_move) {
                         self.board.make_move(mov);
+                        self.game_history.push(self.board.hash);
                     } else {
                         eprintln!("Illegal or unrecognized move in position command");
                         break;
@@ -228,6 +239,7 @@ uciok"#,
         }
 
         let board = self.board.clone();
+        let history = self.game_history.clone();
         let stop_requested = self.stop_requested.clone();
         let tt = self.tt.clone();
         let output_cb = self.output_cb.clone();
@@ -237,7 +249,14 @@ uciok"#,
                 output_cb(line);
             };
 
-            let best = search(board.clone(), time_manager, stop_requested, &tt, on_info);
+            let best = search(
+                board.clone(),
+                &history,
+                time_manager,
+                stop_requested,
+                &tt,
+                on_info,
+            );
             let mut ponder = None;
             if best != Move::NONE {
                 let mut next_board = board;

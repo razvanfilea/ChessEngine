@@ -112,7 +112,7 @@ fn test_search_movetime_limit() {
 
     let tm = TimeManager::from_movetime(Duration::from_millis(50));
     let start = chess_engine::time::Instant::now();
-    let best_move = search(board.clone(), tm, stop_requested, &tt, |_| {});
+    let best_move = search(board.clone(), &[], tm, stop_requested, &tt, |_| {});
 
     let elapsed = start.elapsed();
     assert!(!best_move.is_none());
@@ -128,7 +128,7 @@ fn test_tt_not_polluted_when_stopped() {
     let tt = TranspositionTable::with_buckets(16);
 
     let tm = TimeManager::from_depth(10);
-    let _ = search(board, tm, stop_requested, &tt, |_| {});
+    let _ = search(board, &[], tm, stop_requested, &tt, |_| {});
 
     // Ensure TT is not written to when stopped
     assert_eq!(tt.hashfull(), 0);
@@ -142,7 +142,7 @@ fn test_search_nodes_limit() {
     let tt = TranspositionTable::with_buckets(16);
 
     let tm = TimeManager::from_nodes(5000);
-    let best_move = search(board.clone(), tm, stop_requested, &tt, |_| {});
+    let best_move = search(board.clone(), &[], tm, stop_requested, &tt, |_| {});
 
     assert!(!best_move.is_none());
     assert!(board.legal(best_move));

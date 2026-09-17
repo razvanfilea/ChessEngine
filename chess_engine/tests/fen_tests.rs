@@ -167,15 +167,20 @@ fn test_castling_rights_variations() {
 
 #[test]
 fn test_en_passant_squares() {
-    // Valid: White to move, Black moved e7-e5 -> target is e6 (rank 5 in 0-indexed)
-    let fen_white = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2";
+    // Valid: White to move, Black moved e7-e5 -> target is e6 (White has pawn on d5 able to capture)
+    let fen_white = "rnbqkbnr/pppp1ppp/8/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 2";
     let board_white = Board::from_fen(fen_white).unwrap();
     assert_eq!(board_white.en_passant_target_sq, Some(Sq::E6));
 
-    // Valid: Black to move, White moved d2-d4 -> target is d3 (rank 2 in 0-indexed)
-    let fen_black = "rnbqkbnr/ppp1pppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1";
+    // Valid: Black to move, White moved e2-e4 -> target is e3 (Black has pawn on d4 able to capture)
+    let fen_black = "rnbqkbnr/ppp1pppp/8/8/3pP3/8/PPP2PPP/RNBQKBNR b KQkq e3 0 1";
     let board_black = Board::from_fen(fen_black).unwrap();
-    assert_eq!(board_black.en_passant_target_sq, Some(Sq::D3));
+    assert_eq!(board_black.en_passant_target_sq, Some(Sq::E3));
+
+    // Invalid / Discarded: White to move, target e6 but White has no pawn able to capture
+    let fen_no_capturer = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2";
+    let board_no_capturer = Board::from_fen(fen_no_capturer).unwrap();
+    assert_eq!(board_no_capturer.en_passant_target_sq, None);
 
     // Invalid: White to move but EP square is rank 3 (illegal rank for White to move)
     let fen_invalid = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq e3 0 1";
@@ -366,24 +371,58 @@ fn test_perft_suite_positions() {
     assert_eq!(board6.ply, 18); // Move 10, White to play -> (10 - 1) * 2 = 18
 }
 
+fn rank_with_pawn(file: usize, ch: char) -> String {
+    let mut s = String::new();
+    if file > 0 {
+        s.push_str(&file.to_string());
+    }
+    s.push(ch);
+    if file < 7 {
+        s.push_str(&(7 - file).to_string());
+    }
+    s
+}
+
 #[test]
 fn test_all_en_passant_files() {
     // Test all files a-h for Black double-push (target rank 6 for White)
     let files = ["a6", "b6", "c6", "d6", "e6", "f6", "g6", "h6"];
     for (i, &f) in files.iter().enumerate() {
-        let fen = format!("8/8/8/8/8/8/8/8 w - {f} 0 1");
+        let adj_file = if i > 0 { i - 1 } else { i + 1 };
+        let fen = format!(
+            "8/8/8/{}/8/8/8/8 w - {f} 0 1",
+            rank_with_pawn(adj_file, 'P')
+        );
         let board = Board::from_fen(&fen).unwrap();
         let expected_sq = Sq::new(i as u8, 5); // rank 6 is index 5
         assert_eq!(board.en_passant_target_sq, expected_sq);
+
+        // Without attacker, EP square is ignored
+        let empty_fen = format!("8/8/8/8/8/8/8/8 w - {f} 0 1");
+        assert_eq!(
+            Board::from_fen(&empty_fen).unwrap().en_passant_target_sq,
+            None
+        );
     }
 
     // Test all files a-h for White double-push (target rank 3 for Black)
     let files_black = ["a3", "b3", "c3", "d3", "e3", "f3", "g3", "h3"];
     for (i, &f) in files_black.iter().enumerate() {
-        let fen = format!("8/8/8/8/8/8/8/8 b - {f} 0 1");
+        let adj_file = if i > 0 { i - 1 } else { i + 1 };
+        let fen = format!(
+            "8/8/8/8/{}/8/8/8 b - {f} 0 1",
+            rank_with_pawn(adj_file, 'p')
+        );
         let board = Board::from_fen(&fen).unwrap();
         let expected_sq = Sq::new(i as u8, 2); // rank 3 is index 2
         assert_eq!(board.en_passant_target_sq, expected_sq);
+
+        // Without attacker, EP square is ignored
+        let empty_fen = format!("8/8/8/8/8/8/8/8 b - {f} 0 1");
+        assert_eq!(
+            Board::from_fen(&empty_fen).unwrap().en_passant_target_sq,
+            None
+        );
     }
 }
 

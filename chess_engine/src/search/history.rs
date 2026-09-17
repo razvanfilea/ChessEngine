@@ -98,14 +98,14 @@ pub fn conthist_update(ptr: ContHistPtr, piece: Piece, to: Sq, bonus: i32) {
 }
 
 pub struct QuietsTried {
-    arr: [MaybeUninit<Move>; 32],
+    arr: [MaybeUninit<Move>; 64],
     size: usize,
 }
 
 impl Default for QuietsTried {
     fn default() -> Self {
         Self {
-            arr: [const { MaybeUninit::uninit() }; 32],
+            arr: [const { MaybeUninit::uninit() }; 64],
             size: 0,
         }
     }

@@ -63,8 +63,12 @@ pub fn parse_fen(fen: &str) -> Option<Board> {
     if let Some(en_passant_sq) = en_passant {
         let sq = Sq::parse(en_passant_sq);
         let valid_rank = if board.to_play == Color::White { 5 } else { 2 };
-        if sq.filter(|sq| sq.rank() == valid_rank).is_some() {
-            board.en_passant_target_sq = sq;
+        if let Some(sq) = sq.filter(|sq| sq.rank() == valid_rank) {
+            let attackers = crate::attacks::pawn_attacks(sq, !board.to_play)
+                & board.color_piece(Piece::Pawn, board.to_play);
+            if attackers != 0 {
+                board.en_passant_target_sq = Some(sq);
+            }
         }
     }
 

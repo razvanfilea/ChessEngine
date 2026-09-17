@@ -181,6 +181,7 @@ impl Accumulator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn update_simd_half<S: Simd, const WITH_EVAL: bool>(
         &mut self,

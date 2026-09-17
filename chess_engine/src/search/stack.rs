@@ -97,6 +97,7 @@ pub struct StackEntry {
     pub stack_move: StackMove,
     pub conthist: ContHistPtr,
     pub acc_computed: bool,
+    pub hash: u64,
 }
 
 impl Default for StackEntry {
@@ -109,6 +110,7 @@ impl Default for StackEntry {
             stack_move: StackMove::default(),
             conthist: None,
             acc_computed: false,
+            hash: 0,
         }
     }
 }

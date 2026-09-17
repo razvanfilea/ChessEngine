@@ -20,6 +20,7 @@ pub use stack::*;
 
 pub fn search(
     board: Board,
+    history: &[u64],
     time_manager: TimeManager,
     stop_requested: Arc<AtomicBool>,
     tt: &TranspositionTable,
@@ -30,7 +31,7 @@ pub fn search(
 
     let mut move_buffer = [ScoredMove::default(); MAX_PLY as usize * MAX_MOVES / 2];
     let move_ptr = MoveListPtr(move_buffer.as_mut_ptr());
-    let mut search = Searcher::new(board, stop_requested, tt, time_manager);
+    let mut search = Searcher::new(board, history, stop_requested, tt, time_manager);
     let mut best_score = -INFINITY;
     let mut completed_best_move = Move::NONE;
     let mut prev_best_move = Move::NONE;
@@ -74,6 +75,7 @@ struct Searcher<'a> {
     stopped: bool,
     tt: &'a TranspositionTable,
     board: Board,
+    history_keys: &'a [u64],
     stop_requested: Arc<AtomicBool>,
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
@@ -87,6 +89,7 @@ struct Searcher<'a> {
 impl<'a> Searcher<'a> {
     fn new(
         board: Board,
+        history_keys: &'a [u64],
         stop_requested: Arc<AtomicBool>,
         tt: &'a TranspositionTable,
         time_manager: TimeManager,
@@ -100,10 +103,12 @@ impl<'a> Searcher<'a> {
                 .unwrap();
         nnue_accumulator[0] = Accumulator::from_board(&board);
 
-        let stack = SearchStack::new();
+        let mut stack = SearchStack::new();
+        stack[0].hash = board.hash;
 
         Self {
             board,
+            history_keys,
             stop_requested,
             tt,
             lmr_table: &*LMR_TABLE,
@@ -175,6 +180,57 @@ impl<'a> Searcher<'a> {
     #[inline(always)]
     fn ply(&self) -> u16 {
         self.board.ply - self.root_ply
+    }
+
+    #[inline(always)]
+    fn is_repetition(&self) -> bool {
+        let ply = self.ply();
+        let rule50 = self.board.half_move_clock as usize;
+        let root_idx = self.history_keys.len().saturating_sub(1);
+        let total_history = (ply as usize) + root_idx;
+        let limit = rule50.min(total_history);
+
+        if limit < 4 {
+            return false;
+        }
+
+        let current_hash = self.board.hash;
+        let mut counter = 0;
+        for i in (4..=limit).step_by(2) {
+            let prev_hash = if (i as u16) <= ply {
+                self.stack[ply - i as u16].hash
+            } else {
+                let diff = i - (ply as usize);
+                self.history_keys[root_idx - diff]
+            };
+
+            if prev_hash == current_hash {
+                // Within the search tree (at or after root), 2-fold repetition is a cycle.
+                if (i as u16) <= ply {
+                    return true;
+                }
+                // Pre-root history: 2 occurrences before root + current = 3-fold repetition.
+                counter += 1;
+                if counter >= 2 {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    #[inline(always)]
+    fn is_draw(&self) -> bool {
+        if self.board.half_move_clock >= 100 || self.is_repetition() {
+            return true;
+        }
+
+        if self.board.occupied().count_ones() > 4 {
+            return false;
+        }
+
+        self.board.has_insufficient_material()
     }
 
     fn update_quiet_history(
@@ -300,7 +356,7 @@ impl<'a> Searcher<'a> {
         self.nodes_searched += 1;
         self.check_limits();
 
-        if self.stopped || (ply > 0 && self.board.is_draw()) {
+        if self.stopped || (ply > 0 && self.is_draw()) {
             return 0;
         }
 
@@ -376,6 +432,7 @@ impl<'a> Searcher<'a> {
         {
             let undo = self.board.make_null_move();
             self.stack[ply + 1].set_null_move();
+            self.stack[ply + 1].hash = self.board.hash;
 
             let eval_margin = (static_eval - beta).max(0);
             let eval_bonus =
@@ -515,6 +572,7 @@ impl<'a> Searcher<'a> {
             let undo = self.board.make_move_fast(mov, move_gives_check);
             let child_ply = ply + 1;
             self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
+            self.stack[child_ply].hash = self.board.hash;
             self.stack[child_ply].conthist =
                 moved_piece.map(|cp| self.cont_history.entry_ptr(cp.piece(), mov.to()));
 
@@ -717,6 +775,7 @@ impl<'a> Searcher<'a> {
             let undo = self.board.make_move(mov);
             let child_ply = ply + 1;
             self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
+            self.stack[child_ply].hash = self.board.hash;
 
             let score = -self.qsearch(moves.next_ptr(), -beta, -alpha);
             self.board.undo_move(mov, undo);
