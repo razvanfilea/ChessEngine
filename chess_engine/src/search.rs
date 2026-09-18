@@ -350,7 +350,7 @@ impl<'a> Searcher<'a> {
         move_buffer: MoveListPtr,
         mut alpha: i16,
         beta: i16,
-        depth: u8,
+        mut depth: u8,
         can_null: bool,
     ) -> i16 {
         let ply = self.ply();
@@ -397,8 +397,12 @@ impl<'a> Searcher<'a> {
         if static_eval == EVAL_NONE && !in_check {
             static_eval = self.eval_position();
         }
-
         self.stack[ply].eval = static_eval;
+
+        let bad_node = depth >= 4 && tt_move.is_none();
+        if !IS_PV && !in_check && bad_node {
+            depth -= 1;
+        }
 
         let improving = if in_check || ply < 2 {
             false
@@ -410,6 +414,7 @@ impl<'a> Searcher<'a> {
             true
         };
 
+        // TODO: tighten the RFP margin on bad nodes
         // Reverse Futility Pruning
         let rfp_margin = (RFP_MARGIN_SLOPE * depth as i16)
             - (RFP_IMPROVING_BONUS * improving as i16)
@@ -602,8 +607,6 @@ impl<'a> Searcher<'a> {
                 {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8) as i8;
                     reduction -= improving as i8;
-                    // TODO: Test late-capture LMR (extend condition with is_late_capture)
-                    // TODO: Test killer reduction (reduction -= is_killer as i8)
                     let hist = self.history.get(us, mov.from(), mov.to()) as i32
                         + self.cont_history.score(
                             &conthist_keys,
@@ -611,7 +614,6 @@ impl<'a> Searcher<'a> {
                             mov.to(),
                         ) as i32;
                     reduction -= (hist / LMR_HISTORY_DIVISOR) as i8;
-                    // Avoid Ord::clamp here: it has an internal assert!(min <= max) that fails to inline
                     reduction = reduction.max(0).min(depth as i8 - 2);
                 }
 

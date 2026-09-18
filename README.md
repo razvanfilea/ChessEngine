@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
-[![Estimated Rating](https://img.shields.io/badge/CCRL%20Blitz-~3560%20Elo-brightgreen.svg)](HANDOFF.md)
+![Estimated Rating](https://img.shields.io/badge/CCRL%20Blitz-~3,560%20--%203,570%20Elo-brightgreen.svg)
 [![WASM](https://img.shields.io/badge/WebAssembly-Supported-purple.svg)](chess_web/)
 [![CI](https://github.com/razvanfilea/ChessEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/razvanfilea/ChessEngine/actions/workflows/ci.yml)
 
@@ -110,20 +110,6 @@ cargo build-wasm
 | `Hash` | spin | `64` | 1 – 1024 MB | Transposition table memory size |
 | `ClearHash` | button | — | — | Clears the transposition table |
 | `Move Overhead` | spin | `10` | 0 – 5000 ms | Time buffer for communication / GUI lag |
-
----
-
-## Benchmarks & Testing
-
-- **CCRL Blitz Benchmark**: **~3,561 Elo** (±45) in 400-game round-robin testing (120s + 1s, 64MB hash).
-- **SPRT & Gauntlet Scripts**: Located under `benchmarks/` using [fastchess](https://github.com/Disservin/fastchess):
-  ```bash
-  # Run CCRL blitz gauntlet tournament against reference engines
-  ./benchmarks/gauntlet_ccrl_blitz.sh
-
-  # Run SPRT self-play testing
-  ./benchmarks/sprt_self_play.sh
-  ```
 
 ---
 
