@@ -18,5 +18,4 @@ build-wasm = "build -p chess_web --target wasm32-unknown-unknown --release"
 [env]
 HIP_PATH = "/opt/rocm"
 HSA_OVERRIDE_GFX_VERSION = "11.0.0"
-MIRIFLAGS = "-Zmiri-disable-stacked-borrows"
 

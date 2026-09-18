@@ -1,6 +1,6 @@
 use crate::search::{EVAL_NONE, MAX_PLY};
 
-use super::history::{ContHistPtr, KillerMoves};
+use super::history::KillerMoves;
 use chess_core::prelude::*;
 
 pub const STACK_ENTRIES_EXTRA_SIZE: usize = 32;
@@ -95,7 +95,6 @@ pub struct StackEntry {
     pub eval: i16,
     pub pv_length: u16,
     pub stack_move: StackMove,
-    pub conthist: ContHistPtr,
     pub acc_computed: bool,
     pub hash: u64,
 }
@@ -108,7 +107,6 @@ impl Default for StackEntry {
             eval: EVAL_NONE,
             pv_length: 0,
             stack_move: StackMove::default(),
-            conthist: None,
             acc_computed: false,
             hash: 0,
         }
@@ -130,7 +128,6 @@ impl StackEntry {
     #[inline(always)]
     pub fn set_null_move(&mut self) {
         self.stack_move = StackMove::default();
-        self.conthist = None;
         self.acc_computed = false;
     }
 }
@@ -154,5 +151,10 @@ impl StackMove {
             moved_piece,
             captured,
         }
+    }
+
+    #[inline(always)]
+    pub fn piece_to(&self) -> Option<(Piece, Sq)> {
+        self.moved_piece.map(|cp| (cp.piece(), self.mov.to()))
     }
 }

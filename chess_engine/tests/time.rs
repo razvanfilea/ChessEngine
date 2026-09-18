@@ -19,11 +19,13 @@ fn test_time_manager_from_depth() {
 
 #[test]
 fn test_time_manager_clock_allocation_white_and_black() {
-    let mut opts = UciSearchOptions::default();
-    opts.wtime = Some(Duration::from_millis(60_000));
-    opts.winc = Some(Duration::from_millis(1_000));
-    opts.btime = Some(Duration::from_millis(30_000));
-    opts.binc = Some(Duration::from_millis(500));
+    let opts = UciSearchOptions {
+        wtime: Some(Duration::from_millis(60_000)),
+        winc: Some(Duration::from_millis(1_000)),
+        btime: Some(Duration::from_millis(30_000)),
+        binc: Some(Duration::from_millis(500)),
+        ..Default::default()
+    };
 
     let tm_w = TimeManager::from_uci_options(
         &opts,
@@ -45,9 +47,11 @@ fn test_time_manager_clock_allocation_white_and_black() {
 
 #[test]
 fn test_time_manager_movestogo() {
-    let mut opts = UciSearchOptions::default();
-    opts.wtime = Some(Duration::from_millis(60_000));
-    opts.movestogo = Some(10);
+    let opts = UciSearchOptions {
+        wtime: Some(Duration::from_millis(60_000)),
+        movestogo: Some(10),
+        ..Default::default()
+    };
 
     let tm = TimeManager::from_uci_options(
         &opts,
@@ -57,14 +61,16 @@ fn test_time_manager_movestogo() {
     let opt_ms = tm.limits.optimum_time.unwrap().as_millis();
 
     // 60s / 10 moves ≈ 6s per move
-    assert!(opt_ms >= 5_000 && opt_ms <= 6_500);
+    assert!((5_000..=6_500).contains(&opt_ms));
 }
 
 #[test]
 fn test_time_manager_panic_mode_low_time() {
-    let mut opts = UciSearchOptions::default();
-    opts.wtime = Some(Duration::from_millis(50)); // 50ms left
-    opts.winc = Some(Duration::from_millis(0));
+    let opts = UciSearchOptions {
+        wtime: Some(Duration::from_millis(50)), // 50ms left
+        winc: Some(Duration::from_millis(0)),
+        ..Default::default()
+    };
 
     let tm = TimeManager::from_uci_options(
         &opts,
@@ -79,9 +85,11 @@ fn test_time_manager_panic_mode_low_time() {
 
 #[test]
 fn test_time_manager_move_overhead() {
-    let mut opts = UciSearchOptions::default();
-    opts.wtime = Some(Duration::from_millis(10_000));
-    opts.movestogo = Some(20);
+    let opts = UciSearchOptions {
+        wtime: Some(Duration::from_millis(10_000)),
+        movestogo: Some(20),
+        ..Default::default()
+    };
 
     let tm_low_overhead = TimeManager::from_uci_options(&opts, Color::White, 10);
     let tm_high_overhead = TimeManager::from_uci_options(&opts, Color::White, 500);
@@ -93,8 +101,10 @@ fn test_time_manager_move_overhead() {
     assert!(tm_low_overhead.limits.max_time.unwrap() > tm_high_overhead.limits.max_time.unwrap());
 
     // movetime with overhead
-    let mut movetime_opts = UciSearchOptions::default();
-    movetime_opts.movetime = Some(Duration::from_millis(100));
+    let movetime_opts = UciSearchOptions {
+        movetime: Some(Duration::from_millis(100)),
+        ..Default::default()
+    };
     let tm_movetime = TimeManager::from_uci_options(&movetime_opts, Color::White, 30);
     assert_eq!(
         tm_movetime.limits.optimum_time,

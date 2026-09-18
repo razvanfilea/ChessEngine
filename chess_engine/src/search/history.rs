@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, ptr::NonNull};
+use std::mem::MaybeUninit;
 
 use super::params::{MAX_HISTORY, MAX_KILLER_MOVES};
 use chess_core::prelude::*;
@@ -53,12 +53,11 @@ impl HistoryTable {
 
 pub type KillerMoves = [Move; MAX_KILLER_MOVES];
 
-pub type ContHistEntry = [[i16; Sq::NB]; Piece::NB];
-pub type ContHistPtr = Option<NonNull<ContHistEntry>>;
+pub type ContHistKey = Option<(Piece, Sq)>;
 pub const CONTHIST_LAYERS: usize = 2;
-pub type ContHistPtrs = [ContHistPtr; CONTHIST_LAYERS];
+pub type ContHistKeys = [ContHistKey; CONTHIST_LAYERS];
 
-pub struct ContinuationHistoryTable(pub [[ContHistEntry; Sq::NB]; Piece::NB]);
+pub struct ContinuationHistoryTable(pub [[[[i16; Sq::NB]; Piece::NB]; Sq::NB]; Piece::NB]);
 
 impl Default for ContinuationHistoryTable {
     fn default() -> Self {
@@ -68,32 +67,32 @@ impl Default for ContinuationHistoryTable {
 
 impl ContinuationHistoryTable {
     #[inline(always)]
-    pub fn entry_ptr(&mut self, piece: Piece, to: Sq) -> NonNull<ContHistEntry> {
-        NonNull::from(&mut self.0[piece as usize][to as usize])
+    pub fn get(&self, key: ContHistKey, piece: Piece, to: Sq) -> i16 {
+        match key {
+            Some((prev_p, prev_to)) => {
+                self.0[prev_p as usize][prev_to as usize][piece as usize][to as usize]
+            }
+            None => 0,
+        }
     }
-}
 
-#[inline(always)]
-pub fn conthist_score_single(ptr: ContHistPtr, piece: Piece, to: Sq) -> i16 {
-    match ptr {
-        Some(entry) => unsafe { (*entry.as_ptr())[piece as usize][to as usize] },
-        None => 0,
+    #[inline(always)]
+    pub fn score(&self, keys: &ContHistKeys, piece: Piece, to: Sq) -> i16 {
+        let mut score: i32 = 0;
+        for &key in keys {
+            score += self.get(key, piece, to) as i32;
+        }
+        score.clamp(i16::MIN as i32, i16::MAX as i32) as i16
     }
-}
 
-#[inline(always)]
-pub fn conthist_score(ptrs: &ContHistPtrs, piece: Piece, to: Sq) -> i16 {
-    let mut score: i32 = 0;
-    for &ptr in ptrs {
-        score += conthist_score_single(ptr, piece, to) as i32;
-    }
-    score.clamp(i16::MIN as i32, i16::MAX as i32) as i16
-}
-
-#[inline(always)]
-pub fn conthist_update(ptr: ContHistPtr, piece: Piece, to: Sq, bonus: i32) {
-    if let Some(entry) = ptr {
-        unsafe { gravity(&mut (*entry.as_ptr())[piece as usize][to as usize], bonus) };
+    #[inline(always)]
+    pub fn update(&mut self, key: ContHistKey, piece: Piece, to: Sq, bonus: i32) {
+        if let Some((prev_p, prev_to)) = key {
+            gravity(
+                &mut self.0[prev_p as usize][prev_to as usize][piece as usize][to as usize],
+                bonus,
+            );
+        }
     }
 }
 

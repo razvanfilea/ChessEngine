@@ -2,7 +2,7 @@ use chess_core::prelude::*;
 
 use crate::{
     board::Board,
-    search::{ContHistPtrs, HistoryTable, KillerMoves, conthist_score},
+    search::{ContHistKeys, ContinuationHistoryTable, HistoryTable, KillerMoves},
 };
 
 mod generate;
@@ -57,7 +57,8 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
-        conthist: &ContHistPtrs,
+        cont_history: &ContinuationHistoryTable,
+        conthist_keys: &ContHistKeys,
     ) -> Option<ScoredMove> {
         loop {
             if self.list_index < self.len() {
@@ -69,7 +70,13 @@ impl MoveGenerator {
                 // First generate quiets instead of bad captures
                 if self.stage != GenStage::Done && mov.score < 0 {
                     self.list_index -= 1; // add back the move we were about to return
-                    self.advance_stage(board, killer_moves, history, conthist);
+                    self.advance_stage(
+                        board,
+                        killer_moves,
+                        history,
+                        cont_history,
+                        conthist_keys,
+                    );
                     continue;
                 }
 
@@ -80,7 +87,9 @@ impl MoveGenerator {
                 return None;
             }
 
-            if let Some(mov) = self.advance_stage(board, killer_moves, history, conthist) {
+            if let Some(mov) =
+                self.advance_stage(board, killer_moves, history, cont_history, conthist_keys)
+            {
                 return Some(mov);
             }
         }
@@ -132,7 +141,8 @@ impl MoveGenerator {
         board: &Board,
         killer_moves: KillerMoves,
         history: &HistoryTable,
-        conthist: &ContHistPtrs,
+        cont_history: &ContinuationHistoryTable,
+        conthist_keys: &ContHistKeys,
     ) -> Option<ScoredMove> {
         if self.list_index == self.len() {
             self.end_ptr = self.start_ptr;
@@ -185,7 +195,7 @@ impl MoveGenerator {
                     let mut score = scoring::score_quiet(mov, killer_moves, history, board.to_play);
                     if mov != killer_moves[0] && mov != killer_moves[1] {
                         let piece = unsafe { board.piece_type_at(mov.from()) };
-                        score += conthist_score(conthist, piece, mov.to());
+                        score += cont_history.score(conthist_keys, piece, mov.to());
                     }
                     scored_move.score = score;
                 }
@@ -209,7 +219,7 @@ impl MoveGenerator {
                             scoring::score_quiet(mov, killer_moves, history, board.to_play);
                         if mov != killer_moves[0] && mov != killer_moves[1] {
                             let piece = unsafe { board.piece_type_at(mov.from()) };
-                            score += conthist_score(conthist, piece, mov.to());
+                            score += cont_history.score(conthist_keys, piece, mov.to());
                         }
                         score
                     };

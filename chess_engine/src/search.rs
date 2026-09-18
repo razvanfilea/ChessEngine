@@ -183,6 +183,15 @@ impl<'a> Searcher<'a> {
     }
 
     #[inline(always)]
+    fn get_conthist_keys(&self) -> ContHistKeys {
+        let ply = self.ply();
+        [
+            self.stack[ply].stack_move.piece_to(),
+            self.stack.relative(ply, -1).stack_move.piece_to(),
+        ]
+    }
+
+    #[inline(always)]
     fn is_repetition(&self) -> bool {
         let ply = self.ply();
         let rule50 = self.board.half_move_clock as usize;
@@ -237,7 +246,7 @@ impl<'a> Searcher<'a> {
         &mut self,
         best: Move,
         tried: &[Move],
-        conthist: &ContHistPtrs,
+        conthist_keys: &ContHistKeys,
         depth: u8,
     ) {
         let side = self.board.to_play;
@@ -250,16 +259,16 @@ impl<'a> Searcher<'a> {
 
         let curr_piece = unsafe { self.board.piece_type_at(best.from()) };
         let bonus = history_depth_bonus(depth);
-        for (i, &ptr) in conthist.iter().enumerate() {
+        for (i, &key) in conthist_keys.iter().enumerate() {
             let scaled = bonus >> i;
-            conthist_update(ptr, curr_piece, best.to(), scaled);
+            self.cont_history.update(key, curr_piece, best.to(), scaled);
         }
 
         for &m in tried {
             let piece = unsafe { self.board.piece_type_at(m.from()) };
-            for (i, &ptr) in conthist.iter().enumerate() {
+            for (i, &key) in conthist_keys.iter().enumerate() {
                 let scaled = bonus >> i;
-                conthist_update(ptr, piece, m.to(), -scaled);
+                self.cont_history.update(key, piece, m.to(), -scaled);
             }
         }
     }
@@ -471,13 +480,15 @@ impl<'a> Searcher<'a> {
         let mut best_score = -INFINITY;
         let mut best_move = Move::NONE;
         let killer_moves = self.stack.get_killers(ply);
-        let conthist: ContHistPtrs = [
-            self.stack[ply].conthist,
-            self.stack.relative(ply, -1).conthist,
-        ];
+        let conthist_keys = self.get_conthist_keys();
 
-        while let Some(scored_mov) = moves.next(&self.board, killer_moves, &self.history, &conthist)
-        {
+        while let Some(scored_mov) = moves.next(
+            &self.board,
+            killer_moves,
+            &self.history,
+            &self.cont_history,
+            &conthist_keys,
+        ) {
             if self.stopped {
                 return 0;
             }
@@ -573,8 +584,6 @@ impl<'a> Searcher<'a> {
             let child_ply = ply + 1;
             self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
             self.stack[child_ply].hash = self.board.hash;
-            self.stack[child_ply].conthist =
-                moved_piece.map(|cp| self.cont_history.entry_ptr(cp.piece(), mov.to()));
 
             // --- Search the Move ---
             let mut score = -INFINITY;
@@ -596,7 +605,11 @@ impl<'a> Searcher<'a> {
                     // TODO: Test late-capture LMR (extend condition with is_late_capture)
                     // TODO: Test killer reduction (reduction -= is_killer as i8)
                     let hist = self.history.get(us, mov.from(), mov.to()) as i32
-                        + conthist_score(&conthist, moved_piece.unwrap().piece(), mov.to()) as i32;
+                        + self.cont_history.score(
+                            &conthist_keys,
+                            moved_piece.unwrap().piece(),
+                            mov.to(),
+                        ) as i32;
                     reduction -= (hist / LMR_HISTORY_DIVISOR) as i8;
                     // Avoid Ord::clamp here: it has an internal assert!(min <= max) that fails to inline
                     reduction = reduction.max(0).min(depth as i8 - 2);
@@ -640,7 +653,7 @@ impl<'a> Searcher<'a> {
             if score >= beta {
                 if mov.is_quiet() {
                     self.stack.set_killer(ply, mov);
-                    self.update_quiet_history(mov, quiets_tried.as_slice(), &conthist, depth);
+                    self.update_quiet_history(mov, quiets_tried.as_slice(), &conthist_keys, depth);
                 }
 
                 self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound);
@@ -731,10 +744,14 @@ impl<'a> Searcher<'a> {
         let mut best_move = Move::NONE;
         let killer_moves = self.stack.get_killers(ply);
 
-        let no_conthist: ContHistPtrs = [None; CONTHIST_LAYERS];
-        while let Some(scored_mov) =
-            moves.next(&self.board, killer_moves, &self.history, &no_conthist)
-        {
+        let no_conthist_keys: ContHistKeys = [None; CONTHIST_LAYERS];
+        while let Some(scored_mov) = moves.next(
+            &self.board,
+            killer_moves,
+            &self.history,
+            &self.cont_history,
+            &no_conthist_keys,
+        ) {
             let mov = scored_mov.mov;
             if !in_check && !mov.is_tactical() {
                 continue;

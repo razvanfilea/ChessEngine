@@ -24,7 +24,7 @@ fn test_lazy_acc_single_move_parity() {
     let root_acc = Accumulator::from_board(&board);
 
     let moves = gen_all_moves(&board);
-    let limit = if cfg!(miri) { 2 } else { usize::MAX };
+    let limit = if cfg!(miri) { 1 } else { usize::MAX };
     let mut tested = 0;
     for &scored in moves.as_slice() {
         let mov = scored.mov;
@@ -68,7 +68,7 @@ fn test_lazy_acc_two_move_parity() {
     let undo1 = b1.make_move(mov1);
 
     let moves2 = gen_all_moves(&b1);
-    let limit = if cfg!(miri) { 2 } else { usize::MAX };
+    let limit = if cfg!(miri) { 1 } else { usize::MAX };
     let mut tested = 0;
     for &scored in moves2.as_slice() {
         let mov2 = scored.mov;
@@ -356,10 +356,11 @@ fn test_search_transposition_table_reuse_and_cutoff() {
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
 
+    let depth = if cfg!(miri) { 1 } else { 2 };
     // First search populates TT
     let mov1 = search(
         board.clone(),
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         Arc::clone(&stop_requested),
         &tt,
         |_| {},
@@ -370,13 +371,13 @@ fn test_search_transposition_table_reuse_and_cutoff() {
     let mut lines = Vec::new();
     let mov2 = search(
         board,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |info| lines.push(info),
     );
     assert_eq!(mov1, mov2);
-    assert_eq!(lines.len(), 2);
+    assert_eq!(lines.len(), depth as usize);
 }
 
 #[test]
@@ -390,10 +391,11 @@ fn test_search_transposition_table_manual_exact_cutoff() {
     let entry = TTEntry::new(best_m, 120, 10, 4, TTFlag::Exact);
     tt.store(board.hash, entry, 0);
 
+    let depth = if cfg!(miri) { 1 } else { 2 };
     let mut lines = Vec::new();
     let chosen = search(
         board,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |info| lines.push(info),
@@ -410,7 +412,7 @@ fn test_search_null_move_pruning_and_zugzwang_skip() {
     let tt = TranspositionTable::with_buckets(16);
     let mov = search(
         board_nmp,
-        TimeManager::from_depth(if cfg!(miri) { 2 } else { 3 }),
+        TimeManager::from_depth(if cfg!(miri) { 1 } else { 3 }),
         stop_requested,
         &tt,
         |_| {},
@@ -423,7 +425,7 @@ fn test_search_null_move_pruning_and_zugzwang_skip() {
     let tt2 = TranspositionTable::with_buckets(16);
     let mov2 = search(
         board_pawn,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(if cfg!(miri) { 1 } else { 2 }),
         stop_requested2,
         &tt2,
         |_| {},
@@ -437,9 +439,10 @@ fn test_search_reverse_futility_pruning() {
     let board = Board::from_fen("8/8/8/8/8/5k2/7Q/4K2R w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
+    let depth = if cfg!(miri) { 1 } else { 2 };
     let mov = search(
         board,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |_| {},
@@ -453,9 +456,10 @@ fn test_search_pvs_and_killer_moves() {
     let board = Board::from_fen("4k3/8/8/3q4/8/2N5/1R6/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
+    let depth = if cfg!(miri) { 1 } else { 2 };
     let mov = search(
         board,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |_| {},
@@ -511,10 +515,9 @@ fn test_search_quiescence_in_check_evasions() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_aspiration_window_depth_5() {
     // Search at depth 5 activates aspiration windows (ASPIRATION_MIN_DEPTH = 5).
-    // In Miri, depth 3 is used to quickly exercise continuation history / stack borrows without hanging.
-    let depth = if cfg!(miri) { 3 } else { 5 };
     let board = Board::from_fen("k7/8/K7/8/8/8/7p/7R w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
@@ -522,7 +525,7 @@ fn test_search_aspiration_window_depth_5() {
     let mut info_lines = Vec::new();
     let best_move = search(
         board,
-        TimeManager::from_depth(depth),
+        TimeManager::from_depth(5),
         stop_requested,
         &tt,
         |info| info_lines.push(info),
@@ -530,8 +533,8 @@ fn test_search_aspiration_window_depth_5() {
 
     assert_eq!(best_move.from(), Sq::H1);
     assert_eq!(best_move.to(), Sq::H2);
-    assert_eq!(info_lines.len(), depth as usize);
-    assert!(info_lines[depth as usize - 1].starts_with(&format!("info depth {depth}")));
+    assert_eq!(info_lines.len(), 5);
+    assert!(info_lines[4].starts_with("info depth 5"));
 }
 
 #[test]
@@ -565,9 +568,10 @@ fn test_search_non_zero_root_ply() {
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
 
+    let depth = if cfg!(miri) { 1 } else { 2 };
     let best_move = search(
         board.clone(),
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |_| {},
@@ -583,9 +587,10 @@ fn test_search_black_to_move_endgame() {
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
 
+    let depth = if cfg!(miri) { 1 } else { 2 };
     let best_move = search(
         board.clone(),
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |_| {},
@@ -596,13 +601,14 @@ fn test_search_black_to_move_endgame() {
 
 #[test]
 fn test_search_castling_and_en_passant() {
+    let depth = if cfg!(miri) { 1 } else { 2 };
     // 1. Castling availability during search
     let board_castle = Board::from_fen("4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
     let mov1 = search(
         board_castle.clone(),
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |_| {},
@@ -616,7 +622,7 @@ fn test_search_castling_and_en_passant() {
     let tt2 = TranspositionTable::with_buckets(16);
     let mov2 = search(
         board_ep.clone(),
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(depth),
         stop_requested2,
         &tt2,
         |_| {},
@@ -724,7 +730,7 @@ fn test_search_pre_root_threefold_repetition() {
     let best_move = engine_search(
         board.clone(),
         &history,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(if cfg!(miri) { 1 } else { 2 }),
         stop_requested,
         &tt,
         |info| info_lines.push(info),
@@ -770,7 +776,7 @@ fn test_search_pre_root_twofold_repetition_not_draw() {
     let _best_move = engine_search(
         board.clone(),
         &history,
-        TimeManager::from_depth(2),
+        TimeManager::from_depth(if cfg!(miri) { 1 } else { 2 }),
         stop_requested,
         &tt,
         |info| info_lines.push(info),

@@ -7,8 +7,8 @@ fn test_color_defaults() {
 
 #[test]
 fn test_color_as_bool() {
-    assert_eq!(Color::Black.as_bool(), false);
-    assert_eq!(Color::White.as_bool(), true);
+    assert!(!Color::Black.as_bool());
+    assert!(Color::White.as_bool());
 }
 
 #[test]

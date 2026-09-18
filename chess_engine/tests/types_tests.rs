@@ -62,15 +62,15 @@ fn test_dir_opposite() {
 
 #[test]
 fn test_dir_is_forwards() {
-    assert_eq!(Dir::North.is_forwards(), true);
-    assert_eq!(Dir::East.is_forwards(), true);
-    assert_eq!(Dir::NorthEast.is_forwards(), true);
-    assert_eq!(Dir::NorthWest.is_forwards(), true);
+    assert!(Dir::North.is_forwards());
+    assert!(Dir::East.is_forwards());
+    assert!(Dir::NorthEast.is_forwards());
+    assert!(Dir::NorthWest.is_forwards());
 
-    assert_eq!(Dir::South.is_forwards(), false);
-    assert_eq!(Dir::West.is_forwards(), false);
-    assert_eq!(Dir::SouthEast.is_forwards(), false);
-    assert_eq!(Dir::SouthWest.is_forwards(), false);
+    assert!(!Dir::South.is_forwards());
+    assert!(!Dir::West.is_forwards());
+    assert!(!Dir::SouthEast.is_forwards());
+    assert!(!Dir::SouthWest.is_forwards());
 }
 
 #[test]
