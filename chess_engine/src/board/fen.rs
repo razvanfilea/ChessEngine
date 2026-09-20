@@ -110,21 +110,7 @@ pub fn format_fen(board: &Board) -> String {
                     fen.push((b'0' + empty_count) as char);
                     empty_count = 0;
                 }
-                let piece_char = match (cp.piece(), cp.color()) {
-                    (Piece::Pawn, Color::White) => 'P',
-                    (Piece::Knight, Color::White) => 'N',
-                    (Piece::Bishop, Color::White) => 'B',
-                    (Piece::Rook, Color::White) => 'R',
-                    (Piece::Queen, Color::White) => 'Q',
-                    (Piece::King, Color::White) => 'K',
-                    (Piece::Pawn, Color::Black) => 'p',
-                    (Piece::Knight, Color::Black) => 'n',
-                    (Piece::Bishop, Color::Black) => 'b',
-                    (Piece::Rook, Color::Black) => 'r',
-                    (Piece::Queen, Color::Black) => 'q',
-                    (Piece::King, Color::Black) => 'k',
-                };
-                fen.push(piece_char);
+                fen.push(cp.to_char());
             } else {
                 empty_count += 1;
             }

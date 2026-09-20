@@ -54,6 +54,12 @@ impl ColoredPiece {
         }
     }
 
+    #[inline(always)]
+    pub const fn to_char(self) -> char {
+        const CHARS: [char; 12] = ['p', 'n', 'b', 'r', 'q', 'k', 'P', 'N', 'B', 'R', 'Q', 'K'];
+        CHARS[self.piece() as usize + self.color() as usize * 6]
+    }
+
     pub fn parse(val: char) -> Option<Self> {
         let piece = match val.to_ascii_uppercase() {
             'P' => Piece::Pawn,

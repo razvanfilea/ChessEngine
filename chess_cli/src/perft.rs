@@ -28,7 +28,7 @@ pub const PERFT_SUITE: &[PerftSuiteEntry] = &[
     PerftSuiteEntry {
         name: "Kiwipete (Position 2)",
         fen: "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-        default_depth: 4,
+        default_depth: 5,
         expected: &[48, 2039, 97862, 4085603, 193690690, 8031647685],
     },
     PerftSuiteEntry {
@@ -42,25 +42,25 @@ pub const PERFT_SUITE: &[PerftSuiteEntry] = &[
     PerftSuiteEntry {
         name: "Position 4",
         fen: "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
-        default_depth: 4,
+        default_depth: 5,
         expected: &[6, 264, 9467, 422333, 15833292, 706045033],
     },
     PerftSuiteEntry {
         name: "Position 4 (Mirrored)",
         fen: "r2q1rk1/pP1p2pp/Q4n2/bbp1p3/Np6/1B3NBn/pPPP1PPP/R3K2R b KQ - 0 1",
-        default_depth: 4,
+        default_depth: 5,
         expected: &[6, 264, 9467, 422333, 15833292, 706045033],
     },
     PerftSuiteEntry {
         name: "Position 5",
         fen: "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
-        default_depth: 4,
+        default_depth: 5,
         expected: &[44, 1486, 62379, 2103487, 89941194],
     },
     PerftSuiteEntry {
         name: "Position 6",
         fen: "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
-        default_depth: 4,
+        default_depth: 5,
         expected: &[
             46,
             2079,

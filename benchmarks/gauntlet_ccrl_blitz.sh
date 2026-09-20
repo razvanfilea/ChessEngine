@@ -23,7 +23,7 @@ chmod +x "${BIN_DIR}"/* 2>/dev/null || true
 # 1. Configuration & CLI overrides
 # Default TC is CCRL 2'+1" (120s + 1s). Pass custom TC as 1st arg if desired (e.g. 60+0.6 or 8+0.08).
 TC="${1:-120+1}"
-ROUNDS="${2:-50}"
+ROUNDS="${2:-100}"
 CORES="${3:-12}"
 
 BOOK_PATH="${SCRIPT_DIR}/8moves_v3.pgn"
@@ -58,9 +58,9 @@ echo " Opening Book : $(basename "${BOOK_PATH}") (plies=24 / 12 moves max)"
 echo " Engines      :"
 echo "   - lucky_dev"
 echo "   - Pawn_3557"
+echo "   - Sirius_3528"
 echo "   - Ursus_3509"
-echo "   - Oxide_3495"
-echo "   - Bitbit_3410"
+echo "   - Oxide_3530"
 echo "=========================================================="
 
 fastchess \
@@ -68,7 +68,7 @@ fastchess \
   -engine cmd="${BIN_DIR}/lucky_dev" name=lucky_dev \
   -engine cmd="${BIN_DIR}/pawn-v4.0-3557" name=Pawn_3557 \
   -engine cmd="${BIN_DIR}/ursus-ELO_3509" name=Ursus_3509 \
-  -engine cmd="${BIN_DIR}/OxideV2.0.0_ELO_3495" name=Oxide_3495 \
+  -engine cmd="${BIN_DIR}/OxideV3.0.0_ELO_3530" name=Oxide_3530 \
   -engine cmd="${BIN_DIR}/sirius-9.0_ELO_3528" name=Sirius_3528 \
   -each tc="${TC}" option.Hash=64 option.Threads=1 option.Ponder=false ${EGTB_OPT} \
   -rounds "${ROUNDS}" \

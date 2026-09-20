@@ -26,6 +26,7 @@ A strong, modern UCI chess engine written in Rust featuring an embedded NNUE eva
 
 ### Prerequisites
 - [Rust toolchain](https://rustup.rs/) (Rust 1.85+ / 2024 edition compatible).
+- [Git LFS](https://git-lfs.com/) — the NNUE network weights (`chess_engine/src/nnue/*.bin`) are stored with Git LFS. Run `git lfs pull` after cloning if your git client doesn't fetch LFS objects automatically.
 
 ### Compiling
 Build the optimized release executable:
@@ -68,6 +69,7 @@ cargo build-wasm
 - Alpha-Beta Pruning (Negamax framework)
 - Principal Variation Search (PVS)
 - Iterative Deepening with Aspiration Windows
+- Internal Iterative Reductions (IIR)
 - Quiescence Search
 
 **Reductions & Pruning**
@@ -116,8 +118,8 @@ cargo build-wasm
 ## Workspace Architecture
 
 ```text
-├── chess_core/       # Core types, bitboards, move generator, board state, perft
-├── chess_engine/     # Search, NNUE evaluation, time management, UCI protocol
+├── chess_core/       # Core types, bitboards, board state, perft
+├── chess_engine/     # Move generation, search, NNUE evaluation, time management, UCI protocol
 ├── chess_cli/        # Native CLI binary executable (lucky_chess)
 ├── chess_web/        # C-FFI / WebAssembly cdylib & browser frontend
 ├── chess_android/    # JNI bindings and Android / Wear OS companion app

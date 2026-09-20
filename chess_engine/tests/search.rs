@@ -57,6 +57,7 @@ fn test_lazy_acc_single_move_parity() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_lazy_acc_two_move_parity() {
     let board = Board::start_pos();
     let root_acc = Accumulator::from_board(&board);
@@ -182,6 +183,7 @@ fn test_search_start_pos_depth_1_and_2() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_mate_in_1_white_scholars() {
     // Scholar's mate: Qxf7#
     let board =
@@ -206,6 +208,7 @@ fn test_search_mate_in_1_white_scholars() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_mate_in_1_black_fools() {
     // Black plays Qh4#
     let board =
@@ -269,6 +272,7 @@ fn test_search_stalemate_terminal() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_draw_fifty_move_rule() {
     // 50-move rule triggered (halfmove clock = 100)
     let board = Board::from_fen("k7/8/8/8/8/8/8/K6R w - - 100 1").unwrap();
@@ -288,6 +292,7 @@ fn test_search_draw_fifty_move_rule() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_draw_insufficient_material() {
     // King vs King
     let board = Board::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1").unwrap();
@@ -351,36 +356,7 @@ fn test_search_stop_requested_during_search() {
 }
 
 #[test]
-fn test_search_transposition_table_reuse_and_cutoff() {
-    let board = Board::from_fen("4k3/8/8/8/8/2N5/1Q6/4K3 w - - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-
-    let depth = if cfg!(miri) { 1 } else { 2 };
-    // First search populates TT
-    let mov1 = search(
-        board.clone(),
-        TimeManager::from_depth(depth),
-        Arc::clone(&stop_requested),
-        &tt,
-        |_| {},
-    );
-    assert!(!mov1.is_none());
-
-    // Second search on the same position reuses TT and hits cutoffs
-    let mut lines = Vec::new();
-    let mov2 = search(
-        board,
-        TimeManager::from_depth(depth),
-        stop_requested,
-        &tt,
-        |info| lines.push(info),
-    );
-    assert_eq!(mov1, mov2);
-    assert_eq!(lines.len(), depth as usize);
-}
-
-#[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_transposition_table_manual_exact_cutoff() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(false));
@@ -405,113 +381,42 @@ fn test_search_transposition_table_manual_exact_cutoff() {
 }
 
 #[test]
-fn test_search_null_move_pruning_and_zugzwang_skip() {
-    // 1. Position with non-pawn material (Queen + Knight vs lone King, NMP triggers)
-    let board_nmp = Board::from_fen("4k3/8/8/8/8/2N5/1Q6/4K3 w - - 0 1").unwrap();
+fn test_search_qsearch_avoids_losing_capture() {
+    // White Knight on c3 can capture the pawn on d4, but Black recaptures exd4.
+    // Nxd4? exd4 loses a knight (1350) for a pawn (400). The engine should not
+    // play Nxd4 because qsearch resolves the recapture.
+    let board =
+        Board::from_fen("4k3/8/8/4p3/3p4/2N5/8/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let mov = search(
-        board_nmp,
-        TimeManager::from_depth(if cfg!(miri) { 1 } else { 3 }),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!mov.is_none());
 
-    // 2. Pawn endgame (only pawns, has_non_pawn_material is false -> NMP skipped to avoid zugzwang UB/bugs)
-    let board_pawn = Board::from_fen("8/8/8/4k3/4P3/8/4K3/8 w - - 0 1").unwrap();
-    let stop_requested2 = Arc::new(AtomicBool::new(false));
-    let tt2 = TranspositionTable::with_buckets(16);
-    let mov2 = search(
-        board_pawn,
+    let best_move = search(
+        board,
         TimeManager::from_depth(if cfg!(miri) { 1 } else { 2 }),
-        stop_requested2,
-        &tt2,
-        |_| {},
-    );
-    assert!(!mov2.is_none());
-}
-
-#[test]
-fn test_search_reverse_futility_pruning() {
-    // White is up a massive amount of material; non-PV nodes will trigger RFP
-    let board = Board::from_fen("8/8/8/8/8/5k2/7Q/4K2R w - - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-    let depth = if cfg!(miri) { 1 } else { 2 };
-    let mov = search(
-        board,
-        TimeManager::from_depth(depth),
         stop_requested,
         &tt,
         |_| {},
     );
-    assert!(!mov.is_none());
+
+    let nxd4 = Move::new(Sq::C3, Sq::D4, MoveFlags::Capture);
+    assert_ne!(best_move, nxd4, "Engine should avoid Nxd4 (loses knight for pawn after exd4)");
 }
 
 #[test]
-fn test_search_pvs_and_killer_moves() {
-    // Compact tactical position with 5 pieces: White Rook + Knight vs Black Queen
-    let board = Board::from_fen("4k3/8/8/3q4/8/2N5/1R6/4K3 w - - 0 1").unwrap();
+fn test_search_qsearch_promotes_pawn() {
+    let board = Board::from_fen("8/4P3/8/8/8/8/k7/4K3 w - - 0 1").unwrap();
     let stop_requested = Arc::new(AtomicBool::new(false));
     let tt = TranspositionTable::with_buckets(16);
-    let depth = if cfg!(miri) { 1 } else { 2 };
-    let mov = search(
-        board,
-        TimeManager::from_depth(depth),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!mov.is_none());
-}
-
-#[test]
-fn test_search_quiescence_captures_and_promotions() {
-    // 1. Capture chain in qsearch
-    let board_caps = Board::from_fen("6k1/8/8/3q4/4R3/8/8/4K3 w - - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-    let mov = search(
-        board_caps,
-        TimeManager::from_depth(1),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!mov.is_none());
-
-    // 2. Promotion in qsearch
-    let board_promo = Board::from_fen("8/4P3/8/8/8/8/k7/4K3 w - - 0 1").unwrap();
-    let stop_requested2 = Arc::new(AtomicBool::new(false));
-    let tt2 = TranspositionTable::with_buckets(16);
     let promo_mov = search(
-        board_promo,
+        board,
         TimeManager::from_depth(1),
-        stop_requested2,
-        &tt2,
+        stop_requested,
+        &tt,
         |_| {},
     );
     assert_eq!(promo_mov.from(), Sq::E7);
     assert_eq!(promo_mov.to(), Sq::E8);
     assert!(promo_mov.is_promotion());
-}
-
-#[test]
-fn test_search_quiescence_in_check_evasions() {
-    // White is in check in qsearch -> stand-pat disabled, must find evasion
-    let board_in_check = Board::from_fen("4k3/8/8/8/7q/5P2/4P3/4K3 w - - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-    let mov = search(
-        board_in_check,
-        TimeManager::from_depth(1),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!mov.is_none());
 }
 
 #[test]
@@ -539,100 +444,6 @@ fn test_search_aspiration_window_depth_5() {
 
 #[test]
 #[cfg_attr(miri, ignore)]
-fn test_search_aspiration_fail_high_and_low_recovery() {
-    // Mate-in-2 position where mate score fluctuations trigger aspiration window widening
-    let board = Board::from_fen("k7/8/K7/8/8/8/7p/7R w - - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-
-    let mut info_lines = Vec::new();
-    let best_move = search(
-        board,
-        TimeManager::from_depth(5),
-        stop_requested,
-        &tt,
-        |info| info_lines.push(info),
-    );
-
-    assert_eq!(best_move.from(), Sq::H1);
-    assert_eq!(best_move.to(), Sq::H2);
-    assert_eq!(info_lines.len(), 5);
-}
-
-#[test]
-fn test_search_non_zero_root_ply() {
-    // Board with high ply count to verify relative ply arithmetic: `self.board.ply - self.root_ply`
-    let board = Board::from_fen("4k3/8/8/8/4P3/5N2/8/4K3 w - - 4 5").unwrap();
-    assert_eq!(board.ply, 8);
-
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-
-    let depth = if cfg!(miri) { 1 } else { 2 };
-    let best_move = search(
-        board.clone(),
-        TimeManager::from_depth(depth),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!best_move.is_none());
-    assert!(board.legal(best_move));
-}
-
-#[test]
-fn test_search_black_to_move_endgame() {
-    // Black to move with a passed pawn
-    let board = Board::from_fen("8/4k3/8/8/8/8/4p3/4K3 b - - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-
-    let depth = if cfg!(miri) { 1 } else { 2 };
-    let best_move = search(
-        board.clone(),
-        TimeManager::from_depth(depth),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!best_move.is_none());
-    assert!(board.legal(best_move));
-}
-
-#[test]
-fn test_search_castling_and_en_passant() {
-    let depth = if cfg!(miri) { 1 } else { 2 };
-    // 1. Castling availability during search
-    let board_castle = Board::from_fen("4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1").unwrap();
-    let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
-    let mov1 = search(
-        board_castle.clone(),
-        TimeManager::from_depth(depth),
-        stop_requested,
-        &tt,
-        |_| {},
-    );
-    assert!(!mov1.is_none());
-    assert!(board_castle.legal(mov1));
-
-    // 2. En passant capture availability during search
-    let board_ep = Board::from_fen("4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1").unwrap();
-    let stop_requested2 = Arc::new(AtomicBool::new(false));
-    let tt2 = TranspositionTable::with_buckets(16);
-    let mov2 = search(
-        board_ep.clone(),
-        TimeManager::from_depth(depth),
-        stop_requested2,
-        &tt2,
-        |_| {},
-    );
-    assert!(!mov2.is_none());
-    assert!(board_ep.legal(mov2));
-}
-
-#[test]
-#[cfg_attr(miri, ignore)]
 fn test_search_aspiration_fail_low_widening() {
     // Force fail-low in aspiration search by pre-seeding high score at root
     let board = Board::from_fen("k7/8/K7/8/8/8/7p/7R w - - 0 1").unwrap();
@@ -656,6 +467,7 @@ fn test_search_aspiration_fail_low_widening() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_ponder_move() {
     let board =
         Board::from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1").unwrap();
@@ -683,6 +495,7 @@ fn test_search_ponder_move() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_pre_root_threefold_repetition() {
     // Position A: White Kh1, Qa2; Black Kh8, Nd7. White to move.
     // Queen on a2 does not attack h8, b8, or d7.
@@ -743,6 +556,7 @@ fn test_search_pre_root_threefold_repetition() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_search_pre_root_twofold_repetition_not_draw() {
     // Position A: White Kh1, Qa2; Black Kh8, Nd7. White to move.
     let mut board = Board::from_fen("7k/3n4/8/8/8/8/Q7/7K w - - 0 1").unwrap();

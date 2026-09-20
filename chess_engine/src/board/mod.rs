@@ -734,39 +734,20 @@ impl fmt::Debug for Board {
             write!(f, "{} |", rank + 1)?;
             for file in 0..8u8 {
                 let sq = Sq::new(file, rank).unwrap();
-                let ch = match self.mailbox[sq as usize] {
-                    Some(cp) => match (cp.piece(), cp.color()) {
-                        (Piece::Pawn, Color::White) => 'P',
-                        (Piece::Knight, Color::White) => 'N',
-                        (Piece::Bishop, Color::White) => 'B',
-                        (Piece::Rook, Color::White) => 'R',
-                        (Piece::Queen, Color::White) => 'Q',
-                        (Piece::King, Color::White) => 'K',
-                        (Piece::Pawn, Color::Black) => 'p',
-                        (Piece::Knight, Color::Black) => 'n',
-                        (Piece::Bishop, Color::Black) => 'b',
-                        (Piece::Rook, Color::Black) => 'r',
-                        (Piece::Queen, Color::Black) => 'q',
-                        (Piece::King, Color::Black) => 'k',
-                    },
-                    None => ' ',
-                };
+                let ch = self.mailbox[sq as usize].map_or(' ', |p| p.to_char());
                 write!(f, " {} |", ch)?;
             }
             writeln!(f)?;
             writeln!(f, "  +---+---+---+---+---+---+---+---+")?;
         }
         writeln!(f, "    a   b   c   d   e   f   g   h")?;
-        writeln!(f)?;
         writeln!(f, "Side to move: {:?}", self.to_play)?;
         writeln!(f, "Castling:     {:?}", self.castling_rights)?;
         writeln!(
             f,
             "En passant:   {}",
-            match self.en_passant_target_sq {
-                Some(sq) => format!("{}", sq),
-                None => "-".to_string(),
-            }
+            self.en_passant_target_sq
+                .map_or_else(|| "-".to_string(), |sq| sq.to_string()),
         )?;
         writeln!(f, "Half-move:    {}", self.half_move_clock)?;
         write!(f, "Ply:          {}", self.ply)

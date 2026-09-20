@@ -29,7 +29,6 @@ impl Default for UciState {
 
 impl UciState {
     pub fn new(output_cb: impl Fn(String) + Send + Sync + 'static) -> Self {
-        let default_tt_mb = if cfg!(miri) { 1 } else { 64 };
         let board = Board::start_pos();
         let game_history = vec![board.hash];
         Self {
@@ -38,7 +37,7 @@ impl UciState {
             #[cfg(not(target_family = "wasm"))]
             search_thread: None,
             stop_requested: Arc::default(),
-            tt: Arc::new(TranspositionTable::new(default_tt_mb)),
+            tt: Arc::new(TranspositionTable::new(64)),
             output_cb: Arc::new(output_cb),
             move_overhead: crate::time::DEFAULT_MOVE_OVERHEAD_MS,
         }
@@ -60,6 +59,19 @@ impl UciState {
     pub fn stop(&mut self) {
         self.stop_requested.store(true, Ordering::Relaxed);
     }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn join_search(&mut self, stop: bool) {
+        if let Some(thread) = self.search_thread.take() {
+            if stop {
+                self.stop_requested.store(true, Ordering::Relaxed);
+            }
+            let _ = thread.join();
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn join_search(&mut self, _stop: bool) {}
 
     pub fn process_command(&mut self, input_string: &str) -> bool {
         let trimmed = input_string.trim();
@@ -87,10 +99,7 @@ impl UciState {
         }
 
         if trimmed.eq_ignore_ascii_case("wait") {
-            #[cfg(not(target_family = "wasm"))]
-            if let Some(thread) = self.search_thread.take() {
-                let _ = thread.join();
-            }
+            self.join_search(false);
             return true;
         }
 
@@ -116,10 +125,7 @@ uciok"#,
             }
             UciCommand::Debug(_) => {}
             UciCommand::IsReady => {
-                #[cfg(not(target_family = "wasm"))]
-                if let Some(thread) = self.search_thread.take() {
-                    let _ = thread.join();
-                }
+                self.join_search(false);
                 self.output_line("readyok");
             }
             UciCommand::SetOption { name, value } => {
@@ -140,11 +146,7 @@ uciok"#,
             }
             UciCommand::Register { .. } => self.output_line("registration ok"),
             UciCommand::UciNewGame => {
-                #[cfg(not(target_family = "wasm"))]
-                if let Some(thread) = self.search_thread.take() {
-                    self.stop_requested.store(true, Ordering::Relaxed);
-                    let _ = thread.join();
-                }
+                self.join_search(true);
                 self.stop_requested.store(false, Ordering::Relaxed);
                 self.board = Board::start_pos();
                 self.game_history = vec![self.board.hash];
@@ -186,19 +188,11 @@ uciok"#,
                 }
             }
             UciCommand::Stop => {
-                self.stop();
-                #[cfg(not(target_family = "wasm"))]
-                if let Some(thread) = self.search_thread.take() {
-                    let _ = thread.join();
-                }
+                self.join_search(true);
             }
             UciCommand::PonderHit => {}
             UciCommand::Quit => {
-                self.stop();
-                #[cfg(not(target_family = "wasm"))]
-                if let Some(thread) = self.search_thread.take() {
-                    let _ = thread.join();
-                }
+                self.join_search(true);
                 return false;
             }
         }
@@ -214,11 +208,7 @@ uciok"#,
     }
 
     fn run_perft(&mut self, depth: u8) {
-        #[cfg(not(target_family = "wasm"))]
-        if let Some(thread) = self.search_thread.take() {
-            self.stop_requested.store(true, Ordering::Relaxed);
-            let _ = thread.join();
-        }
+        self.join_search(true);
 
         let mut board = self.board.clone();
         let nodes = crate::perft::perft(&mut board, depth);
@@ -226,11 +216,7 @@ uciok"#,
     }
 
     fn start_search(&mut self, time_manager: TimeManager) {
-        #[cfg(not(target_family = "wasm"))]
-        if let Some(thread) = self.search_thread.take() {
-            self.stop_requested.store(true, Ordering::Relaxed);
-            let _ = thread.join();
-        }
+        self.join_search(true);
 
         self.stop_requested.store(false, Ordering::Relaxed);
 

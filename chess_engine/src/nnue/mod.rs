@@ -215,19 +215,7 @@ impl Accumulator {
 
         let w_rook = if mov.is_castle() {
             let us = moved_piece.color();
-            let (rf, rt) = if flags == MoveFlags::CastleKing {
-                if us == Color::White {
-                    (Sq::H1, Sq::F1)
-                } else {
-                    (Sq::H8, Sq::F8)
-                }
-            } else {
-                if us == Color::White {
-                    (Sq::A1, Sq::D1)
-                } else {
-                    (Sq::A8, Sq::D8)
-                }
-            };
+            let (rf, rt) = flags.castling_rook_squares(us);
             let rook = ColoredPiece::new(Piece::Rook, us);
             Some((
                 NNUE.feature_weights(Network::feature_index(perspective, rook, rf)),

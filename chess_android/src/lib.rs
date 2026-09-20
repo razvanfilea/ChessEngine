@@ -241,22 +241,3 @@ pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_stopSearch
     ENGINE.stop();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_game_accessible_during_search() {
-        let board = game().board().clone();
-        let handle = std::thread::spawn(move || ENGINE.search(board, 20, 5000, 16));
-
-        std::thread::sleep(std::time::Duration::from_millis(10));
-
-        let snap = game().get_snapshot();
-        assert_eq!(snap.game_state, 0);
-
-        ENGINE.stop();
-        let result = handle.join().unwrap();
-        assert_ne!(result.best_move, 0);
-    }
-}

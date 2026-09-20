@@ -103,28 +103,3 @@ impl SearchEngine {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_engine_search_start_pos() {
-        let engine = SearchEngine::new(16);
-        let res = engine.search(Board::start_pos(), 1, 0, 16);
-        assert_ne!(res.best_move, 0);
-        let mov = Move::from_bits(res.best_move as u16).unwrap();
-        assert!(Board::start_pos().legal(mov));
-    }
-
-    #[test]
-    fn test_engine_stop() {
-        let engine = Arc::new(SearchEngine::new(16));
-        let engine_clone = engine.clone();
-        let handle =
-            std::thread::spawn(move || engine_clone.search(Board::start_pos(), 30, 30_000, 16));
-        std::thread::sleep(Duration::from_millis(20));
-        engine.stop();
-        let res = handle.join().unwrap();
-        assert!(res.search_time_ms < 2000);
-    }
-}

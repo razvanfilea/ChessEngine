@@ -29,6 +29,9 @@ jobs:
       - name: Run tests
         run: cargo test
 
+      - name: Run perft suite
+        run: cargo run --release -- perft-suite
+
   miri:
     name: Miri UB Check (nightly)
     runs-on: ubuntu-latest
