@@ -70,13 +70,7 @@ impl MoveGenerator {
                 // First generate quiets instead of bad captures
                 if self.stage != GenStage::Done && mov.score < 0 {
                     self.list_index -= 1; // add back the move we were about to return
-                    self.advance_stage(
-                        board,
-                        killer_moves,
-                        history,
-                        cont_history,
-                        conthist_keys,
-                    );
+                    self.advance_stage(board, killer_moves, history, cont_history, conthist_keys);
                     continue;
                 }
 

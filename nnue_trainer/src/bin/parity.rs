@@ -1,6 +1,9 @@
 use bullet_lib::{
-    game::{inputs::Chess768, outputs::MaterialCount},
-    nn::optimiser::AdamW,
+    game::{
+        inputs::{ChessBucketsMirrored, get_num_buckets},
+        outputs::MaterialCount,
+    },
+    nn::{InitSettings, Shape, optimiser::AdamW},
     trainer::save::SavedFormat,
     value::ValueTrainerBuilder,
 };
@@ -13,7 +16,20 @@ const QB: i16 = 64;
 const SCALE: f32 = 400.0;
 const TOLERANCE: f32 = 25.0;
 
-const CHECKPOINT: &str = "checkpoints/lucky-v4-20";
+#[rustfmt::skip]
+const BUCKET_LAYOUT: [usize; 32] = [
+    0, 0, 0, 1, // rank 1: a1, b1, c1 | d1 (center)
+    0, 0, 0, 1, // rank 2: a2, b2, c2 | d2 (center)
+    2, 2, 2, 2, // rank 3: midfield
+    2, 2, 2, 2, // rank 4: midfield
+    3, 3, 3, 3, // rank 5: endgame
+    3, 3, 3, 3, // rank 6
+    3, 3, 3, 3, // rank 7
+    3, 3, 3, 3, // rank 8
+];
+const NUM_INPUT_BUCKETS: usize = get_num_buckets(&BUCKET_LAYOUT);
+
+const CHECKPOINT: &str = "checkpoints/lucky-v5-20";
 
 const FENS: &[&str] = &[
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -44,10 +60,20 @@ fn main() {
     let mut trainer = ValueTrainerBuilder::default()
         .dual_perspective()
         .optimiser(AdamW)
-        .inputs(Chess768)
+        .inputs(ChessBucketsMirrored::new(BUCKET_LAYOUT))
         .output_buckets(MaterialCount::<OUTPUT_BUCKETS>)
         .save_format(&[
-            SavedFormat::id("l0w").round().quantise::<i16>(QA),
+            SavedFormat::id("l0w")
+                .transform(|store, weights| {
+                    let factorizer = store.get("l0f").values.f32().repeat(NUM_INPUT_BUCKETS);
+                    weights
+                        .into_iter()
+                        .zip(factorizer)
+                        .map(|(a, b)| a + b)
+                        .collect()
+                })
+                .round()
+                .quantise::<i16>(QA),
             SavedFormat::id("l0b").round().quantise::<i16>(QA),
             SavedFormat::id("l1w")
                 .round()
@@ -56,14 +82,20 @@ fn main() {
             SavedFormat::id("l1b").round().quantise::<i16>(QA * QB),
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
-        .build(|builder, stm, ntm, buckets| {
-            let l0 = builder.new_affine("l0", 768, HIDDEN_SIZE);
-            let stm = l0.forward(stm).screlu();
-            let ntm = l0.forward(ntm).screlu();
-            builder
-                .new_affine("l1", 2 * HIDDEN_SIZE, OUTPUT_BUCKETS)
-                .forward(stm.concat(ntm))
-                .select(buckets)
+        .build(|builder, stm_inputs, ntm_inputs, buckets| {
+            let l0f =
+                builder.new_weights("l0f", Shape::new(HIDDEN_SIZE, 768), InitSettings::Zeroed);
+            let expanded_factorizer = l0f.repeat(NUM_INPUT_BUCKETS);
+
+            let mut l0 = builder.new_affine("l0", 768 * NUM_INPUT_BUCKETS, HIDDEN_SIZE);
+            l0.weights = l0.weights + expanded_factorizer;
+
+            let l1 = builder.new_affine("l1", 2 * HIDDEN_SIZE, OUTPUT_BUCKETS);
+
+            let stm_hidden = l0.forward(stm_inputs).screlu();
+            let ntm_hidden = l0.forward(ntm_inputs).screlu();
+            let hidden_layer = stm_hidden.concat(ntm_hidden);
+            l1.forward(hidden_layer).select(buckets)
         });
 
     trainer.load_from_checkpoint(CHECKPOINT);

@@ -70,7 +70,7 @@ fastchess \
   -engine cmd="${BIN_DIR}/ursus-ELO_3509" name=Ursus_3509 \
   -engine cmd="${BIN_DIR}/OxideV3.0.0_ELO_3530" name=Oxide_3530 \
   -engine cmd="${BIN_DIR}/sirius-9.0_ELO_3528" name=Sirius_3528 \
-  -each tc="${TC}" option.Hash=64 option.Threads=1 option.Ponder=false ${EGTB_OPT} \
+  -each tc="${TC}" option.Hash=32 option.Threads=1 option.Ponder=false ${EGTB_OPT} \
   -rounds "${ROUNDS}" \
   -repeat \
   -games 2 \

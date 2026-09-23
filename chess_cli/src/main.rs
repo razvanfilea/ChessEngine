@@ -29,7 +29,10 @@ fn handle_cli_command(cmd: &str) -> bool {
     }
 
     if command.eq_ignore_ascii_case("perft")
-        && parts.clone().next().map_or(false, |s| s.eq_ignore_ascii_case("suite"))
+        && parts
+            .clone()
+            .next()
+            .map_or(false, |s| s.eq_ignore_ascii_case("suite"))
     {
         let _ = parts.next();
         let depth = parts.next().and_then(|s| s.parse::<u8>().ok());
