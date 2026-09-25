@@ -1,8 +1,8 @@
 use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::move_gen::gen_all_moves;
-use chess_engine::nnue::Accumulator;
-use chess_engine::search::{HistoryTable, StackMove, search as engine_search};
+use chess_engine::nnue::FinnyTable;
+use chess_engine::search::{HistoryTable, search as engine_search};
 use chess_engine::time::TimeManager;
 use chess_engine::transposition::{TTEntry, TTFlag, TranspositionTable};
 use std::sync::Arc;
@@ -19,9 +19,8 @@ fn search(
 }
 
 #[test]
-fn test_lazy_acc_single_move_parity() {
+fn test_finny_single_move_parity() {
     let board = Board::start_pos();
-    let root_acc = Accumulator::from_board(&board);
 
     let moves = gen_all_moves(&board);
     let limit = if cfg!(miri) { 1 } else { usize::MAX };
@@ -32,23 +31,19 @@ fn test_lazy_acc_single_move_parity() {
             continue;
         }
 
-        let moved_piece = board.piece_at(mov.from()).unwrap();
         let mut child = board.clone();
-        let undo = child.make_move(mov);
+        child.make_move(mov);
 
-        let expected = Accumulator::from_board(&child);
+        let mut table = FinnyTable::new(&board).0;
+        let actual = table.eval(&child);
 
-        let mut lazy = Accumulator::default();
-        lazy.compute_from(
-            &root_acc,
-            StackMove {
-                mov,
-                moved_piece: Some(moved_piece),
-                captured: undo.captured_piece,
-            },
+        let expected = FinnyTable::new(&child).1;
+
+        assert_eq!(
+            actual,
+            expected,
+            "mismatch for move {mov:?}"
         );
-
-        assert_eq!(lazy.raw(), expected.raw(), "mismatch for move {mov:?}");
         tested += 1;
         if tested >= limit {
             break;
@@ -58,15 +53,13 @@ fn test_lazy_acc_single_move_parity() {
 
 #[test]
 #[cfg_attr(miri, ignore)]
-fn test_lazy_acc_two_move_parity() {
+fn test_finny_two_move_parity() {
     let board = Board::start_pos();
-    let root_acc = Accumulator::from_board(&board);
 
     // Try c2c3 then every legal Black response
     let mov1 = Move::new(Sq::C2, Sq::C3, MoveFlags::Quiet);
-    let mp1 = board.piece_at(mov1.from()).unwrap();
     let mut b1 = board.clone();
-    let undo1 = b1.make_move(mov1);
+    b1.make_move(mov1);
 
     let moves2 = gen_all_moves(&b1);
     let limit = if cfg!(miri) { 1 } else { usize::MAX };
@@ -77,36 +70,18 @@ fn test_lazy_acc_two_move_parity() {
             continue;
         }
 
-        let mp2 = b1.piece_at(mov2.from()).unwrap();
         let mut b2 = b1.clone();
-        let undo2 = b2.make_move(mov2);
+        b2.make_move(mov2);
 
-        let expected = Accumulator::from_board(&b2);
+        let mut table = FinnyTable::new(&board).0;
+        let _ = table.eval(&b1);
+        let actual = table.eval(&b2);
 
-        // Multi-ply replay: compute move1, then compute move2
-        let mut lazy1 = Accumulator::default();
-        lazy1.compute_from(
-            &root_acc,
-            StackMove {
-                mov: mov1,
-                moved_piece: Some(mp1),
-                captured: undo1.captured_piece,
-            },
-        );
-
-        let mut lazy2 = Accumulator::default();
-        lazy2.compute_from(
-            &lazy1,
-            StackMove {
-                mov: mov2,
-                moved_piece: Some(mp2),
-                captured: undo2.captured_piece,
-            },
-        );
+        let expected = FinnyTable::new(&b2).1;
 
         assert_eq!(
-            lazy2.raw(),
-            expected.raw(),
+            actual,
+            expected,
             "2-ply mismatch: c2c3 then {mov2:?} (board: {})",
             b2.to_fen()
         );

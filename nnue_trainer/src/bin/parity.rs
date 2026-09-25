@@ -4,7 +4,7 @@ use bullet_lib::{
     trainer::save::SavedFormat,
     value::ValueTrainerBuilder,
 };
-use chess_engine::{board::Board, nnue::Accumulator};
+use chess_engine::{board::Board, nnue::FinnyTable};
 
 const HIDDEN_SIZE: usize = 1536;
 const OUTPUT_BUCKETS: usize = 8;
@@ -78,7 +78,7 @@ fn main() {
     for &fen in FENS {
         // Engine eval
         let board = Board::from_fen(fen).expect("Invalid FEN");
-        let engine_cp = Accumulator::from_board(&board).eval(&board) as f32;
+        let engine_cp = FinnyTable::new(&board).1 as f32;
 
         // Bullet eval (already selected by MaterialCount<8>)
         let bullet_out = trainer.eval(fen);

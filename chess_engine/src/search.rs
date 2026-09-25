@@ -1,6 +1,6 @@
 use crate::move_gen::scoring::see_ge;
 use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove, gen_all_moves};
-use crate::nnue::Accumulator;
+use crate::nnue::FinnyTable;
 use crate::time::{Instant, TimeManager};
 use chess_core::bitboard::{RANK_2, RANK_7};
 use chess_core::prelude::*;
@@ -79,7 +79,7 @@ struct Searcher<'a> {
     stop_requested: Arc<AtomicBool>,
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
-    nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]>,
+    finny_table: FinnyTable,
     stack: SearchStack,
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     history: HistoryTable,
@@ -96,17 +96,12 @@ impl<'a> Searcher<'a> {
     ) -> Self {
         let root_ply = board.ply;
         let stopped = stop_requested.load(Ordering::Relaxed);
-        let mut nnue_accumulator: Box<[Accumulator; MAX_PLY as usize]> =
-            vec![Accumulator::default(); MAX_PLY as usize]
-                .into_boxed_slice()
-                .try_into()
-                .unwrap();
-        nnue_accumulator[0] = Accumulator::from_board(&board);
 
-        let mut stack = SearchStack::new();
+        let mut stack = SearchStack::default();
         stack[0].hash = board.hash;
 
         Self {
+            finny_table: FinnyTable::new(&board).0,
             board,
             history_keys,
             stop_requested,
@@ -116,7 +111,6 @@ impl<'a> Searcher<'a> {
             stopped,
             selective_depth: 0,
             nodes_searched: 0,
-            nnue_accumulator,
             stack,
             root_ply,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
@@ -302,47 +296,9 @@ impl<'a> Searcher<'a> {
         if is_pv { pv } else { non_pv }
     }
 
-    #[inline]
+    #[inline(always)]
     fn eval_position(&mut self) -> i16 {
-        let ply = self.ply();
-        unsafe {
-            std::hint::assert_unchecked(ply < MAX_PLY);
-        }
-        if self.stack[ply].acc_computed {
-            return self.nnue_accumulator[ply as usize].eval(&self.board);
-        }
-
-        // Walk back to find nearest computed ancestor.
-        let mut ancestor = ply;
-        while ancestor > 0 {
-            ancestor -= 1;
-            if self.stack[ancestor].acc_computed {
-                break;
-            }
-        }
-        debug_assert!(
-            self.stack[ancestor].acc_computed,
-            "root ply 0 is always computed"
-        );
-
-        // Replay any intermediate plies if ancestor is further than 1 ply (rare)
-        for intermediate_ply in (ancestor + 1)..ply {
-            let (parent_acc, current_acc) = self
-                .nnue_accumulator
-                .split_at_mut(intermediate_ply as usize);
-            let parent_acc = &parent_acc[intermediate_ply as usize - 1];
-            let stack = &mut self.stack[intermediate_ply];
-            current_acc[0].compute_from(parent_acc, stack.stack_move);
-            stack.acc_computed = true;
-        }
-
-        // Fused compute + eval on the target ply
-        let (parent_acc, current_acc) = self.nnue_accumulator.split_at_mut(ply as usize);
-        let parent_acc = &parent_acc[ply as usize - 1];
-        let stack = &mut self.stack[ply];
-        let score = current_acc[0].compute_and_eval(parent_acc, stack.stack_move, &self.board);
-        stack.acc_computed = true;
-        score
+        self.finny_table.eval(&self.board)
     }
 
     fn nega_max<const IS_PV: bool>(

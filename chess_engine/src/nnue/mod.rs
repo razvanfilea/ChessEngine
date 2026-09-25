@@ -1,66 +1,57 @@
-use crate::{board::Board, search::StackMove};
+use crate::board::Board;
 use chess_core::{for_each_bit, prelude::*};
 use fearless_simd::{Level, Simd, dispatch, i16x32, i32x16, prelude::*};
 
 pub mod network;
 pub use network::{HIDDEN_SIZE, NNUE, Network};
 
-#[derive(Clone, Debug)]
-#[repr(C, align(64))]
-pub struct Accumulator([[i16; HIDDEN_SIZE]; Color::NB]);
+type SideAccumulator = [i16; HIDDEN_SIZE];
 
-impl Default for Accumulator {
+#[repr(align(64))]
+struct FinnyTableEntry {
+    accum: SideAccumulator,
+    occupancies: [[u64; Piece::NB]; Color::NB],
+}
+
+impl Default for FinnyTableEntry {
     fn default() -> Self {
-        Self([NNUE.feature_biases; Color::NB])
+        Self {
+            accum: NNUE.feature_biases,
+            occupancies: Default::default(),
+        }
     }
 }
 
-impl Accumulator {
+#[repr(align(64))]
+#[derive(Default)]
+pub struct FinnyTable([FinnyTableEntry; Color::NB]);
+
+impl FinnyTable {
     #[inline(always)]
-    pub fn raw(&self) -> &[[i16; HIDDEN_SIZE]; Color::NB] {
-        &self.0
+    pub fn new(board: &Board) -> (Self, i16) {
+        let mut table = Self::default();
+        let eval = table.eval(board);
+        (table, eval)
     }
 
-    pub fn eval(&self, board: &Board) -> i16 {
-        let level = Level::baseline();
-        dispatch!(level, simd => self.eval_simd(simd, board))
-    }
-
     #[inline(always)]
-    fn eval_simd<S: Simd>(&self, simd: S, board: &Board) -> i16 {
-        let n = i16x32::<S>::N;
-        let us = &self.0[board.to_play as usize];
-        let them = &self.0[!board.to_play as usize];
-
-        let zero = i16x32::splat(simd, 0);
-        let qa = i16x32::splat(simd, network::QA as i16);
-        let mut total_sum = i32x16::splat(simd, 0);
-
+    pub fn eval(&mut self, board: &Board) -> i16 {
         let bucket_index = Network::bucket_index(board.occupied().count_ones() as usize);
         let weights = &NNUE.output_weights[bucket_index];
+        let (white_out_w, black_out_w) = if board.to_play == Color::White {
+            (&weights[..HIDDEN_SIZE], &weights[HIDDEN_SIZE..])
+        } else {
+            (&weights[HIDDEN_SIZE..], &weights[..HIDDEN_SIZE])
+        };
 
-        for (val, w) in us
-            .chunks_exact(n)
-            .zip(weights[..HIDDEN_SIZE].chunks_exact(n))
-        {
-            let val_vec = i16x32::from_slice(simd, val);
-            Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
-        }
-        for (val, w) in them
-            .chunks_exact(n)
-            .zip(weights[HIDDEN_SIZE..].chunks_exact(n))
-        {
-            let val_vec = i16x32::from_slice(simd, val);
-            Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
-        }
+        let level = Level::baseline();
+        let sum = dispatch!(level, simd => {
+            let mut sum = self.update_and_eval_side(simd, board, Color::White, white_out_w);
+            sum += self.update_and_eval_side(simd, board, Color::Black, black_out_w);
 
-        let mut buf = [0i32; 16];
-        total_sum.store_slice(&mut buf);
-        Self::finalize_output(bucket_index, buf.iter().sum::<i32>())
-    }
+            sum.reduce_sum()
+        });
 
-    #[inline(always)]
-    fn finalize_output(bucket_index: usize, sum: i32) -> i16 {
         let mut out = sum / network::QA;
         out += NNUE.output_bias[bucket_index] as i32;
         out *= network::SCALE;
@@ -100,232 +91,123 @@ impl Accumulator {
     }
 
     #[inline(always)]
-    pub fn compute_from(&mut self, parent: &Accumulator, entry: StackMove) {
-        self.update::<false>(parent, entry, None);
-    }
-
-    #[inline(always)]
-    pub fn compute_and_eval(
-        &mut self,
-        parent: &Accumulator,
-        entry: StackMove,
-        board: &Board,
-    ) -> i16 {
-        self.update::<true>(parent, entry, Some(board))
-    }
-
-    fn update<const WITH_EVAL: bool>(
-        &mut self,
-        parent: &Accumulator,
-        entry: StackMove,
-        board: Option<&Board>,
-    ) -> i16 {
-        let moved_piece = match entry.moved_piece {
-            Some(p) => p,
-            None => {
-                *self = parent.clone();
-                return board.map_or(0, |b| self.eval(b));
-            }
-        };
-
-        let (bucket_index, white_out_w, black_out_w) = if let Some(b) = board {
-            let bucket = Network::bucket_index(b.occupied().count_ones() as usize);
-            let weights = &NNUE.output_weights[bucket];
-            let us = &weights[..HIDDEN_SIZE];
-            let them = &weights[HIDDEN_SIZE..];
-            if b.to_play == Color::White {
-                (bucket, us, them)
-            } else {
-                (bucket, them, us)
-            }
-        } else {
-            (0, &NNUE.feature_biases[..], &NNUE.feature_biases[..])
-        };
-
-        let level = Level::baseline();
-        let total_sum = dispatch!(level, simd => {
-            let mut sum = i32x16::splat(simd, 0);
-            self.update_simd_half::<_, WITH_EVAL>(
-                simd,
-                parent,
-                entry.mov,
-                moved_piece,
-                entry.captured,
-                Color::White,
-                white_out_w,
-                &mut sum,
-            );
-            self.update_simd_half::<_, WITH_EVAL>(
-                simd,
-                parent,
-                entry.mov,
-                moved_piece,
-                entry.captured,
-                Color::Black,
-                black_out_w,
-                &mut sum,
-            );
-            if WITH_EVAL {
-                let mut buf = [0i32; 16];
-                sum.store_slice(&mut buf);
-                buf.iter().sum::<i32>()
-            } else {
-                0
-            }
-        });
-
-        if WITH_EVAL {
-            Self::finalize_output(bucket_index, total_sum)
-        } else {
-            0
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[inline(always)]
-    fn update_simd_half<S: Simd, const WITH_EVAL: bool>(
+    fn update_and_eval_side<S: Simd>(
         &mut self,
         simd: S,
-        parent: &Accumulator,
-        mov: Move,
-        moved_piece: ColoredPiece,
-        captured: Option<ColoredPiece>,
+        board: &Board,
         perspective: Color,
-        output_weights: &[i16],
-        total_sum: &mut i32x16<S>,
-    ) {
-        let n = i16x32::<S>::N;
-        let from = mov.from();
-        let to = mov.to();
-        let flags = mov.flags();
-
-        let w_from = NNUE.feature_weights(Network::feature_index(perspective, moved_piece, from));
-        let w_to = if mov.is_promotion() {
-            let promo = unsafe { mov.promotion_piece().unwrap_unchecked() };
-            let promo_colored = ColoredPiece::new(promo, moved_piece.color());
-            NNUE.feature_weights(Network::feature_index(perspective, promo_colored, to))
-        } else {
-            NNUE.feature_weights(Network::feature_index(perspective, moved_piece, to))
-        };
-
-        let w_cap = captured.map(|cap| {
-            let cap_sq = mov.capture_square(moved_piece.color());
-            NNUE.feature_weights(Network::feature_index(perspective, cap, cap_sq))
-        });
-
-        let w_rook = if mov.is_castle() {
-            let us = moved_piece.color();
-            let (rf, rt) = flags.castling_rook_squares(us);
-            let rook = ColoredPiece::new(Piece::Rook, us);
-            Some((
-                NNUE.feature_weights(Network::feature_index(perspective, rook, rf)),
-                NNUE.feature_weights(Network::feature_index(perspective, rook, rt)),
-            ))
-        } else {
-            None
-        };
-
-        let target_acc = &mut self.0[perspective as usize];
-        let source_acc = &parent.0[perspective as usize];
+        out_w: &[i16],
+    ) -> i32x16<S> {
+        let entry = &mut self.0[perspective as usize];
+        let mut added_count = 0;
+        let mut removed_count = 0;
+        let mut added_features = [0usize; 32];
+        let mut removed_features = [0usize; 32];
 
         let zero = i16x32::splat(simd, 0);
         let qa = i16x32::splat(simd, network::QA as i16);
-        let mut sum = *total_sum;
+        let mut total_sum = i32x16::splat(simd, 0);
 
-        if let Some(cap) = w_cap {
-            for (((((t, s), f), to), c), out_w) in target_acc
-                .chunks_exact_mut(n)
-                .zip(source_acc.chunks_exact(n))
-                .zip(w_from.chunks_exact(n))
-                .zip(w_to.chunks_exact(n))
-                .zip(cap.chunks_exact(n))
-                .zip(output_weights.chunks_exact(n))
-            {
-                let s_vec = i16x32::from_slice(simd, s);
-                let from_vec = i16x32::from_slice(simd, f);
-                let to_vec = i16x32::from_slice(simd, to);
-                let cap_vec = i16x32::from_slice(simd, c);
-                let val_vec = s_vec - from_vec + to_vec - cap_vec;
-                val_vec.store_slice(t);
+        for color in [Color::White, Color::Black] {
+            let color_bb = board.colors(color);
+            let occupancies = &mut entry.occupancies[color as usize];
 
-                if WITH_EVAL {
-                    Self::screlu_accumulate(simd, val_vec, out_w, zero, qa, &mut sum);
+            for (piece_occupied, &piece) in occupancies.iter_mut().zip(&Piece::ALL) {
+                let current_bb = color_bb & board.pieces(piece);
+
+                if current_bb == *piece_occupied {
+                    continue;
                 }
+
+                let added = current_bb & !*piece_occupied;
+                let removed = *piece_occupied & !current_bb;
+                *piece_occupied = current_bb;
+
+                let colored_piece = ColoredPiece::new(piece, color);
+                for_each_bit!(sq in added => {
+                    if let Some(slot) = added_features.get_mut(added_count) {
+                        *slot = Network::feature_index(perspective, colored_piece, sq);
+                        added_count += 1;
+                    }
+                });
+
+                for_each_bit!(sq in removed => {
+                    if let Some(slot) = removed_features.get_mut(removed_count) {
+                        *slot = Network::feature_index(perspective, colored_piece, sq);
+                        removed_count += 1;
+                    }
+                });
             }
-        } else if let Some((rf, rt)) = w_rook {
-            for ((((((t, s), f), to), r_from), r_to), out_w) in target_acc
-                .chunks_exact_mut(n)
-                .zip(source_acc.chunks_exact(n))
-                .zip(w_from.chunks_exact(n))
-                .zip(w_to.chunks_exact(n))
-                .zip(rf.chunks_exact(n))
-                .zip(rt.chunks_exact(n))
-                .zip(output_weights.chunks_exact(n))
-            {
-                let s_vec = i16x32::from_slice(simd, s);
-                let from_vec = i16x32::from_slice(simd, f);
-                let to_vec = i16x32::from_slice(simd, to);
-                let rf_vec = i16x32::from_slice(simd, r_from);
-                let rt_vec = i16x32::from_slice(simd, r_to);
-                let val_vec = s_vec - from_vec + to_vec - rf_vec + rt_vec;
-                val_vec.store_slice(t);
+        }
 
-                if WITH_EVAL {
-                    Self::screlu_accumulate(simd, val_vec, out_w, zero, qa, &mut sum);
-                }
+        let n = i16x32::<S>::LEN;
+
+        if added_count == 1 && removed_count == 1 {
+            let add_w = NNUE.feature_weights(added_features[0]);
+            let sub_w = NNUE.feature_weights(removed_features[0]);
+            for (((t, a), s), w) in entry
+                .accum
+                .chunks_exact_mut(n)
+                .zip(add_w.chunks_exact(n))
+                .zip(sub_w.chunks_exact(n))
+                .zip(out_w.chunks_exact(n))
+            {
+                let t_vec = i16x32::from_slice(simd, t);
+                let a_vec = i16x32::from_slice(simd, a);
+                let s_vec = i16x32::from_slice(simd, s);
+                let val_vec = t_vec + a_vec - s_vec;
+                val_vec.store_slice(t);
+                Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
+            }
+        } else if added_count == 0 && removed_count == 0 {
+            for (val, w) in entry.accum.chunks_exact(n).zip(out_w.chunks_exact(n)) {
+                let val_vec = i16x32::from_slice(simd, val);
+                Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
             }
         } else {
-            // Dominant fast path: quiet moves
-            for ((((t, s), f), to), out_w) in target_acc
-                .chunks_exact_mut(n)
-                .zip(source_acc.chunks_exact(n))
-                .zip(w_from.chunks_exact(n))
-                .zip(w_to.chunks_exact(n))
-                .zip(output_weights.chunks_exact(n))
-            {
-                let s_vec = i16x32::from_slice(simd, s);
-                let from_vec = i16x32::from_slice(simd, f);
-                let to_vec = i16x32::from_slice(simd, to);
-                let val_vec = s_vec - from_vec + to_vec;
-                val_vec.store_slice(t);
+            let min_count = added_count.min(removed_count);
 
-                if WITH_EVAL {
-                    Self::screlu_accumulate(simd, val_vec, out_w, zero, qa, &mut sum);
-                }
+            for i in 0..min_count {
+                let add_w = NNUE.feature_weights(added_features[i]);
+                let sub_w = NNUE.feature_weights(removed_features[i]);
+                Self::add_sub_weights(simd, &mut entry.accum, add_w, sub_w);
+            }
+
+            for &idx in &added_features[min_count..added_count] {
+                Self::add_weights(simd, &mut entry.accum, NNUE.feature_weights(idx));
+            }
+
+            for &idx in &removed_features[min_count..removed_count] {
+                Self::remove_weights(simd, &mut entry.accum, NNUE.feature_weights(idx));
+            }
+
+            for (val, w) in entry.accum.chunks_exact(n).zip(out_w.chunks_exact(n)) {
+                let val_vec = i16x32::from_slice(simd, val);
+                Self::screlu_accumulate(simd, val_vec, w, zero, qa, &mut total_sum);
             }
         }
 
-        if WITH_EVAL {
-            *total_sum = sum;
-        }
+        total_sum
     }
 
-    pub fn from_board(board: &Board) -> Self {
-        let mut acc = Self::default();
-        let level = Level::baseline();
-        dispatch!(level, simd => {
-            for piece_type in [
-                Piece::Pawn,
-                Piece::Knight,
-                Piece::Bishop,
-                Piece::Rook,
-                Piece::Queen,
-                Piece::King,
-            ] {
-                for color in [Color::White, Color::Black] {
-                    let cp = ColoredPiece::new(piece_type, color);
-                    let bb = board.color_piece(piece_type, color);
-                    for_each_bit!(sq in bb => {
-                        for perspective in [Color::White, Color::Black] {
-                            let idx = Network::feature_index(perspective, cp, sq);
-                            let weights = NNUE.feature_weights(idx);
-                            Self::add_weights(simd, &mut acc.0[perspective as usize], weights);
-                        }
-                    });
-                }
-            }
-        });
-        acc
+    #[inline(always)]
+    fn add_sub_weights<S: Simd>(
+        simd: S,
+        target: &mut [i16; HIDDEN_SIZE],
+        add_w: &[i16; HIDDEN_SIZE],
+        sub_w: &[i16; HIDDEN_SIZE],
+    ) {
+        let n = i16x32::<S>::LEN;
+        for ((t, a), s) in target
+            .chunks_exact_mut(n)
+            .zip(add_w.chunks_exact(n))
+            .zip(sub_w.chunks_exact(n))
+        {
+            let t_vec = i16x32::from_slice(simd, t);
+            let a_vec = i16x32::from_slice(simd, a);
+            let s_vec = i16x32::from_slice(simd, s);
+            (t_vec + a_vec - s_vec).store_slice(t);
+        }
     }
 
     #[inline(always)]
@@ -334,11 +216,25 @@ impl Accumulator {
         target: &mut [i16; HIDDEN_SIZE],
         weights: &[i16; HIDDEN_SIZE],
     ) {
-        let n = i16x32::<S>::N;
+        let n = i16x32::<S>::LEN;
         for (t, w) in target.chunks_exact_mut(n).zip(weights.chunks_exact(n)) {
             let t_vec = i16x32::from_slice(simd, t);
             let w_vec = i16x32::from_slice(simd, w);
             (t_vec + w_vec).store_slice(t);
+        }
+    }
+
+    #[inline(always)]
+    fn remove_weights<S: Simd>(
+        simd: S,
+        target: &mut [i16; HIDDEN_SIZE],
+        weights: &[i16; HIDDEN_SIZE],
+    ) {
+        let n = i16x32::<S>::LEN;
+        for (t, w) in target.chunks_exact_mut(n).zip(weights.chunks_exact(n)) {
+            let t_vec = i16x32::from_slice(simd, t);
+            let w_vec = i16x32::from_slice(simd, w);
+            (t_vec - w_vec).store_slice(t);
         }
     }
 }

@@ -33,7 +33,8 @@ impl Network {
 
     #[inline(always)]
     pub(super) fn feature_weights(&self, index: usize) -> &[i16; HIDDEN_SIZE] {
-        &self.feature_weights[index]
+        debug_assert!(index < INPUT_FEATURES);
+        unsafe { self.feature_weights.get_unchecked(index) }
     }
 
     #[inline(always)]

@@ -14,17 +14,11 @@ pub struct SearchStack {
 
 impl Default for SearchStack {
     fn default() -> Self {
-        Self::new()
+        Self { entries: [StackEntry::default(); STACK_SIZE]}
     }
 }
 
 impl SearchStack {
-    pub fn new() -> Self {
-        let mut entries = [StackEntry::default(); STACK_SIZE];
-        entries[STACK_OFFSET].acc_computed = true;
-        Self { entries }
-    }
-
     #[inline(always)]
     pub fn get(&self, ply: u16) -> &StackEntry {
         let idx = STACK_OFFSET + ply as usize;
@@ -95,7 +89,6 @@ pub struct StackEntry {
     pub eval: i16,
     pub pv_length: u16,
     pub stack_move: StackMove,
-    pub acc_computed: bool,
     pub hash: u64,
 }
 
@@ -107,7 +100,6 @@ impl Default for StackEntry {
             eval: EVAL_NONE,
             pv_length: 0,
             stack_move: StackMove::default(),
-            acc_computed: false,
             hash: 0,
         }
     }
@@ -122,13 +114,11 @@ impl StackEntry {
         captured: Option<ColoredPiece>,
     ) {
         self.stack_move = StackMove::new(mov, moved_piece, captured);
-        self.acc_computed = false;
     }
 
     #[inline(always)]
     pub fn set_null_move(&mut self) {
         self.stack_move = StackMove::default();
-        self.acc_computed = false;
     }
 }
 

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use uci_parser::UciCommand;
 
+use crate::nnue::FinnyTable;
 use crate::search::{INFINITY, MATE_THRESHOLD, piece_value};
 use crate::time::TimeManager;
 use crate::transposition::TranspositionTable;
@@ -86,8 +87,7 @@ impl UciState {
         }
 
         if trimmed.eq_ignore_ascii_case("eval") {
-            let acc = crate::nnue::Accumulator::from_board(&self.board);
-            let eval = acc.eval(&self.board);
+            let eval = FinnyTable::new(&self.board).1;
             self.output_line(format!("score: {}", format_score(eval)));
             return true;
         }

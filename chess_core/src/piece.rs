@@ -14,7 +14,7 @@ pub enum Piece {
 impl Piece {
     pub const NB: usize = 6;
 
-    pub const ALL: [Piece; Piece::NB] = [
+    pub const ALL: [Piece; Self::NB] = [
         Piece::Pawn,
         Piece::Knight,
         Piece::Bishop,
@@ -28,6 +28,8 @@ impl Piece {
 pub struct ColoredPiece(std::num::NonZeroU8);
 
 impl ColoredPiece {
+    pub const NB: usize = Piece::NB * Color::NB;
+
     const PIECE_MASK: u8 = 0b0111;
     const COLOR_MASK: u8 = 0b1000;
 
