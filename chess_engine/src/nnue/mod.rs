@@ -1,9 +1,9 @@
 use crate::board::Board;
 use chess_core::{for_each_bit, prelude::*};
 use fearless_simd::{Level, Simd, dispatch, i16x32, i32x16, prelude::*};
+use network::{HIDDEN_SIZE, INPUT_BUCKETS, NNUE, Network};
 
 pub mod network;
-pub use network::{HIDDEN_SIZE, INPUT_BUCKETS, NNUE, Network};
 
 type SideAccumulator = [i16; HIDDEN_SIZE];
 
@@ -82,7 +82,6 @@ impl FinnyTable {
         out /= network::QA * network::QB;
         out as i16
     }
-
 
     #[inline(always)]
     fn screlu_accumulate<S: Simd>(
@@ -173,9 +172,30 @@ impl FinnyTable {
                 let acc3 = i16x32::from_slice(simd, &entry.accum[b + 3 * n..b + 4 * n]);
 
                 Self::screlu_accumulate(simd, acc0, &out_w[b..b + n], zero, qa, &mut total_sum);
-                Self::screlu_accumulate(simd, acc1, &out_w[b + n..b + 2 * n], zero, qa, &mut total_sum);
-                Self::screlu_accumulate(simd, acc2, &out_w[b + 2 * n..b + 3 * n], zero, qa, &mut total_sum);
-                Self::screlu_accumulate(simd, acc3, &out_w[b + 3 * n..b + 4 * n], zero, qa, &mut total_sum);
+                Self::screlu_accumulate(
+                    simd,
+                    acc1,
+                    &out_w[b + n..b + 2 * n],
+                    zero,
+                    qa,
+                    &mut total_sum,
+                );
+                Self::screlu_accumulate(
+                    simd,
+                    acc2,
+                    &out_w[b + 2 * n..b + 3 * n],
+                    zero,
+                    qa,
+                    &mut total_sum,
+                );
+                Self::screlu_accumulate(
+                    simd,
+                    acc3,
+                    &out_w[b + 3 * n..b + 4 * n],
+                    zero,
+                    qa,
+                    &mut total_sum,
+                );
             }
             return total_sum;
         }
@@ -205,9 +225,30 @@ impl FinnyTable {
                 acc3.store_slice(&mut entry.accum[b + 3 * n..b + 4 * n]);
 
                 Self::screlu_accumulate(simd, acc0, &out_w[b..b + n], zero, qa, &mut total_sum);
-                Self::screlu_accumulate(simd, acc1, &out_w[b + n..b + 2 * n], zero, qa, &mut total_sum);
-                Self::screlu_accumulate(simd, acc2, &out_w[b + 2 * n..b + 3 * n], zero, qa, &mut total_sum);
-                Self::screlu_accumulate(simd, acc3, &out_w[b + 3 * n..b + 4 * n], zero, qa, &mut total_sum);
+                Self::screlu_accumulate(
+                    simd,
+                    acc1,
+                    &out_w[b + n..b + 2 * n],
+                    zero,
+                    qa,
+                    &mut total_sum,
+                );
+                Self::screlu_accumulate(
+                    simd,
+                    acc2,
+                    &out_w[b + 2 * n..b + 3 * n],
+                    zero,
+                    qa,
+                    &mut total_sum,
+                );
+                Self::screlu_accumulate(
+                    simd,
+                    acc3,
+                    &out_w[b + 3 * n..b + 4 * n],
+                    zero,
+                    qa,
+                    &mut total_sum,
+                );
             }
             return total_sum;
         }
