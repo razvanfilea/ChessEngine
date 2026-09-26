@@ -14,7 +14,9 @@ pub struct SearchStack {
 
 impl Default for SearchStack {
     fn default() -> Self {
-        Self { entries: [StackEntry::default(); STACK_SIZE]}
+        Self {
+            entries: [StackEntry::default(); STACK_SIZE],
+        }
     }
 }
 

@@ -1,7 +1,5 @@
 [target.'cfg(target_family = "wasm")']
 rustflags = [
-    "-C", "opt-level=3",
-    "-C", "codegen-units=1",
     "-C", "debuginfo=0",
     "-C", "strip=symbols",
     "-C", "panic=abort",
@@ -14,8 +12,9 @@ rustflags = ["-C", "target-feature=+crt-static"]
 
 [alias]
 build-wasm = "build -p chess_web --target wasm32-unknown-unknown --release"
+parity = "run -r -p nnue_trainer --bin parity --features chess_engine,rocm"
+trainer = "run -r -p nnue_trainer --bin trainer --features rocm"
 
 [env]
 HIP_PATH = "/opt/rocm"
 HSA_OVERRIDE_GFX_VERSION = "11.0.0"
-

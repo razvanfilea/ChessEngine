@@ -30,6 +30,21 @@ pub struct ColoredPiece(std::num::NonZeroU8);
 impl ColoredPiece {
     pub const NB: usize = Piece::NB * Color::NB;
 
+    pub const ALL: [ColoredPiece; Self::NB] = [
+        ColoredPiece::new(Piece::Pawn, Color::White),
+        ColoredPiece::new(Piece::Knight, Color::White),
+        ColoredPiece::new(Piece::Bishop, Color::White),
+        ColoredPiece::new(Piece::Rook, Color::White),
+        ColoredPiece::new(Piece::Queen, Color::White),
+        ColoredPiece::new(Piece::King, Color::White),
+        ColoredPiece::new(Piece::Pawn, Color::Black),
+        ColoredPiece::new(Piece::Knight, Color::Black),
+        ColoredPiece::new(Piece::Bishop, Color::Black),
+        ColoredPiece::new(Piece::Rook, Color::Black),
+        ColoredPiece::new(Piece::Queen, Color::Black),
+        ColoredPiece::new(Piece::King, Color::Black),
+    ];
+
     const PIECE_MASK: u8 = 0b0111;
     const COLOR_MASK: u8 = 0b1000;
 

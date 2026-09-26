@@ -240,4 +240,3 @@ pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_stopSearch
 ) {
     ENGINE.stop();
 }
-

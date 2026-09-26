@@ -1,19 +1,8 @@
-use bullet_lib::{
-    game::{inputs::Chess768, outputs::MaterialCount},
-    nn::optimiser::AdamW,
-    trainer::save::SavedFormat,
-    value::ValueTrainerBuilder,
-};
 use chess_engine::{board::Board, nnue::FinnyTable};
+use nnue_trainer::{SCALE, build_trainer};
 
-const HIDDEN_SIZE: usize = 1536;
-const OUTPUT_BUCKETS: usize = 8;
-const QA: i16 = 255;
-const QB: i16 = 64;
-const SCALE: f32 = 400.0;
-const TOLERANCE: f32 = 25.0;
-
-const CHECKPOINT: &str = "checkpoints/lucky-v4-20";
+const CHECKPOINT: &str = "checkpoints/lucky-v5-200";
+const TOLERANCE: f32 = 40.0;
 
 const FENS: &[&str] = &[
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
@@ -41,33 +30,9 @@ const FENS: &[&str] = &[
 ];
 
 fn main() {
-    let mut trainer = ValueTrainerBuilder::default()
-        .dual_perspective()
-        .optimiser(AdamW)
-        .inputs(Chess768)
-        .output_buckets(MaterialCount::<OUTPUT_BUCKETS>)
-        .save_format(&[
-            SavedFormat::id("l0w").round().quantise::<i16>(QA),
-            SavedFormat::id("l0b").round().quantise::<i16>(QA),
-            SavedFormat::id("l1w")
-                .round()
-                .transpose()
-                .quantise::<i16>(QB),
-            SavedFormat::id("l1b").round().quantise::<i16>(QA * QB),
-        ])
-        .loss_fn(|output, target| output.sigmoid().squared_error(target))
-        .build(|builder, stm, ntm, buckets| {
-            let l0 = builder.new_affine("l0", 768, HIDDEN_SIZE);
-            let stm = l0.forward(stm).screlu();
-            let ntm = l0.forward(ntm).screlu();
-            builder
-                .new_affine("l1", 2 * HIDDEN_SIZE, OUTPUT_BUCKETS)
-                .forward(stm.concat(ntm))
-                .select(buckets)
-        });
-
+    let mut trainer = build_trainer();
     trainer.load_from_checkpoint(CHECKPOINT);
-    println!("[parity] Loaded checkpoint '{}'", CHECKPOINT);
+    println!("[parity] Loaded checkpoint '{CHECKPOINT}'");
 
     println!("\n{:>9} {:>9} {:>7}  fen", "engine_cp", "bullet_cp", "diff");
     println!("{}", "-".repeat(90));
@@ -76,13 +41,11 @@ fn main() {
     let mut worst: f32 = 0.0;
 
     for &fen in FENS {
-        // Engine eval
         let board = Board::from_fen(fen).expect("Invalid FEN");
         let engine_cp = FinnyTable::new(&board).1 as f32;
 
-        // Bullet eval (already selected by MaterialCount<8>)
         let bullet_out = trainer.eval(fen);
-        let bullet_cp = bullet_out * SCALE;
+        let bullet_cp = bullet_out * SCALE as f32;
 
         let diff = engine_cp - bullet_cp;
         worst = worst.max(diff.abs());

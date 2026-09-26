@@ -47,7 +47,7 @@ fastchess \
   -engine cmd="${DEV_BIN}" name=lucky_dev \
   -engine cmd="${BASE_BIN}" name=lucky_base \
   -openings file="${BOOK_PATH}" format=epd order=random \
-  -each tc="${TC}" option.Hash=64 option.Threads=1 \
+  -each tc="${TC}" option.Hash=32 option.Threads=1 \
   -sprt elo0="${ELO0}" elo1="${ELO1}" alpha=0.05 beta=0.05 \
   -rounds 1000 \
   -repeat \
