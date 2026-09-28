@@ -2,7 +2,7 @@ use chess_core::prelude::*;
 use chess_engine::{
     board::{Board, UndoInfo},
     move_gen::gen_all_moves,
-    nnue::FinnyTable,
+    nnue::evaluate,
     search::piece_value,
 };
 
@@ -340,7 +340,7 @@ impl ChessGame {
     }
 
     pub fn get_board_evaluation(&self) -> i32 {
-        let raw = FinnyTable::new(&self.board).1 as i32;
+        let raw = evaluate(&self.board) as i32;
         let white_score = if self.board.to_play == Color::White {
             raw
         } else {

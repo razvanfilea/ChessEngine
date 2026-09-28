@@ -92,6 +92,7 @@ pub struct StackEntry {
     pub pv_length: u16,
     pub stack_move: StackMove,
     pub hash: u64,
+    pub acc_computed: [bool; Color::NB],
 }
 
 impl Default for StackEntry {
@@ -103,6 +104,7 @@ impl Default for StackEntry {
             pv_length: 0,
             stack_move: StackMove::default(),
             hash: 0,
+            acc_computed: [false; Color::NB],
         }
     }
 }
@@ -116,11 +118,13 @@ impl StackEntry {
         captured: Option<ColoredPiece>,
     ) {
         self.stack_move = StackMove::new(mov, moved_piece, captured);
+        self.acc_computed = [false; Color::NB];
     }
 
     #[inline(always)]
     pub fn set_null_move(&mut self) {
         self.stack_move = StackMove::default();
+        self.acc_computed = [false; Color::NB];
     }
 }
 

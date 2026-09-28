@@ -1,228 +1,152 @@
-use crate::board::Board;
-use chess_core::{for_each_bit, prelude::*};
-use fearless_simd::{Level, Simd, dispatch, i16x32, i32x16, prelude::*};
-use network::{NNUE, Network};
+use crate::{
+    board::Board,
+    search::{MAX_PLY, SearchStack, StackMove},
+};
+use chess_core::prelude::*;
+use constants::*;
+use fearless_simd::{Level, Simd, dispatch, i32x16, prelude::*};
+use kernels::{Delta, apply_delta_screlu_dot, screlu_dot};
+use network::{NNUE, Network, SideAccumulator};
 
 mod constants;
+mod finny;
+mod kernels;
 mod network;
 
-use constants::*;
+pub use finny::FinnyTable;
 
-type SideAccumulator = [i16; HIDDEN_SIZE];
-
-#[repr(align(64))]
-struct FinnyTableEntry {
-    accum: SideAccumulator,
-    occupancies: [u64; 12],
-}
-
-impl Default for FinnyTableEntry {
-    fn default() -> Self {
-        Self {
-            accum: NNUE.feature_biases,
-            occupancies: [0; 12],
-        }
-    }
+pub fn evaluate(board: &Board) -> i16 {
+    FinnyTable::default().eval(board)
 }
 
 #[repr(align(64))]
-#[derive(Default)]
-pub struct FinnyTable([[[FinnyTableEntry; 2]; INPUT_BUCKETS]; Color::NB]);
+#[derive(Clone)]
+struct PlyAccumulator([SideAccumulator; Color::NB]);
 
-impl FinnyTable {
+impl PlyAccumulator {
     #[inline(always)]
-    pub fn new(board: &Board) -> (Self, i16) {
-        let mut table = Self::default();
-        let eval = table.eval(board);
-        (table, eval)
+    fn side(&self, p: Color) -> &SideAccumulator {
+        &self.0[p as usize]
     }
 
     #[inline(always)]
-    pub fn eval(&mut self, board: &Board) -> i16 {
-        let bucket_index = Network::bucket_index(board.occupied().count_ones() as usize);
-        let weights = &NNUE.output_weights[bucket_index];
-        let (white_out_w, black_out_w) = if board.to_play == Color::White {
-            (&weights[..HIDDEN_SIZE], &weights[HIDDEN_SIZE..])
-        } else {
-            (&weights[HIDDEN_SIZE..], &weights[..HIDDEN_SIZE])
+    fn side_mut(&mut self, p: Color) -> &mut SideAccumulator {
+        &mut self.0[p as usize]
+    }
+}
+
+/// Lazily updated per-ply accumulators. `stack[ply].stack_move` is the change record and
+/// `stack[ply].acc_computed` tells which sides of `accs[ply]` are valid.
+pub struct AccumulatorStack {
+    accs: Box<[PlyAccumulator]>,
+    finny: FinnyTable,
+}
+
+impl AccumulatorStack {
+    pub fn new(board: &Board) -> Self {
+        let mut this = Self {
+            accs: vec![PlyAccumulator([[0; HIDDEN_SIZE]; Color::NB]); MAX_PLY as usize]
+                .into_boxed_slice(),
+            finny: FinnyTable::default(),
         };
-
-        let mut occupancies = [0u64; ColoredPiece::NB];
-        let white_bb = board.colors(Color::White);
-        let black_bb = board.colors(Color::Black);
-        for (i, &piece) in Piece::ALL.iter().enumerate() {
-            let p_bb = board.pieces(piece);
-            occupancies[i] = white_bb & p_bb;
-            occupancies[i + 6] = black_bb & p_bb;
+        this.finny.eval(board);
+        for p in [Color::White, Color::Black] {
+            let (bucket, flip) = Network::king_bucket_and_flip(p, board.king_sq(p));
+            *this.accs[0].side_mut(p) = this.finny.entry(p, bucket, flip).accum;
         }
+        this
+    }
 
-        let level = Level::baseline();
-        let sum = dispatch!(level, simd => {
-            let mut sum = self.update_and_eval_side(simd, board, &occupancies, Color::White, white_out_w);
-            sum += self.update_and_eval_side(simd, board, &occupancies, Color::Black, black_out_w);
-
+    pub fn eval(&mut self, board: &Board, stack: &mut SearchStack, ply: u16) -> i16 {
+        let (out_bucket, white_w, black_w) = NNUE.output_layer(board);
+        let sum = dispatch!(Level::baseline(), simd => {
+            let mut sum = self.eval_side(simd, board, stack, ply, Color::White, white_w);
+            sum += self.eval_side(simd, board, stack, ply, Color::Black, black_w);
             sum.reduce_sum()
         });
 
-        let mut out = sum / QA;
-        out += NNUE.output_bias[bucket_index] as i32;
-        out *= SCALE;
-        out /= QA * QB;
-        out as i16
+        let eval = NNUE.finalize(out_bucket, sum);
+        debug_assert_eq!(eval, evaluate(board));
+        eval
     }
 
     #[inline(always)]
-    fn screlu_accumulate<S: Simd>(
-        simd: S,
-        val_vec: i16x32<S>,
-        out_w: &[i16],
-        zero: i16x32<S>,
-        qa: i16x32<S>,
-        sum: &mut i32x16<S>,
-    ) {
-        let clamped = val_vec.max(zero).min(qa);
-
-        #[cfg(all(target_arch = "x86_64", target_feature = "avx512bw"))]
-        unsafe {
-            use std::arch::x86_64::*;
-            let c: __m512i = clamped.into();
-            let w = _mm512_load_si512(out_w.as_ptr() as *const __m512i);
-            let p = _mm512_mullo_epi16(c, w);
-            let dot = _mm512_madd_epi16(c, p);
-            let s: __m512i = (*sum).into();
-            *sum = SimdFrom::simd_from(simd, _mm512_add_epi32(s, dot));
-        }
-
-        #[cfg(not(all(target_arch = "x86_64", target_feature = "avx512bw")))]
-        {
-            let (lower_val, upper_val) = clamped.widen();
-            let (lower_weight, upper_weight) = i16x32::from_slice(simd, out_w).widen();
-            *sum += lower_val * lower_val * lower_weight;
-            *sum += upper_val * upper_val * upper_weight;
-        }
-    }
-
-    #[inline(always)]
-    fn update_and_eval_side<S: Simd>(
+    fn eval_side<S: Simd>(
         &mut self,
         simd: S,
         board: &Board,
-        occupancies: &[u64; ColoredPiece::NB],
+        stack: &mut SearchStack,
+        ply: u16,
         perspective: Color,
-        out_w: &[i16],
+        out_w: &[i16; HIDDEN_SIZE],
     ) -> i32x16<S> {
+        let pi = perspective as usize;
         let (bucket, flip) = Network::king_bucket_and_flip(perspective, board.king_sq(perspective));
-        let flip_idx = if flip != 0 { 1 } else { 0 };
-        let entry = &mut self.0[perspective as usize][bucket][flip_idx];
 
-        let mut added_count = 0;
-        let mut removed_count = 0;
-        let mut added_features = [0usize; 32];
-        let mut removed_features = [0usize; 32];
-
-        let zero = i16x32::splat(simd, 0);
-        let qa = i16x32::splat(simd, QA as i16);
-        let mut total_sum = i32x16::splat(simd, 0);
-
-        for (i, &current_bb) in occupancies.iter().enumerate() {
-            let cached_bb = &mut entry.occupancies[i];
-            if current_bb == *cached_bb {
-                continue;
+        // Walk back to the last computed ply, or refresh if our king changed bucket
+        let mut base = ply;
+        while !stack[base].acc_computed[pi] {
+            if changes_king_bucket(stack[base].stack_move, perspective) {
+                stack[ply].acc_computed[pi] = true;
+                let dst = self.accs[ply as usize].side_mut(perspective);
+                return self.finny.refresh(simd, board, perspective, dst, out_w);
             }
-
-            let added = current_bb & !*cached_bb;
-            let removed = *cached_bb & !current_bb;
-            *cached_bb = current_bb;
-
-            let colored_piece = ColoredPiece::ALL[i];
-            for_each_bit!(sq in added => {
-                let index = Network::feature_index(perspective, colored_piece, sq, flip);
-                unsafe { *added_features.get_unchecked_mut(added_count) = index };
-                added_count += 1;
-            });
-
-            for_each_bit!(sq in removed => {
-                let index = Network::feature_index(perspective, colored_piece, sq, flip);
-                unsafe { *removed_features.get_unchecked_mut(removed_count) = index };
-                removed_count += 1;
-            });
+            base -= 1;
         }
 
-        let min_count = added_count.min(removed_count);
-        let has_changes = added_count > 0 || removed_count > 0;
-        let n = i16x32::<S>::LEN;
-        const K: usize = 4;
-
-        for b in (0..HIDDEN_SIZE).step_by(K * n) {
-            let mut acc0 = i16x32::from_slice(simd, &entry.accum[b..b + n]);
-            let mut acc1 = i16x32::from_slice(simd, &entry.accum[b + n..b + 2 * n]);
-            let mut acc2 = i16x32::from_slice(simd, &entry.accum[b + 2 * n..b + 3 * n]);
-            let mut acc3 = i16x32::from_slice(simd, &entry.accum[b + 3 * n..b + 4 * n]);
-
-            for i in 0..min_count {
-                let add_w = NNUE.feature_weights(added_features[i], bucket);
-                let sub_w = NNUE.feature_weights(removed_features[i], bucket);
-
-                acc0 = acc0 + i16x32::from_slice(simd, &add_w[b..b + n])
-                    - i16x32::from_slice(simd, &sub_w[b..b + n]);
-                acc1 = acc1 + i16x32::from_slice(simd, &add_w[b + n..b + 2 * n])
-                    - i16x32::from_slice(simd, &sub_w[b + n..b + 2 * n]);
-                acc2 = acc2 + i16x32::from_slice(simd, &add_w[b + 2 * n..b + 3 * n])
-                    - i16x32::from_slice(simd, &sub_w[b + 2 * n..b + 3 * n]);
-                acc3 = acc3 + i16x32::from_slice(simd, &add_w[b + 3 * n..b + 4 * n])
-                    - i16x32::from_slice(simd, &sub_w[b + 3 * n..b + 4 * n]);
-            }
-
-            for &feat in &added_features[min_count..added_count] {
-                let add_w = NNUE.feature_weights(feat, bucket);
-                acc0 += i16x32::from_slice(simd, &add_w[b..b + n]);
-                acc1 += i16x32::from_slice(simd, &add_w[b + n..b + 2 * n]);
-                acc2 += i16x32::from_slice(simd, &add_w[b + 2 * n..b + 3 * n]);
-                acc3 += i16x32::from_slice(simd, &add_w[b + 3 * n..b + 4 * n]);
-            }
-
-            for &feat in &removed_features[min_count..removed_count] {
-                let sub_w = NNUE.feature_weights(feat, bucket);
-                acc0 -= i16x32::from_slice(simd, &sub_w[b..b + n]);
-                acc1 -= i16x32::from_slice(simd, &sub_w[b + n..b + 2 * n]);
-                acc2 -= i16x32::from_slice(simd, &sub_w[b + 2 * n..b + 3 * n]);
-                acc3 -= i16x32::from_slice(simd, &sub_w[b + 3 * n..b + 4 * n]);
-            }
-
-            if has_changes {
-                acc0.store_slice(&mut entry.accum[b..b + n]);
-                acc1.store_slice(&mut entry.accum[b + n..b + 2 * n]);
-                acc2.store_slice(&mut entry.accum[b + 2 * n..b + 3 * n]);
-                acc3.store_slice(&mut entry.accum[b + 3 * n..b + 4 * n]);
-            }
-
-            Self::screlu_accumulate(simd, acc0, &out_w[b..b + n], zero, qa, &mut total_sum);
-            Self::screlu_accumulate(
+        let mut src = base as usize;
+        for i in base + 1..=ply {
+            let m = stack[i].stack_move;
+            let Some(piece) = m.moved_piece else {
+                continue; // Skip null moves
+            };
+            let (lo, hi) = self.accs.split_at_mut(i as usize);
+            let delta = move_delta(m, piece, perspective, flip);
+            let sum = apply_delta_screlu_dot(
                 simd,
-                acc1,
-                &out_w[b + n..b + 2 * n],
-                zero,
-                qa,
-                &mut total_sum,
+                lo[src].side(perspective),
+                hi[0].side_mut(perspective),
+                &delta,
+                bucket,
+                out_w,
             );
-            Self::screlu_accumulate(
-                simd,
-                acc2,
-                &out_w[b + 2 * n..b + 3 * n],
-                zero,
-                qa,
-                &mut total_sum,
-            );
-            Self::screlu_accumulate(
-                simd,
-                acc3,
-                &out_w[b + 3 * n..b + 4 * n],
-                zero,
-                qa,
-                &mut total_sum,
-            );
+            stack[i].acc_computed[pi] = true;
+            src = i as usize;
+            if i == ply {
+                return sum;
+            }
         }
 
-        total_sum
+        screlu_dot(simd, self.accs[src].side(perspective), out_w)
     }
+}
+
+#[inline(always)]
+fn changes_king_bucket(m: StackMove, perspective: Color) -> bool {
+    m.moved_piece == Some(ColoredPiece::new(Piece::King, perspective))
+        && Network::king_bucket_and_flip(perspective, m.mov.from())
+            != Network::king_bucket_and_flip(perspective, m.mov.to())
+}
+
+/// Feature changes of a non-null move
+#[inline(always)]
+fn move_delta(m: StackMove, piece: ColoredPiece, perspective: Color, flip: u8) -> Delta<2> {
+    let (mov, us) = (m.mov, piece.color());
+    let index = |piece, sq| Network::feature_index(perspective, piece, sq, flip);
+    let to_piece = mov
+        .promotion_piece()
+        .map_or(piece, |promo| ColoredPiece::new(promo, us));
+
+    let mut delta = Delta::new();
+    delta.sub(index(piece, mov.from()));
+    delta.add(index(to_piece, mov.to()));
+    if let Some(captured) = m.captured {
+        delta.sub(index(captured, mov.capture_square(us)));
+    } else if mov.is_castle() {
+        let (rook_from, rook_to) = mov.castling_rook_squares(us);
+        let rook = ColoredPiece::new(Piece::Rook, us);
+        delta.sub(index(rook, rook_from));
+        delta.add(index(rook, rook_to));
+    }
+    delta
 }

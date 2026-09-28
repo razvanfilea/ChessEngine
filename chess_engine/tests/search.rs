@@ -1,7 +1,14 @@
 use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::move_gen::gen_all_moves;
-use chess_engine::nnue::FinnyTable;
+use chess_engine::nnue::{FinnyTable, evaluate};
+
+/// A Finny table whose entries have already seen `board`.
+fn primed_table(board: &Board) -> FinnyTable {
+    let mut table = FinnyTable::default();
+    table.eval(board);
+    table
+}
 use chess_engine::search::{HistoryTable, search as engine_search};
 use chess_engine::time::TimeManager;
 use chess_engine::transposition::{TTEntry, TTFlag, TranspositionTable};
@@ -34,10 +41,10 @@ fn test_finny_single_move_parity() {
         let mut child = board.clone();
         child.make_move(mov);
 
-        let mut table = FinnyTable::new(&board).0;
+        let mut table = primed_table(&board);
         let actual = table.eval(&child);
 
-        let expected = FinnyTable::new(&child).1;
+        let expected = evaluate(&child);
 
         assert_eq!(actual, expected, "mismatch for move {mov:?}");
         tested += 1;
@@ -69,11 +76,11 @@ fn test_finny_two_move_parity() {
         let mut b2 = b1.clone();
         b2.make_move(mov2);
 
-        let mut table = FinnyTable::new(&board).0;
+        let mut table = primed_table(&board);
         let _ = table.eval(&b1);
         let actual = table.eval(&b2);
 
-        let expected = FinnyTable::new(&b2).1;
+        let expected = evaluate(&b2);
 
         assert_eq!(
             actual,
@@ -103,7 +110,7 @@ fn test_finny_tree_parity() {
             }
             let undo = board.make_move(mov);
             let actual = table.eval(board);
-            let expected = FinnyTable::new(board).1;
+            let expected = evaluate(board);
             assert_eq!(
                 actual,
                 expected,
@@ -119,7 +126,7 @@ fn test_finny_tree_parity() {
     let mut board =
         Board::from_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1")
             .unwrap();
-    let mut table = FinnyTable::new(&board).0;
+    let mut table = primed_table(&board);
     dfs(&mut board, &mut table, 2);
 }
 

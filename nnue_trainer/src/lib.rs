@@ -15,7 +15,7 @@ pub fn build_trainer()
     ValueTrainerBuilder::default()
         .dual_perspective()
         .optimiser(AdamW)
-        .inputs(ChessBucketsMirrored::new(BUCKET_LAYOUT))
+        .inputs(ChessBucketsMirrored::new(BUCKET_LAYOUT.map(usize::from)))
         .output_buckets(MaterialCount::<OUTPUT_BUCKETS>)
         .save_format(&[
             SavedFormat::id("l0w")

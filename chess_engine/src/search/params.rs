@@ -19,7 +19,7 @@ pub const fn piece_value(piece: Piece) -> i16 {
     PIECE_VALUES[piece as usize]
 }
 
-pub(super) const MAX_PLY: u16 = 64;
+pub const MAX_PLY: u16 = 64;
 pub(super) const MAX_KILLER_MOVES: usize = 2;
 pub(super) const MAX_HISTORY: i32 = 10_000;
 

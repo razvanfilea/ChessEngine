@@ -1,6 +1,6 @@
 use crate::move_gen::scoring::see_ge;
 use crate::move_gen::{MAX_MOVES, MoveListPtr, ScoredMove, gen_all_moves};
-use crate::nnue::FinnyTable;
+use crate::nnue::AccumulatorStack;
 use crate::time::{Instant, TimeManager};
 use chess_core::bitboard::{RANK_2, RANK_7};
 use chess_core::prelude::*;
@@ -79,7 +79,7 @@ struct Searcher<'a> {
     stop_requested: Arc<AtomicBool>,
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
-    finny_table: FinnyTable,
+    nnue: AccumulatorStack,
     stack: SearchStack,
     pv_table: [[Move; MAX_PLY as usize]; MAX_PLY as usize],
     history: HistoryTable,
@@ -99,9 +99,10 @@ impl<'a> Searcher<'a> {
 
         let mut stack = SearchStack::default();
         stack[0].hash = board.hash;
+        stack[0].acc_computed = [true; Color::NB];
 
         Self {
-            finny_table: FinnyTable::new(&board).0,
+            nnue: AccumulatorStack::new(&board),
             board,
             history_keys,
             stop_requested,
@@ -298,7 +299,8 @@ impl<'a> Searcher<'a> {
 
     #[inline(always)]
     fn eval_position(&mut self) -> i16 {
-        self.finny_table.eval(&self.board)
+        let ply = self.ply();
+        self.nnue.eval(&self.board, &mut self.stack, ply)
     }
 
     fn nega_max<const IS_PV: bool>(
@@ -350,13 +352,14 @@ impl<'a> Searcher<'a> {
             None => (Move::NONE, EVAL_NONE),
         };
 
-        if static_eval == EVAL_NONE && !in_check {
+        let can_prune = !IS_PV && !in_check;
+        if static_eval == EVAL_NONE && can_prune {
             static_eval = self.eval_position();
         }
         self.stack[ply].eval = static_eval;
 
         let bad_node = depth >= 4 && tt_move.is_none();
-        if !IS_PV && !in_check && bad_node {
+        if can_prune && bad_node {
             depth -= 1;
         }
 
@@ -370,60 +373,59 @@ impl<'a> Searcher<'a> {
             true
         };
 
-        // TODO: tighten the RFP margin on bad nodes
-        // Reverse Futility Pruning
-        let rfp_margin = (RFP_MARGIN_SLOPE * depth as i16)
-            - (RFP_IMPROVING_BONUS * improving as i16)
-            + if tt_move.is_none() {
-                RFP_NO_TT_MARGIN
-            } else {
-                0
-            };
+        if can_prune {
+            // Reverse Futility Pruning
+            let rfp_margin = (RFP_MARGIN_SLOPE * depth as i16)
+                - (RFP_IMPROVING_BONUS * improving as i16)
+                + if tt_move.is_none() {
+                    RFP_NO_TT_MARGIN
+                } else {
+                    0
+                };
 
-        if !IS_PV
-            && !in_check
-            && depth <= RFP_DEPTH
-            && beta < MATE_THRESHOLD
-            && (tt_move.is_none() || !tt_move.is_tactical())
-            && has_non_pawn
-            && static_eval >= beta.saturating_add(rfp_margin)
-        {
-            return ((static_eval as i32 + beta as i32) / 2) as i16;
-        }
-
-        // Null Move Pruning
-        if !IS_PV
-            && !in_check
-            && can_null
-            && depth >= NMP_MIN_REDUCTION
-            && static_eval >= beta
-            && beta < MATE_THRESHOLD
-            && has_non_pawn
-        {
-            let undo = self.board.make_null_move();
-            self.stack[ply + 1].set_null_move();
-            self.stack[ply + 1].hash = self.board.hash;
-
-            let eval_margin = (static_eval - beta).max(0);
-            let eval_bonus =
-                ((eval_margin / NMP_EVAL_DIVISOR).min(NMP_MAX_EVAL_BONUS as i16)) as u8;
-            let reduction = NMP_MIN_REDUCTION + depth / NMP_DEPTH_DIVISOR + eval_bonus;
-
-            let score = -self.nega_max::<false>(
-                move_buffer,
-                -beta,
-                -beta + 1,
-                depth.saturating_sub(reduction),
-                false,
-            );
-            self.board.undo_null_move(undo);
-
-            if self.stopped {
-                return 0;
+            if depth <= RFP_DEPTH
+                && beta < MATE_THRESHOLD
+                && (tt_move.is_none() || !tt_move.is_tactical())
+                && has_non_pawn
+                && static_eval >= beta.saturating_add(rfp_margin)
+            {
+                return ((static_eval as i32 + beta as i32) / 2) as i16;
             }
 
-            if score >= beta {
-                return beta;
+            // TODO: Razoring
+
+            // Null Move Pruning
+            if can_null
+                && depth >= NMP_MIN_REDUCTION
+                && static_eval >= beta
+                && beta < MATE_THRESHOLD
+                && has_non_pawn
+            {
+                let undo = self.board.make_null_move();
+                self.stack[ply + 1].set_null_move();
+                self.stack[ply + 1].hash = self.board.hash;
+
+                let eval_margin = (static_eval - beta).max(0);
+                let eval_bonus =
+                    ((eval_margin / NMP_EVAL_DIVISOR).min(NMP_MAX_EVAL_BONUS as i16)) as u8;
+                let reduction = NMP_MIN_REDUCTION + depth / NMP_DEPTH_DIVISOR + eval_bonus;
+
+                let score = -self.nega_max::<false>(
+                    move_buffer,
+                    -beta,
+                    -beta + 1,
+                    depth.saturating_sub(reduction),
+                    false,
+                );
+                self.board.undo_null_move(undo);
+
+                if self.stopped {
+                    return 0;
+                }
+
+                if score >= beta {
+                    return beta;
+                }
             }
         }
 
@@ -480,8 +482,7 @@ impl<'a> Searcher<'a> {
             }
 
             // Move Count Based Pruning (Late Move Pruning)
-            if !IS_PV
-                && !in_check
+            if can_prune
                 && depth <= LMP_MAX_DEPTH
                 && quiet_moves > lmp_threshold
                 && !mov.is_tactical()
@@ -494,11 +495,10 @@ impl<'a> Searcher<'a> {
             }
 
             // Futility Pruning
-            if !IS_PV
+            if can_prune
                 && depth < FUTILITY_MAX_DEPTH
                 && legal_moves > FUTILITY_MIN_LEGAL_MOVES
                 && !(alpha > MATE_THRESHOLD)
-                && !in_check
                 && futility_margin_eval <= alpha
                 && !mov.is_tactical()
                 && mov.flags() != MoveFlags::DoublePawn

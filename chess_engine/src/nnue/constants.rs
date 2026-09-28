@@ -6,7 +6,7 @@ pub const SCALE: i32 = 400;
 pub const OUTPUT_BUCKETS: usize = 8;
 
 #[rustfmt::skip]
-pub const BUCKET_LAYOUT: [usize; 32] = [
+pub const BUCKET_LAYOUT: [u8; 32] = [
     0, 0, 1, 2, // rank 1: a1, b1 | c1 | d1 (center Ke1)
     3, 3, 4, 4, // rank 2: a2, b2 (g2 flank) | c2, d2 (center Ke2)
     5, 5, 5, 5, // rank 3: midfield

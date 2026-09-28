@@ -25,7 +25,7 @@ A strong, modern UCI chess engine written in Rust featuring an embedded NNUE eva
 ## Building
 
 ### Prerequisites
-- [Rust toolchain](https://rustup.rs/) (Rust 1.85+ / 2024 edition compatible).
+- [Rust toolchain](https://rustup.rs/) (Rust 1.98+ / 2024 edition compatible).
 - [Git LFS](https://git-lfs.com/) — the NNUE network weights (`chess_engine/src/nnue/*.bin`) are stored with Git LFS. Run `git lfs pull` after cloning if your git client doesn't fetch LFS objects automatically.
 
 ### Compiling

@@ -1,13 +1,14 @@
 use std::hint::assert_unchecked;
 
 use super::constants::*;
+use crate::board::Board;
 use chess_core::prelude::*;
 
 #[repr(C, align(64))]
 pub struct Network {
     pub feature_weights: [[[i16; HIDDEN_SIZE]; 768]; INPUT_BUCKETS],
     pub feature_biases: [i16; HIDDEN_SIZE],
-    pub output_weights: [[i16; 2 * HIDDEN_SIZE]; OUTPUT_BUCKETS],
+    pub output_weights: [[[i16; HIDDEN_SIZE]; 2]; OUTPUT_BUCKETS],
     pub output_bias: [i16; OUTPUT_BUCKETS],
 }
 
@@ -43,7 +44,7 @@ impl Network {
         let flip = if file > 3 { 7 } else { 0 };
         let index = (rank * 4) + (file ^ flip);
 
-        (BUCKET_LAYOUT[index as usize], flip)
+        (BUCKET_LAYOUT[index as usize] as usize, flip)
     }
 
     #[inline(always)]
@@ -58,11 +59,34 @@ impl Network {
     }
 
     #[inline(always)]
-    pub fn bucket_index(piece_count: usize) -> usize {
-        let bucket = (piece_count - 2) / 32usize.div_ceil(OUTPUT_BUCKETS);
+    pub fn bucket_index(piece_count: u8) -> usize {
+        let bucket = (piece_count - 2) / 32u8.div_ceil(OUTPUT_BUCKETS as u8);
         unsafe {
-            assert_unchecked(bucket < OUTPUT_BUCKETS);
+            assert_unchecked(bucket < OUTPUT_BUCKETS as u8);
         }
-        bucket
+        bucket as usize
+    }
+
+    /// Output bucket and the (white, black) perspective output weights for `board`
+    #[inline(always)]
+    pub fn output_layer(&'static self, board: &Board) -> (usize, OutputWeights, OutputWeights) {
+        let bucket = Self::bucket_index(board.occupied().count_ones() as u8);
+        let [us, them] = &self.output_weights[bucket];
+        match board.to_play {
+            Color::White => (bucket, us, them),
+            Color::Black => (bucket, them, us),
+        }
+    }
+
+    #[inline(always)]
+    pub fn finalize(&self, out_bucket: usize, sum: i32) -> i16 {
+        let mut out = sum / QA;
+        out += self.output_bias[out_bucket] as i32;
+        out *= SCALE;
+        out /= QA * QB;
+        out as i16
     }
 }
+
+pub type SideAccumulator = [i16; HIDDEN_SIZE];
+pub type OutputWeights = &'static [i16; HIDDEN_SIZE];
