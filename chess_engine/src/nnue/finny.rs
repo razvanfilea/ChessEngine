@@ -3,10 +3,10 @@
 
 use super::{
     constants::*,
-    kernels::{Delta, apply_delta_screlu_dot},
+    kernels::{Delta, apply_delta_in_place_screlu_dot},
     network::{NNUE, Network, SideAccumulator},
 };
-use crate::{board::Board, nnue::kernels::clone_side_accumulator};
+use crate::board::Board;
 use chess_core::{for_each_bit, prelude::*};
 use fearless_simd::{Level, Simd, dispatch, i32x16, prelude::*};
 
@@ -74,8 +74,6 @@ impl FinnyTable {
             for_each_bit!(sq in cached & !current => { delta.sub(index(sq)) });
         }
 
-        let sum = apply_delta_screlu_dot(simd, &entry.accum, dst, &delta, bucket, out_w);
-        clone_side_accumulator(simd, dst, &mut entry.accum);
-        sum
+        apply_delta_in_place_screlu_dot(simd, &mut entry.accum, dst, &delta, bucket, out_w)
     }
 }

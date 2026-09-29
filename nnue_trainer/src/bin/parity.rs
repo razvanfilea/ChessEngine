@@ -1,4 +1,4 @@
-use chess_engine::{board::Board, nnue::FinnyTable};
+use chess_engine::{board::Board, nnue::evaluate};
 use nnue_trainer::{SCALE, build_trainer};
 
 const CHECKPOINT: &str = "checkpoints/lucky-v5-200";
@@ -42,7 +42,7 @@ fn main() {
 
     for &fen in FENS {
         let board = Board::from_fen(fen).expect("Invalid FEN");
-        let engine_cp = FinnyTable::new(&board).1 as f32;
+        let engine_cp = evaluate(&board) as f32;
 
         let bullet_out = trainer.eval(fen);
         let bullet_cp = bullet_out * SCALE as f32;

@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
-![Estimated Rating](https://img.shields.io/badge/CCRL%20Blitz-~3,560%20--%203,570%20Elo-brightgreen.svg)
+![Estimated Rating](https://img.shields.io/badge/CCRL%20Blitz-~3,570%20--%203,590%20Elo-brightgreen.svg)
 [![WASM](https://img.shields.io/badge/WebAssembly-Supported-purple.svg)](chess_web/)
 [![CI](https://github.com/razvanfilea/ChessEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/razvanfilea/ChessEngine/actions/workflows/ci.yml)
 
@@ -65,10 +65,17 @@ cargo build-wasm
 
 ## Implemented Algorithms & Techniques
 
+**Move Generation**
+- Bitboards with PEXT slider attacks when BMI2 is available, magic bitboards otherwise (tables generated at build time)
+- Staged move picker: TT move → captures → quiets → bad captures (evasions only when in check)
+- Pseudo-legal generation with a legality filter; `gives_check` from a per-node `CheckInfo`
+- Static Exchange Evaluation (SEE) for move ordering and pruning
+
 **Search**
 - Alpha-Beta Pruning (Negamax framework)
 - Principal Variation Search (PVS)
 - Iterative Deepening with Aspiration Windows
+- Transposition Table with aging and depth-preferred replacement, storing static eval, prefetched after each move
 - Internal Iterative Reductions (IIR)
 - Quiescence Search
 
@@ -90,10 +97,19 @@ cargo build-wasm
 - Bad captures deferred after quiets
 
 **Evaluation**
-- **NNUE**: `(768 → 1536)x2 → 8` architecture with output buckets by piece count
-- Perspective network (vertically mirrored for black) with incremental accumulator updates
+- **NNUE**: `(768×8 → 1536)x2 → 1×8` architecture, SCReLU activation, QA = 255 / QB = 64
+  - 8 king buckets on the input side, mirrored horizontally (king on files e–h flips the board)
+  - 8 output buckets selected by piece count
+- Perspective network (vertically mirrored for black)
+- Lazy accumulator stack: incremental updates from the parent ply, with Finny-table refreshes when a king changes bucket
+- Fused SIMD update + SCReLU dot-product kernels via `fearless_simd`
 - Win-probability scaled evaluation (~400 units/pawn)
-- Trained on [Stockfish-generated data](https://huggingface.co/datasets/linrock/bullet-training-data) using the [`bullet`](https://github.com/jw1912/bullet) framework
+- Trained on 20B positions of Leela-derived data ([linrock's test77/test79 sets](https://huggingface.co/datasets/linrock/bullet-training-data)) using the [`bullet`](https://github.com/jw1912/bullet) framework
+
+**Time Management**
+- Soft and hard time limits; best-move stability decides whether to start another iteration
+- Supports `wtime`/`btime`/`winc`/`binc`/`movestogo`, `movetime`, `depth`, `nodes` and `infinite`
+- Configurable `Move Overhead` for GUI and network lag
 
 ---
 
@@ -103,8 +119,13 @@ cargo build-wasm
 `uci`, `isready`, `setoption`, `ucinewgame`, `position`, `go`, `stop`, `quit`.
 
 ### Additional Commands
-- `bench [depth]` — deterministic search over a fixed set of positions
-- `go perft <depth>` — move generation/validation performance test
+- `eval` — static NNUE evaluation of the current position
+- `d` / `display` — print the current board
+- `perft <depth>` / `go perft <depth>` — move generation/validation performance test
+
+The `lucky_chess` binary also accepts these, on stdin or as arguments (e.g. `lucky_chess bench 12`):
+- `bench [depth]` — deterministic search over a fixed set of positions (default depth 10, 16 MB hash)
+- `perft-suite [depth]` — perft over a suite of reference positions
 
 ### Configurable Options
 | Option | Type | Default | Range | Description |
@@ -112,14 +133,44 @@ cargo build-wasm
 | `Hash` | spin | `64` | 1 – 1024 MB | Transposition table memory size |
 | `ClearHash` | button | — | — | Clears the transposition table |
 | `Move Overhead` | spin | `10` | 0 – 5000 ms | Time buffer for communication / GUI lag |
+| `Threads` | spin | `1` | 1 – 1 | Single-threaded search (accepted for GUI compatibility) |
+
+---
+
+## Benchmarks & Testing
+
+### Tests
+`cargo test --all` runs the suite in `chess_engine/tests/`: perft, per-piece move generation, legality, make/undo,
+FEN, SEE, Zobrist hashing, draw detection, time management, and NNUE accumulator-stack vs from-scratch evaluation.
+
+### SPRT
+`benchmarks/sprt_self_play.sh [elo0] [elo1] [tc]` builds the current tree and plays it against a saved baseline
+(`benchmarks/save_baseline.sh`) with [`fastchess`](https://github.com/Disservin/fastchess). Defaults: `8+0.08`,
+bounds `[0, 5]`.
+
+### Gauntlet
+`benchmarks/gauntlet_ccrl_blitz.sh [tc] [rounds] [concurrency]` runs a CCRL Blitz-style gauntlet (8moves_v3 book,
+CCRL adjudication, 1 thread) against Pawn 4.0, Prune 4.0.1, Oxide 3.0 and Akimbo 1.0.0; each round is 8 games.
+
+Latest result (v5 net, 160 games per engine, before Akimbo replaced Ursus):
+
+| Rank | Engine | Elo | Score |
+|---|---|---|---|
+| 1 | **LuckyChess (v5)** | **+50.3 ± 29.0** | **57.2%** |
+| 2 | Pawn 4.0 (3557) | +43.7 ± 31.0 | 56.2% |
+| 3 | Sirius 9.0 (3528) | +2.2 ± 34.4 | 50.3% |
+| 4 | Oxide 3.0 (3530) | −6.5 ± 24.5 | 49.1% |
+| 5 | Ursus (3509) | −91.1 ± 31.7 | 37.2% |
+
+Against a field averaging ~3,530 CCRL Blitz this is roughly 3,580; with ±29 Elo of noise, the badge gives a range.
 
 ---
 
 ## Workspace Architecture
 
 ```text
-├── chess_core/       # Core types, bitboards, board state, perft
-├── chess_engine/     # Move generation, search, NNUE evaluation, time management, UCI protocol
+├── chess_core/       # Core types: bitboards, squares, pieces, moves, castling rights
+├── chess_engine/     # Board state, move generation, search, NNUE evaluation, time management, UCI protocol, perft
 ├── chess_cli/        # Native CLI binary executable (lucky_chess)
 ├── chess_web/        # C-FFI / WebAssembly cdylib & browser frontend
 ├── chess_android/    # JNI bindings and Android / Wear OS companion app
@@ -136,6 +187,7 @@ While the codebase is original, LuckyChess stands on the shoulders of the open-s
 - **[Stockfish](https://github.com/official-stockfish/Stockfish)**
 - **[Alexandria](https://github.com/mhouppin/alexandria)**
 - **[jw1912](https://github.com/jw1912)** — creator of the [`bullet`](https://github.com/jw1912/bullet) training framework
+- **[linrock](https://huggingface.co/linrock)** — Leela-derived NNUE training data
 - **[Chess Programming Wiki](https://www.chessprogramming.org/)** — invaluable resource for chess algorithms, magic bitboards, and search techniques
 - **Tools & Libraries**:
   - `uci-parser` for UCI command parsing
@@ -145,7 +197,7 @@ While the codebase is original, LuckyChess stands on the shoulders of the open-s
 ---
 
 ## Development Note & AI Usage
-LuckyChess is an original engine. In the interest of transparency within the chess programming community, AI assistance (LLMs) was restricted exclusively to authoring unit tests and test fixtures. All algorithmic architecture — including move generation, search pruning and ordering heuristics, and the NNUE pipeline — was conceived and authored entirely by hand.
+LuckyChess is an original engine. In the interest of transparency within the chess programming community: AI assistants (LLMs) were used during development for tests and fixtures, profiling and benchmark analysis, and code review. The engine's architecture, design decisions and training runs are the author's, and every engine change was validated by SPRT.
 
 ---
 
