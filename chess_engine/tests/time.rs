@@ -117,7 +117,7 @@ fn test_time_manager_move_overhead() {
 fn test_search_movetime_limit() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
+    let tt = Arc::new(TranspositionTable::with_buckets(16));
 
     let tm = TimeManager::from_movetime(Duration::from_millis(50));
     let start = chess_engine::time::Instant::now();
@@ -134,7 +134,7 @@ fn test_search_movetime_limit() {
 fn test_tt_not_polluted_when_stopped() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(true)); // Pre-stopped
-    let tt = TranspositionTable::with_buckets(16);
+    let tt = Arc::new(TranspositionTable::with_buckets(16));
 
     let tm = TimeManager::from_depth(10);
     let _ = search(board, &[], tm, stop_requested, &tt, |_| {});
@@ -148,7 +148,7 @@ fn test_tt_not_polluted_when_stopped() {
 fn test_search_nodes_limit() {
     let board = Board::start_pos();
     let stop_requested = Arc::new(AtomicBool::new(false));
-    let tt = TranspositionTable::with_buckets(16);
+    let tt = Arc::new(TranspositionTable::with_buckets(16));
 
     let tm = TimeManager::from_nodes(5000);
     let best_move = search(board.clone(), &[], tm, stop_requested, &tt, |_| {});

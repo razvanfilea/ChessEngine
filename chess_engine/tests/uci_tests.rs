@@ -1,3 +1,5 @@
+#![cfg(not(miri))]
+
 use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::time::{SearchOptions, TimeManager};

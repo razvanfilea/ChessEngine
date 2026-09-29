@@ -123,6 +123,14 @@ impl ChessGame {
         &self.board
     }
 
+    pub fn position_keys(&self) -> Vec<u64> {
+        self.history
+            .iter()
+            .map(|entry| entry.undo_info.hash)
+            .chain([self.board.hash])
+            .collect()
+    }
+
     pub fn record_search_stats(&mut self, time_ms: u64, advanced_stats: String) {
         self.search_time_ms = time_ms;
         if !advanced_stats.is_empty() {

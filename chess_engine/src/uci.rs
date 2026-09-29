@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::nnue::evaluate;
-use crate::search::{INFINITY, MATE_THRESHOLD, piece_value, search};
+use crate::search::{INFINITY, MATE_THRESHOLD, Searcher, piece_value};
 use crate::time::{SearchOptions, TimeManager};
 use crate::transposition::TranspositionTable;
 use crate::{board::Board, move_gen::gen_all_moves};
@@ -14,8 +14,9 @@ pub type OutputCallback = Arc<dyn Fn(String) + Send + Sync>;
 pub struct UciState {
     board: Board,
     game_history: Vec<u64>,
+    searcher: Option<Box<Searcher>>,
     #[cfg(not(target_family = "wasm"))]
-    search_thread: Option<std::thread::JoinHandle<()>>,
+    search_thread: Option<std::thread::JoinHandle<Box<Searcher>>>,
     stop_requested: Arc<AtomicBool>,
     tt: Arc<TranspositionTable>,
     output_cb: OutputCallback,
@@ -32,13 +33,16 @@ impl UciState {
     pub fn new(output_cb: impl Fn(String) + Send + Sync + 'static) -> Self {
         let board = Board::start_pos();
         let game_history = vec![board.hash];
+        let stop_requested = Arc::<AtomicBool>::default();
+        let tt = Arc::new(TranspositionTable::new(64));
         Self {
             board,
             game_history,
+            searcher: Some(Searcher::new(tt.clone(), stop_requested.clone())),
             #[cfg(not(target_family = "wasm"))]
             search_thread: None,
-            stop_requested: Arc::default(),
-            tt: Arc::new(TranspositionTable::new(64)),
+            stop_requested,
+            tt,
             output_cb: Arc::new(output_cb),
             move_overhead: crate::time::DEFAULT_MOVE_OVERHEAD_MS,
         }
@@ -67,8 +71,14 @@ impl UciState {
             if stop {
                 self.stop_requested.store(true, Ordering::Relaxed);
             }
-            let _ = thread.join();
+            self.searcher = thread.join().ok();
         }
+    }
+
+    fn take_searcher(&mut self) -> Box<Searcher> {
+        self.searcher
+            .take()
+            .unwrap_or_else(|| Searcher::new(self.tt.clone(), self.stop_requested.clone()))
     }
 
     #[cfg(target_family = "wasm")]
@@ -114,6 +124,9 @@ uciok"#,
                 self.board = Board::start_pos();
                 self.game_history = vec![self.board.hash];
                 self.tt.clear();
+                if let Some(searcher) = &mut self.searcher {
+                    searcher.clear_histories();
+                }
             }
             "position" => self.set_position(args),
             "go" => match split_first_word(args) {
@@ -158,7 +171,11 @@ uciok"#,
         match name.as_str() {
             "hash" => {
                 if let Some(mb) = value.and_then(|v| v.parse::<usize>().ok()) {
+                    self.join_search(true);
                     self.tt = Arc::new(TranspositionTable::new(mb.clamp(1, 1024)));
+                    if let Some(searcher) = &mut self.searcher {
+                        searcher.set_tt(self.tt.clone());
+                    }
                 }
             }
             "clearhash" => self.tt.clear(),
@@ -225,29 +242,21 @@ uciok"#,
 
         self.stop_requested.store(false, Ordering::Relaxed);
 
-        if let Some(tt) = Arc::get_mut(&mut self.tt) {
-            tt.new_search();
-        }
+        self.tt.new_search();
 
         let board = self.board.clone();
-        let history = self.game_history.clone();
-        let stop_requested = self.stop_requested.clone();
         let tt = self.tt.clone();
         let output_cb = self.output_cb.clone();
+
+        let mut searcher = self.take_searcher();
+        searcher.prepare_for_search(board.clone(), &self.game_history, time_manager);
 
         let run_search = move || {
             let on_info = |line: String| {
                 output_cb(line);
             };
 
-            let best = search(
-                board.clone(),
-                &history,
-                time_manager,
-                stop_requested,
-                &tt,
-                on_info,
-            );
+            let best = searcher.search(on_info);
             let mut ponder = None;
             if best != Move::NONE {
                 let mut next_board = board;
@@ -265,6 +274,7 @@ uciok"#,
                 None => format!("bestmove {}", format_move(best)),
             };
             output_cb(best_line);
+            searcher
         };
 
         #[cfg(not(target_family = "wasm"))]
@@ -274,7 +284,7 @@ uciok"#,
 
         #[cfg(target_family = "wasm")]
         {
-            run_search();
+            self.searcher = Some(run_search());
         }
     }
 }

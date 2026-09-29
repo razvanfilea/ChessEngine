@@ -18,64 +18,31 @@ pub use history::*;
 pub use params::*;
 pub use stack::*;
 
+/// One-off search with fresh histories (bench, tests).
 pub fn search(
     board: Board,
     history: &[u64],
     time_manager: TimeManager,
     stop_requested: Arc<AtomicBool>,
-    tt: &TranspositionTable,
-    mut on_info: impl FnMut(String),
+    tt: &Arc<TranspositionTable>,
+    on_info: impl FnMut(String),
 ) -> Move {
-    let start_time = Instant::now();
-    let max_depth = time_manager.limits.max_depth;
-
-    let mut move_buffer = [ScoredMove::default(); MAX_PLY as usize * MAX_MOVES / 2];
-    let move_ptr = MoveListPtr(move_buffer.as_mut_ptr());
-    let mut search = Searcher::new(board, history, stop_requested, tt, time_manager);
-    let mut best_score = -INFINITY;
-    let mut completed_best_move = Move::NONE;
-    let mut prev_best_move = Move::NONE;
-
-    'iterative: for current_depth in 1..=max_depth {
-        search.selective_depth = 0;
-        best_score = search.aspiration_search(move_ptr, current_depth, best_score);
-
-        if search.stopped {
-            break;
-        }
-
-        let current_best_move = search.pv_table[0][0];
-        if current_best_move != Move::NONE && search.board.legal(current_best_move) {
-            completed_best_move = current_best_move;
-        }
-
-        let line = search.uci_info(current_depth, best_score, start_time);
-        on_info(line);
-
-        let move_is_stable = current_best_move == prev_best_move;
-        prev_best_move = current_best_move;
-
-        if search.stop_requested.load(Ordering::Relaxed)
-            || search
-                .time_manager
-                .should_stop_after_depth(current_depth, move_is_stable)
-        {
-            search.stopped = true;
-            break 'iterative;
-        }
-    }
-
-    search.resolve_best_move(completed_best_move)
+    let mut searcher = Searcher::new(tt.clone(), stop_requested);
+    searcher.prepare_for_search(board, history, time_manager);
+    searcher.search(on_info)
 }
+
+/// Long-lived search state, kept on the heap across `go`s so histories and the Finny table
+/// carry over between moves. Per-search state is reset by `prepare_for_search`.
 #[repr(C)]
-struct Searcher<'a> {
+pub struct Searcher {
     nodes_searched: u64,
     root_ply: u16,
     selective_depth: u8,
     stopped: bool,
-    tt: &'a TranspositionTable,
+    tt: Arc<TranspositionTable>,
     board: Board,
-    history_keys: &'a [u64],
+    history_keys: Vec<u64>,
     stop_requested: Arc<AtomicBool>,
     time_manager: TimeManager,
     lmr_table: &'static LmrTable,
@@ -86,38 +53,97 @@ struct Searcher<'a> {
     cont_history: ContinuationHistoryTable,
 }
 
-impl<'a> Searcher<'a> {
-    fn new(
-        board: Board,
-        history_keys: &'a [u64],
-        stop_requested: Arc<AtomicBool>,
-        tt: &'a TranspositionTable,
-        time_manager: TimeManager,
-    ) -> Self {
-        let root_ply = board.ply;
-        let stopped = stop_requested.load(Ordering::Relaxed);
-
-        let mut stack = SearchStack::default();
-        stack[0].hash = board.hash;
-        stack[0].acc_computed = [true; Color::NB];
-
-        Self {
+impl Searcher {
+    pub fn new(tt: Arc<TranspositionTable>, stop_requested: Arc<AtomicBool>) -> Box<Self> {
+        let board = Board::start_pos();
+        let mut searcher = Box::new(Self {
             nnue: AccumulatorStack::new(&board),
-            board,
-            history_keys,
+            board: board.clone(),
+            history_keys: Vec::new(),
             stop_requested,
             tt,
             lmr_table: &*LMR_TABLE,
-            time_manager,
-            stopped,
+            time_manager: TimeManager::from_depth(1),
+            stopped: false,
             selective_depth: 0,
             nodes_searched: 0,
-            stack,
-            root_ply,
+            stack: SearchStack::default(),
+            root_ply: 0,
             pv_table: [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize],
             history: HistoryTable::default(),
             cont_history: ContinuationHistoryTable::default(),
+        });
+        searcher.prepare_for_search(board, &[], TimeManager::from_depth(1));
+        searcher
+    }
+
+    pub fn prepare_for_search(&mut self, board: Board, keys: &[u64], tm: TimeManager) {
+        self.history.halve();
+        self.cont_history.halve();
+        self.stack = SearchStack::default();
+        self.stack[0].hash = board.hash;
+        self.stack[0].acc_computed = [true; Color::NB];
+        self.nnue.reset(&board);
+        self.root_ply = board.ply;
+        self.board = board;
+        self.history_keys.clear();
+        self.history_keys.extend_from_slice(keys);
+        self.time_manager = tm;
+        self.stopped = self.stop_requested.load(Ordering::Relaxed);
+        self.selective_depth = 0;
+        self.nodes_searched = 0;
+        self.pv_table = [[Move::default(); MAX_PLY as usize]; MAX_PLY as usize];
+    }
+
+    pub fn clear_histories(&mut self) {
+        self.history = HistoryTable::default();
+        self.cont_history = ContinuationHistoryTable::default();
+    }
+
+    pub fn set_tt(&mut self, tt: Arc<TranspositionTable>) {
+        self.tt = tt;
+    }
+
+    pub fn search(&mut self, mut on_info: impl FnMut(String)) -> Move {
+        let start_time = Instant::now();
+        let max_depth = self.time_manager.limits.max_depth;
+
+        let mut move_buffer = [ScoredMove::default(); MAX_PLY as usize * MAX_MOVES / 2];
+        let move_ptr = MoveListPtr(move_buffer.as_mut_ptr());
+        let mut best_score = -INFINITY;
+        let mut completed_best_move = Move::NONE;
+        let mut prev_best_move = Move::NONE;
+
+        'iterative: for current_depth in 1..=max_depth {
+            self.selective_depth = 0;
+            best_score = self.aspiration_search(move_ptr, current_depth, best_score);
+
+            if self.stopped {
+                break;
+            }
+
+            let current_best_move = self.pv_table[0][0];
+            if current_best_move != Move::NONE && self.board.legal(current_best_move) {
+                completed_best_move = current_best_move;
+            }
+
+            let line = self.uci_info(current_depth, best_score, start_time);
+            on_info(line);
+
+            let move_is_stable = current_best_move == prev_best_move;
+            prev_best_move = current_best_move;
+
+            if self.stop_requested.load(Ordering::Relaxed)
+                || self
+                    .time_manager
+                    .should_stop_after_depth(current_depth, move_is_stable)
+            {
+                self.stopped = true;
+                break 'iterative;
+            }
         }
+
+        self.resolve_best_move(completed_best_move)
     }
 
     fn aspiration_search(&mut self, move_ptr: MoveListPtr, depth: u8, prev_score: i16) -> i16 {
@@ -391,8 +417,6 @@ impl<'a> Searcher<'a> {
             {
                 return ((static_eval as i32 + beta as i32) / 2) as i16;
             }
-
-            // TODO: Razoring
 
             // Null Move Pruning
             if can_null

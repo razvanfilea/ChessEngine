@@ -68,6 +68,7 @@ pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_initBoard(
     is_player_white: jboolean,
 ) -> jobject {
     env.with_env(|env| -> jni::errors::Result<jobject> {
+        ENGINE.new_game();
         let mut g = game();
         *g = ChessGame::new(is_player_white);
         let snap = g.get_snapshot();
@@ -90,6 +91,7 @@ pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_loadFenMov
         let len = moves.len(env)?;
         let mut buf = vec![0i32; len];
         moves.get_region(env, 0, &mut buf)?;
+        ENGINE.new_game();
         let maybe_snap = game().load_fen_moves(&fen_str, &buf, is_player_white);
         match maybe_snap {
             Some(snap) => {
@@ -215,16 +217,13 @@ pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_search(
     hash_size_mb: jint,
     _thread_count: jint,
 ) -> jint {
-    // 1. Clone board while briefly locking GAME
-    let board = {
+    let (board, position_keys) = {
         let g = game();
-        g.board().clone()
+        (g.board().clone(), g.position_keys())
     };
 
-    // 2. Perform search decoupled from GAME mutex
-    let result = ENGINE.search(board, depth, max_time_ms, hash_size_mb);
+    let result = ENGINE.search(board, &position_keys, depth, max_time_ms, hash_size_mb);
 
-    // 3. Update search debug stats in GAME (brief lock)
     {
         let mut g = game();
         g.record_search_stats(result.search_time_ms, result.advanced_stats);

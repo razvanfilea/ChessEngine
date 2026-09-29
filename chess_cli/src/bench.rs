@@ -74,7 +74,7 @@ pub const BENCH_POSITIONS: &[&str] = &[
 ];
 
 pub fn run_bench(depth: u8, tt_mb: usize, mut output_cb: impl FnMut(String)) -> u64 {
-    let tt = TranspositionTable::new(tt_mb);
+    let tt = Arc::new(TranspositionTable::new(tt_mb));
     let stop_requested = Arc::new(AtomicBool::new(false));
 
     let mut total_nodes = 0u64;

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering::Relaxed};
 
 use chess_core::Move;
 
@@ -193,7 +193,7 @@ struct TTBucket([AtomicTTEntry; BUCKET_SIZE]);
 pub struct TranspositionTable {
     buckets: Box<[TTBucket]>,
     /// Current search generation (0..=63, matching `flag_age >> 2`).
-    age: u8,
+    age: AtomicU8,
 }
 
 impl TranspositionTable {
@@ -205,12 +205,20 @@ impl TranspositionTable {
     pub fn with_buckets(bucket_count: usize) -> Self {
         let bucket_count = bucket_count.max(1);
         let buckets = (0..bucket_count).map(|_| TTBucket::default()).collect();
-        Self { buckets, age: 0 }
+        Self {
+            buckets,
+            age: AtomicU8::default(),
+        }
     }
 
     #[inline(always)]
-    pub fn new_search(&mut self) {
-        self.age = (self.age + 1) & 0x3F;
+    fn age(&self) -> u8 {
+        self.age.load(Relaxed)
+    }
+
+    #[inline(always)]
+    pub fn new_search(&self) {
+        self.age.store((self.age() + 1) & 0x3F, Relaxed);
     }
 
     pub fn clear(&self) {
@@ -253,7 +261,7 @@ impl TranspositionTable {
     #[inline]
     pub fn store(&self, hash: u64, mut entry: TTEntry, ply: u16) {
         entry.value = TTEntry::score_to_tt(entry.value, ply);
-        entry.set_age(self.age);
+        entry.set_age(self.age());
 
         let bucket = self.bucket(hash);
         let (victim_idx, victim_entry, victim_hash) = self.select_victim(bucket, hash);
@@ -270,7 +278,7 @@ impl TranspositionTable {
 
         // Avoid overwriting a deep entry from the current generation with a shallow bound
         if same_pos {
-            let is_current_search = victim_entry.age() == self.age;
+            let is_current_search = victim_entry.age() == self.age();
             if is_current_search && (entry.depth as i16) + 3 < (victim_entry.depth as i16) {
                 // If we found a move where none was recorded, update only the move
                 if victim_entry.mov.is_none() && !entry.mov.is_none() {
@@ -317,7 +325,7 @@ impl TranspositionTable {
     /// Lower = more replaceable. Rewards depth, penalizes stale search generations.
     #[inline(always)]
     fn quality(&self, entry: &TTEntry) -> i32 {
-        let age_diff = (self.age.wrapping_sub(entry.age()) & 0x3F) as i32;
+        let age_diff = (self.age().wrapping_sub(entry.age()) & 0x3F) as i32;
         entry.depth as i32 - age_diff * 4
     }
 
@@ -328,7 +336,7 @@ impl TranspositionTable {
         for bucket in &self.buckets[..sample_size] {
             for slot in &bucket.0 {
                 let (entry, _) = slot.load();
-                if entry.depth > 0 && entry.age() == self.age {
+                if entry.depth > 0 && entry.age() == self.age() {
                     used += 1;
                 }
             }
@@ -404,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_hashfull_and_aging() {
-        let mut tt = TranspositionTable::with_buckets(16);
+        let tt = TranspositionTable::with_buckets(16);
         assert_eq!(tt.hashfull(), 0);
 
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);

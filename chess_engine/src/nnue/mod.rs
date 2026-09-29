@@ -49,12 +49,17 @@ impl AccumulatorStack {
                 .into_boxed_slice(),
             finny: FinnyTable::default(),
         };
-        this.finny.eval(board);
+        this.reset(board);
+        this
+    }
+
+    pub fn reset(&mut self, board: &Board) {
+        self.finny.eval(board);
+        // Sets `board` as the root (ply 0)
         for p in [Color::White, Color::Black] {
             let (bucket, flip) = Network::king_bucket_and_flip(p, board.king_sq(p));
-            *this.accs[0].side_mut(p) = this.finny.entry(p, bucket, flip).accum;
+            *self.accs[0].side_mut(p) = self.finny.entry(p, bucket, flip).accum;
         }
-        this
     }
 
     pub fn eval(&mut self, board: &Board, stack: &mut SearchStack, ply: u16) -> i16 {
