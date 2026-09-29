@@ -1,6 +1,19 @@
-use chess_core::Color;
+use chess_core::{Color, Move};
 use std::time::Duration;
-use uci_parser::messages::UciSearchOptions;
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SearchOptions {
+    pub searchmoves: Vec<Move>,
+    pub wtime: Option<Duration>,
+    pub btime: Option<Duration>,
+    pub winc: Option<Duration>,
+    pub binc: Option<Duration>,
+    pub movestogo: Option<u64>,
+    pub depth: Option<u64>,
+    pub nodes: Option<u64>,
+    pub movetime: Option<Duration>,
+    pub infinite: bool,
+}
 
 #[cfg(not(target_family = "wasm"))]
 pub use std::time::Instant;
@@ -107,14 +120,10 @@ impl TimeManager {
         }
     }
 
-    pub fn from_uci_options(
-        opts: &UciSearchOptions,
-        to_play: Color,
-        move_overhead_ms: u64,
-    ) -> Self {
+    pub fn from_options(opts: &SearchOptions, to_play: Color, move_overhead_ms: u64) -> Self {
         let start_time = Instant::now();
-        let max_depth = opts.depth.map_or(64, |d| (d as u8).clamp(1, 64));
-        let max_nodes = opts.nodes.map(|n| (n as u64).max(1));
+        let max_depth = opts.depth.map_or(64, |d| d.clamp(1, 64) as u8);
+        let max_nodes = opts.nodes.map(|n| n.max(1));
         let infinite = opts.infinite;
 
         if let Some(movetime) = opts.movetime {
@@ -139,7 +148,7 @@ impl TimeManager {
         };
 
         let (optimum_time, max_time) = if let Some(remaining) = time {
-            let moves_to_go = opts.movestogo.unwrap_or(40).clamp(1, 50) as u64;
+            let moves_to_go = opts.movestogo.unwrap_or(40).clamp(1, 50);
             let time_ms = remaining.as_millis() as u64;
             let inc_ms = inc.as_millis() as u64;
 

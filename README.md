@@ -190,7 +190,6 @@ While the codebase is original, LuckyChess stands on the shoulders of the open-s
 - **[linrock](https://huggingface.co/linrock)** — Leela-derived NNUE training data
 - **[Chess Programming Wiki](https://www.chessprogramming.org/)** — invaluable resource for chess algorithms, magic bitboards, and search techniques
 - **Tools & Libraries**:
-  - `uci-parser` for UCI command parsing
   - `fearless_simd` for portable SIMD acceleration
   - `fastchess` for automated SPRT testing
 

@@ -269,28 +269,53 @@ fn test_resilience_and_malformed_fen() {
     assert_eq!(board.to_play, Color::White);
     assert_eq!(board.castling_rights, CastlingRights::ALL);
 
-    // Garbage characters in piece string should not crash
-    let weird_chars = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR!#$ w KQkq - 0 1";
-    let board = Board::from_fen(weird_chars);
-    assert!(board.is_some());
+    for bad in [
+        "",
+        "     ",
+        "not a fen",
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR!#$ w KQkq - 0 1",
+        "pppppppppppp/8/8/8/8/8/8/8 w - - 0 1",
+        "ppppppp/8/8/8/8/8/8/8 w - - 0 1",
+        "44/8/8/8/8/8/8/8 w - - 0 1",
+        "9/8/8/8/8/8/8/8 w - - 0 1",
+        "0p7/8/8/8/8/8/8/8 w - - 0 1",
+        "8/8/8/8/8/8/8 w - - 0 1",
+        "8/8/8/8/8/8/8/8/8/8/8 w - - 0 1",
+        "8/8/8/8/8/8/8/8 x - - 0 1",
+        "8/8/8/8/8/8/8/8 W - - 0 1",
+        "8/8/8/8/8/8/8/8 w KX - 0 1",
+        "8/8/8/8/8/8/8/8 w - e3x 0 1",
+        "8/8/8/8/8/8/8/8 w - zz 0 1",
+        "8/8/8/8/8/8/8/8 w - - abc 1",
+        "8/8/8/8/8/8/8/8 w - - 0 -1",
+        "8/8/8/8/8/8/8/8 w - - 0 1 extra",
+    ] {
+        assert!(Board::from_fen(bad).is_none(), "accepted: {bad:?}");
+    }
+}
 
-    // Overflow files in rank should not crash
-    let long_rank = "pppppppppppp/8/8/8/8/8/8/8 w - - 0 1";
-    let board = Board::from_fen(long_rank);
-    assert!(board.is_some());
+#[test]
+fn test_half_move_clock_saturates() {
+    let board = Board::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 300 200").unwrap();
+    assert_eq!(board.half_move_clock, u8::MAX);
+}
 
-    // Extra ranks should not crash
-    let extra_ranks = "8/8/8/8/8/8/8/8/8/8/8 w - - 0 1";
-    let board = Board::from_fen(extra_ranks);
-    assert!(board.is_some());
+#[test]
+fn test_castling_rights_need_king_and_rook() {
+    let board = Board::from_fen("4k3/8/8/8/8/8/8/4K3 w KQkq - 0 1").unwrap();
+    assert_eq!(board.castling_rights, CastlingRights::empty());
 
-    // Empty string
-    let empty_str = "";
-    assert!(Board::from_fen(empty_str).is_none());
+    let board = Board::from_fen("r3k3/8/8/8/8/8/8/4K2R w KQkq - 0 1").unwrap();
+    assert_eq!(
+        board.castling_rights,
+        CastlingRights::WHITE_00 | CastlingRights::BLACK_000
+    );
 
-    // Whitespace only string
-    let spaces_only = "     ";
-    assert!(Board::from_fen(spaces_only).is_none());
+    let board = Board::from_fen("r3k2r/8/8/8/8/8/8/R2K3R w KQkq - 0 1").unwrap();
+    assert_eq!(
+        board.castling_rights,
+        CastlingRights::BLACK_00 | CastlingRights::BLACK_000
+    );
 }
 
 #[test]

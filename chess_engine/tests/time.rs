@@ -1,12 +1,11 @@
 use chess_core::prelude::*;
 use chess_engine::board::Board;
 use chess_engine::search::search;
-use chess_engine::time::TimeManager;
+use chess_engine::time::{SearchOptions, TimeManager};
 use chess_engine::transposition::TranspositionTable;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
-use uci_parser::messages::UciSearchOptions;
 
 #[test]
 fn test_time_manager_from_depth() {
@@ -19,7 +18,7 @@ fn test_time_manager_from_depth() {
 
 #[test]
 fn test_time_manager_clock_allocation_white_and_black() {
-    let opts = UciSearchOptions {
+    let opts = SearchOptions {
         wtime: Some(Duration::from_millis(60_000)),
         winc: Some(Duration::from_millis(1_000)),
         btime: Some(Duration::from_millis(30_000)),
@@ -27,12 +26,12 @@ fn test_time_manager_clock_allocation_white_and_black() {
         ..Default::default()
     };
 
-    let tm_w = TimeManager::from_uci_options(
+    let tm_w = TimeManager::from_options(
         &opts,
         Color::White,
         chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
     );
-    let tm_b = TimeManager::from_uci_options(
+    let tm_b = TimeManager::from_options(
         &opts,
         Color::Black,
         chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
@@ -47,13 +46,13 @@ fn test_time_manager_clock_allocation_white_and_black() {
 
 #[test]
 fn test_time_manager_movestogo() {
-    let opts = UciSearchOptions {
+    let opts = SearchOptions {
         wtime: Some(Duration::from_millis(60_000)),
         movestogo: Some(10),
         ..Default::default()
     };
 
-    let tm = TimeManager::from_uci_options(
+    let tm = TimeManager::from_options(
         &opts,
         Color::White,
         chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
@@ -66,13 +65,13 @@ fn test_time_manager_movestogo() {
 
 #[test]
 fn test_time_manager_panic_mode_low_time() {
-    let opts = UciSearchOptions {
+    let opts = SearchOptions {
         wtime: Some(Duration::from_millis(50)), // 50ms left
         winc: Some(Duration::from_millis(0)),
         ..Default::default()
     };
 
-    let tm = TimeManager::from_uci_options(
+    let tm = TimeManager::from_options(
         &opts,
         Color::White,
         chess_engine::time::DEFAULT_MOVE_OVERHEAD_MS,
@@ -85,14 +84,14 @@ fn test_time_manager_panic_mode_low_time() {
 
 #[test]
 fn test_time_manager_move_overhead() {
-    let opts = UciSearchOptions {
+    let opts = SearchOptions {
         wtime: Some(Duration::from_millis(10_000)),
         movestogo: Some(20),
         ..Default::default()
     };
 
-    let tm_low_overhead = TimeManager::from_uci_options(&opts, Color::White, 10);
-    let tm_high_overhead = TimeManager::from_uci_options(&opts, Color::White, 500);
+    let tm_low_overhead = TimeManager::from_options(&opts, Color::White, 10);
+    let tm_high_overhead = TimeManager::from_options(&opts, Color::White, 500);
 
     assert!(
         tm_low_overhead.limits.optimum_time.unwrap()
@@ -101,11 +100,11 @@ fn test_time_manager_move_overhead() {
     assert!(tm_low_overhead.limits.max_time.unwrap() > tm_high_overhead.limits.max_time.unwrap());
 
     // movetime with overhead
-    let movetime_opts = UciSearchOptions {
+    let movetime_opts = SearchOptions {
         movetime: Some(Duration::from_millis(100)),
         ..Default::default()
     };
-    let tm_movetime = TimeManager::from_uci_options(&movetime_opts, Color::White, 30);
+    let tm_movetime = TimeManager::from_options(&movetime_opts, Color::White, 30);
     assert_eq!(
         tm_movetime.limits.optimum_time,
         Some(Duration::from_millis(70))

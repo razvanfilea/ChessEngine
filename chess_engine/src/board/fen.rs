@@ -17,53 +17,77 @@ pub fn parse_fen(fen: &str) -> Option<Board> {
     let en_passant = tokens.next();
     let half_move = tokens.next();
     let full_move = tokens.next();
+    if tokens.next().is_some() {
+        return None;
+    }
 
-    let mut rank: i8 = 7;
-    let mut file: u8 = 0;
-
-    for ch in piece_placement.chars() {
-        match ch {
-            '1'..='8' => {
-                file += (ch as u8) - b'0';
-            }
-            '/' => {
-                rank -= 1;
-                file = 0;
-            }
-            'p' | 'r' | 'n' | 'b' | 'q' | 'k' | 'P' | 'R' | 'N' | 'B' | 'Q' | 'K'
-                if rank >= 0 && file < 8 =>
-            {
-                let sq = Sq::new(file, rank as u8)?;
-                board.add_piece(sq, ColoredPiece::parse(ch)?);
+    let mut ranks = piece_placement.split('/');
+    for rank in (0..8u8).rev() {
+        let mut file = 0;
+        let mut prev_digit = false;
+        for ch in ranks.next()?.chars() {
+            if let Some(empty) = ch.to_digit(10).filter(|d| (1..=8).contains(d)) {
+                if prev_digit {
+                    return None;
+                }
+                prev_digit = true;
+                file += empty as u8;
+            } else {
+                prev_digit = false;
+                board.add_piece(Sq::new(file, rank)?, ColoredPiece::parse(ch)?);
                 file += 1;
             }
-            _ => {}
+            if file > 8 {
+                return None;
+            }
         }
+        if file != 8 {
+            return None;
+        }
+    }
+    if ranks.next().is_some() {
+        return None;
     }
 
     board.to_play = match side_to_move {
-        Some("b") | Some("B") => Color::Black,
-        _ => Color::White,
+        None | Some("w") => Color::White,
+        Some("b") => Color::Black,
+        _ => return None,
     };
 
-    if let Some(castling_rights) = castling {
+    if let Some(castling_rights) = castling.filter(|&c| c != "-") {
         for ch in castling_rights.chars() {
-            let rights = match ch {
+            board.castling_rights |= match ch {
                 'K' => CastlingRights::WHITE_00,
                 'Q' => CastlingRights::WHITE_000,
                 'k' => CastlingRights::BLACK_00,
                 'q' => CastlingRights::BLACK_000,
-                _ => CastlingRights::empty(),
+                _ => return None,
             };
-
-            board.castling_rights |= rights;
         }
     }
 
-    if let Some(en_passant_sq) = en_passant {
-        let sq = Sq::parse(en_passant_sq);
+    // Drop rights whose king or rook has left its home square
+    for (rights, color, king, rook) in [
+        (CastlingRights::WHITE_00, Color::White, Sq::E1, Sq::H1),
+        (CastlingRights::WHITE_000, Color::White, Sq::E1, Sq::A1),
+        (CastlingRights::BLACK_00, Color::Black, Sq::E8, Sq::H8),
+        (CastlingRights::BLACK_000, Color::Black, Sq::E8, Sq::A8),
+    ] {
+        if board.piece_at(king) != Some(ColoredPiece::new(Piece::King, color))
+            || board.piece_at(rook) != Some(ColoredPiece::new(Piece::Rook, color))
+        {
+            board.castling_rights.remove(rights);
+        }
+    }
+
+    if let Some(en_passant_sq) = en_passant.filter(|&e| e != "-") {
+        if en_passant_sq.len() != 2 {
+            return None;
+        }
+        let sq = Sq::parse(en_passant_sq)?;
         let valid_rank = if board.to_play == Color::White { 5 } else { 2 };
-        if let Some(sq) = sq.filter(|sq| sq.rank() == valid_rank) {
+        if sq.rank() == valid_rank {
             let attackers = crate::attacks::pawn_attacks(sq, !board.to_play)
                 & board.color_piece(Piece::Pawn, board.to_play);
             if attackers != 0 {
@@ -72,13 +96,15 @@ pub fn parse_fen(fen: &str) -> Option<Board> {
         }
     }
 
-    board.half_move_clock = half_move
-        .and_then(|val| val.parse::<u8>().ok())
-        .unwrap_or(0);
+    board.half_move_clock = match half_move {
+        Some(val) => val.parse::<u32>().ok()?.min(u8::MAX.into()) as u8,
+        None => 0,
+    };
 
-    let counter = full_move
-        .and_then(|val| val.parse::<u16>().ok())
-        .unwrap_or(1);
+    let counter = match full_move {
+        Some(val) => val.parse::<u16>().ok()?,
+        None => 1,
+    };
     board.ply = (counter.saturating_sub(1)) * 2 + if board.to_play == Color::Black { 1 } else { 0 };
 
     if board.to_play == Color::White {

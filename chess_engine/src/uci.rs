@@ -1,13 +1,13 @@
 use chess_core::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use uci_parser::UciCommand;
+use std::time::Duration;
 
 use crate::nnue::evaluate;
-use crate::search::{INFINITY, MATE_THRESHOLD, piece_value};
-use crate::time::TimeManager;
+use crate::search::{INFINITY, MATE_THRESHOLD, piece_value, search};
+use crate::time::{SearchOptions, TimeManager};
 use crate::transposition::TranspositionTable;
-use crate::{board::Board, move_gen::gen_all_moves, search::search};
+use crate::{board::Board, move_gen::gen_all_moves};
 
 pub type OutputCallback = Arc<dyn Fn(String) + Send + Sync>;
 
@@ -74,45 +74,23 @@ impl UciState {
     #[cfg(target_family = "wasm")]
     fn join_search(&mut self, _stop: bool) {}
 
-    pub fn process_command(&mut self, input_string: &str) -> bool {
-        let trimmed = input_string.trim();
-        if trimmed.is_empty() {
-            return true;
-        }
+    pub fn process_command(&mut self, input: &str) -> bool {
+        let (command, args) = split_first_word(input.trim());
 
-        // Custom developer commands
-        if trimmed.eq_ignore_ascii_case("d") || trimmed.eq_ignore_ascii_case("display") {
-            self.display_board();
-            return true;
-        }
+        match command.to_ascii_lowercase().as_str() {
+            "" => {}
 
-        if trimmed.eq_ignore_ascii_case("eval") {
-            let eval = evaluate(&self.board);
-            self.output_line(format!("score: {}", format_score(eval)));
-            return true;
-        }
-
-        if let Some(rest) = trimmed.strip_prefix("perft") {
-            let depth = rest.trim().parse::<u8>().unwrap_or(1).max(1);
-            self.run_perft(depth);
-            return true;
-        }
-
-        if trimmed.eq_ignore_ascii_case("wait") {
-            self.join_search(false);
-            return true;
-        }
-
-        let command = match trimmed.parse::<UciCommand>() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to parse: {e}");
-                return true;
+            // Custom developer commands
+            "d" | "display" => self.display_board(),
+            "eval" => {
+                let eval = evaluate(&self.board);
+                self.output_line(format!("score: {}", format_score(eval)));
             }
-        };
+            "perft" => self.run_perft(parse_perft_depth(args)),
+            "wait" => self.join_search(false),
 
-        match command {
-            UciCommand::Uci => {
+            // Standard UCI commands
+            "uci" => {
                 self.output_line(
                     r#"id name Lucky Chess 2.0
 id author Răzvan Filea
@@ -123,82 +101,108 @@ option name Threads type spin default 1 min 1 max 1
 uciok"#,
                 );
             }
-            UciCommand::Debug(_) => {}
-            UciCommand::IsReady => {
+            "debug" | "ponderhit" => {}
+            "isready" => {
                 self.join_search(false);
                 self.output_line("readyok");
             }
-            UciCommand::SetOption { name, value } => {
-                if name.eq_ignore_ascii_case("Hash") {
-                    if let Some(mb) = value.and_then(|v| v.parse().ok()) {
-                        self.tt = Arc::new(TranspositionTable::new(mb));
-                    }
-                } else if name.eq_ignore_ascii_case("ClearHash") {
-                    self.tt.clear();
-                } else if (name.eq_ignore_ascii_case("Move Overhead")
-                    || name.eq_ignore_ascii_case("MoveOverhead"))
-                    && let Some(ms) = value.and_then(|v| v.parse().ok())
-                {
-                    self.move_overhead = ms;
-                } else if name.eq_ignore_ascii_case("Threads") {
-                    // Lucky Chess is currently single-threaded
-                }
-            }
-            UciCommand::Register { .. } => self.output_line("registration ok"),
-            UciCommand::UciNewGame => {
+            "setoption" => self.set_option(args),
+            "register" => self.output_line("registration ok"),
+            "ucinewgame" => {
                 self.join_search(true);
                 self.stop_requested.store(false, Ordering::Relaxed);
                 self.board = Board::start_pos();
                 self.game_history = vec![self.board.hash];
                 self.tt.clear();
             }
-            UciCommand::Position { fen, moves } => {
-                self.board = if let Some(fen) = fen {
-                    let Some(new_board) = Board::from_fen(&fen) else {
-                        eprintln!("Invalid FEN");
-                        return true;
-                    };
-                    new_board
-                } else {
-                    Board::start_pos()
-                };
-
-                self.game_history = vec![self.board.hash];
-
-                for uci_move in moves {
-                    if let Some(mov) = self.find_move(uci_move) {
-                        let check_info = self.board.check_info();
-                        self.board.make_move(mov, &check_info);
-                        self.game_history.push(self.board.hash);
-                    } else {
-                        eprintln!("Illegal or unrecognized move in position command");
-                        break;
-                    }
+            "position" => self.set_position(args),
+            "go" => match split_first_word(args) {
+                (word, depth) if word.eq_ignore_ascii_case("perft") => {
+                    self.run_perft(parse_perft_depth(depth))
                 }
-            }
-            UciCommand::Go(opts) => {
-                if let Some(depth) = opts.perft {
-                    self.run_perft(depth as u8);
-                } else {
-                    let time_manager = TimeManager::from_uci_options(
-                        &opts,
-                        self.board.to_play,
-                        self.move_overhead,
-                    );
+                _ => {
+                    let opts = parse_go(args, &self.board);
+                    let time_manager =
+                        TimeManager::from_options(&opts, self.board.to_play, self.move_overhead);
                     self.start_search(time_manager);
                 }
-            }
-            UciCommand::Stop => {
-                self.join_search(true);
-            }
-            UciCommand::PonderHit => {}
-            UciCommand::Quit => {
+            },
+            "stop" => self.join_search(true),
+            "quit" => {
                 self.join_search(true);
                 return false;
             }
+            _ => eprintln!("Unknown command: {command}"),
         }
 
         true
+    }
+
+    fn set_option(&mut self, args: &str) {
+        let mut tokens = args.split_whitespace();
+        if !tokens
+            .next()
+            .is_some_and(|t| t.eq_ignore_ascii_case("name"))
+        {
+            return;
+        }
+
+        // Names are matched without spaces or case, so "Move Overhead" is "moveoverhead"
+        let name = tokens
+            .by_ref()
+            .take_while(|t| !t.eq_ignore_ascii_case("value"))
+            .collect::<String>()
+            .to_ascii_lowercase();
+        let value = tokens.next();
+
+        match name.as_str() {
+            "hash" => {
+                if let Some(mb) = value.and_then(|v| v.parse::<usize>().ok()) {
+                    self.tt = Arc::new(TranspositionTable::new(mb.clamp(1, 1024)));
+                }
+            }
+            "clearhash" => self.tt.clear(),
+            "moveoverhead" => {
+                if let Some(ms) = value.and_then(|v| v.parse::<u64>().ok()) {
+                    self.move_overhead = ms.min(5000);
+                }
+            }
+            // Lucky Chess is currently single-threaded
+            "threads" => {}
+            _ => eprintln!("Unknown option: {name}"),
+        }
+    }
+
+    fn set_position(&mut self, args: &str) {
+        let mut tokens = args.split_whitespace();
+        let kind = tokens.next();
+        let fen = tokens
+            .by_ref()
+            .take_while(|t| !t.eq_ignore_ascii_case("moves"))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let board = match kind.map(str::to_ascii_lowercase).as_deref() {
+            Some("startpos") => Some(Board::start_pos()),
+            Some("fen") => Board::from_fen(&fen).filter(has_one_king_each),
+            _ => None,
+        };
+        let Some(board) = board else {
+            eprintln!("Invalid position: {args}");
+            return;
+        };
+
+        self.board = board;
+        self.game_history = vec![self.board.hash];
+
+        for uci_move in tokens {
+            let Some(mov) = find_move(&self.board, uci_move) else {
+                eprintln!("Illegal or unrecognized move in position command: {uci_move}");
+                break;
+            };
+            self.board.make_move(mov, &self.board.check_info());
+            self.game_history.push(self.board.hash);
+        }
     }
 
     fn display_board(&self) {
@@ -273,33 +277,76 @@ uciok"#,
             run_search();
         }
     }
+}
 
-    fn find_move(&mut self, uci_move: uci_parser::types::UciMove) -> Option<Move> {
-        let from_sq = Sq::new(uci_move.src.0 as u8, uci_move.src.1 as u8)?;
-        let to_sq = Sq::new(uci_move.dst.0 as u8, uci_move.dst.1 as u8)?;
+fn find_move(board: &Board, uci_move: &str) -> Option<Move> {
+    let uci_move = uci_move.to_ascii_lowercase();
+    gen_all_moves(board)
+        .as_slice()
+        .iter()
+        .map(|scored_move| scored_move.mov)
+        .find(|&mov| format_move(mov) == uci_move && board.legal(mov))
+}
 
-        for &scored_move in gen_all_moves(&self.board).as_slice() {
-            let mov = scored_move.mov;
-            if mov.from() == from_sq && mov.to() == to_sq && self.board.legal(mov) {
-                // Check promotion match if applicable
-                if let Some(target_promo) = uci_move.promote {
-                    let promo_piece = match target_promo {
-                        uci_parser::types::Piece::Queen => Piece::Queen,
-                        uci_parser::types::Piece::Rook => Piece::Rook,
-                        uci_parser::types::Piece::Bishop => Piece::Bishop,
-                        uci_parser::types::Piece::Knight => Piece::Knight,
-                        _ => return None,
-                    };
-                    if mov.promotion_piece() == Some(promo_piece) {
-                        return Some(mov);
-                    }
-                } else if !mov.is_promotion() {
-                    return Some(mov);
+fn split_first_word(s: &str) -> (&str, &str) {
+    match s.split_once(char::is_whitespace) {
+        Some((word, rest)) => (word, rest.trim_start()),
+        None => (s, ""),
+    }
+}
+
+fn has_one_king_each(board: &Board) -> bool {
+    [Color::White, Color::Black]
+        .into_iter()
+        .all(|color| board.color_piece(Piece::King, color).count_ones() == 1)
+}
+
+fn parse_perft_depth(s: &str) -> u8 {
+    s.trim().parse::<u8>().unwrap_or(1).max(1)
+}
+
+// GUIs can send negative clock times
+fn parse_clamped(s: &str) -> Option<u64> {
+    s.parse::<i128>()
+        .ok()
+        .map(|n| n.clamp(0, u64::MAX.into()) as u64)
+}
+
+pub fn parse_go(args: &str, board: &Board) -> SearchOptions {
+    let mut opts = SearchOptions::default();
+
+    let mut tokens = args.split_whitespace().peekable();
+    while let Some(key) = tokens.next() {
+        let mut value = || tokens.next().and_then(parse_clamped);
+        match key.to_ascii_lowercase().as_str() {
+            "wtime" => opts.wtime = value().map(Duration::from_millis),
+            "btime" => opts.btime = value().map(Duration::from_millis),
+            "winc" => opts.winc = value().map(Duration::from_millis),
+            "binc" => opts.binc = value().map(Duration::from_millis),
+            "movetime" => opts.movetime = value().map(Duration::from_millis),
+            "movestogo" => opts.movestogo = value(),
+            "depth" => opts.depth = value(),
+            "nodes" => opts.nodes = value(),
+            "infinite" => opts.infinite = true,
+            // The list ends at the first token that is not a legal move, e.g. the next keyword
+            "searchmoves" => {
+                while let Some(mov) = tokens.peek().and_then(|t| find_move(board, t)) {
+                    opts.searchmoves.push(mov);
+                    tokens.next();
                 }
             }
+            _ => {}
         }
-        None
     }
+
+    // Without any limit, search until `stop`
+    opts.infinite |= opts.depth.is_none()
+        && opts.nodes.is_none()
+        && opts.movetime.is_none()
+        && opts.wtime.is_none()
+        && opts.btime.is_none();
+
+    opts
 }
 
 pub fn format_move(mov: Move) -> String {

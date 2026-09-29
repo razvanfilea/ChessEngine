@@ -328,7 +328,8 @@ impl Board {
         squares[Piece::Knight as usize] = knight_attacks(ksq);
         squares[Piece::Bishop as usize] = bishop_attacks(ksq, occ);
         squares[Piece::Rook as usize] = rook_attacks(ksq, occ);
-        squares[Piece::Queen as usize] = squares[Piece::Bishop as usize] | squares[Piece::Rook as usize];
+        squares[Piece::Queen as usize] =
+            squares[Piece::Bishop as usize] | squares[Piece::Rook as usize];
 
         CheckInfo {
             check_squares: squares,
@@ -415,9 +416,7 @@ impl Board {
             return true;
         }
 
-        if check_info.disc_blockers & from_bb != 0
-            && bb_line(from, enemy_king_sq) & to_bb == 0
-        {
+        if check_info.disc_blockers & from_bb != 0 && bb_line(from, enemy_king_sq) & to_bb == 0 {
             return true;
         }
 
