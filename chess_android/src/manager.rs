@@ -192,7 +192,8 @@ impl ChessGame {
             self.piece_ids[r_from] = NO_PIECE;
         }
 
-        let undo_info = self.board.make_move(mov);
+        let check_info = self.board.check_info();
+        let undo_info = self.board.make_move(mov, &check_info);
         self.history.push(HistoryEntry {
             mov,
             undo_info,

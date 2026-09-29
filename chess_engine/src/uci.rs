@@ -167,7 +167,8 @@ uciok"#,
 
                 for uci_move in moves {
                     if let Some(mov) = self.find_move(uci_move) {
-                        self.board.make_move(mov);
+                        let check_info = self.board.check_info();
+                        self.board.make_move(mov, &check_info);
                         self.game_history.push(self.board.hash);
                     } else {
                         eprintln!("Illegal or unrecognized move in position command");
@@ -246,7 +247,7 @@ uciok"#,
             let mut ponder = None;
             if best != Move::NONE {
                 let mut next_board = board;
-                next_board.make_move(best);
+                next_board.make_move(best, &next_board.check_info());
                 if let Some(entry) = tt.probe(next_board.hash, 1)
                     && entry.mov != Move::NONE
                     && next_board.legal(entry.mov)

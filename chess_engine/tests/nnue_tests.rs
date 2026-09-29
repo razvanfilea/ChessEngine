@@ -42,9 +42,10 @@ impl Walker {
         if depth == 0 {
             return;
         }
+        let check_info = self.board.check_info();
         for mov in legal_moves(&self.board) {
             let moved_piece = self.board.piece_at(mov.from());
-            let undo = self.board.make_move(mov);
+            let undo = self.board.make_move(mov, &check_info);
             self.stack[ply + 1].set_move(mov, moved_piece, undo.captured_piece);
             self.dfs(ply + 1, depth - 1);
             self.board.undo_move(mov, undo);
@@ -73,24 +74,28 @@ fn check_fen(fen: &str) {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_stack_eval_kiwipete() {
     check_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1");
     check_fen("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R b KQkq - 0 1");
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_stack_eval_promotions() {
     check_fen("r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1");
     check_fen("1r5k/P1P5/8/8/8/8/3K2p1/5R1R b - - 0 1");
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_stack_eval_en_passant() {
     check_fen("rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3");
     check_fen("rnbqkbnr/pppp1ppp/8/8/3PpP2/8/PPP1P1PP/RNBQKBNR b KQkq d3 0 3");
 }
 
 #[test]
+#[cfg_attr(miri, ignore)]
 fn test_stack_eval_king_buckets() {
     // Central kings cross the mirror line and bucket boundaries on almost every move.
     check_fen("8/3p4/4k3/8/8/3K4/4P3/R6r w - - 0 1");

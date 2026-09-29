@@ -402,6 +402,7 @@ impl<'a> Searcher<'a> {
                 && has_non_pawn
             {
                 let undo = self.board.make_null_move();
+                self.tt.prefetch(self.board.hash);
                 self.stack[ply + 1].set_null_move();
                 self.stack[ply + 1].hash = self.board.hash;
 
@@ -434,6 +435,7 @@ impl<'a> Searcher<'a> {
         let futility_margin_eval =
             static_eval.saturating_add(FUTILITY_MARGIN.saturating_mul(depth as i16));
         let orig_alpha = alpha;
+        let check_info = self.board.check_info();
         let mut moves = MoveGenerator::new(move_buffer, tt_move);
         let mut legal_moves = 0;
         let mut quiet_moves = 0;
@@ -475,7 +477,7 @@ impl<'a> Searcher<'a> {
                 continue;
             }
 
-            let move_gives_check = self.board.gives_check(mov);
+            let move_gives_check = self.board.gives_check(mov, &check_info);
 
             if skip_quiets && !mov.is_tactical() && !move_gives_check {
                 continue;
@@ -542,6 +544,7 @@ impl<'a> Searcher<'a> {
             let moved_piece = self.board.piece_at(mov.from());
             let us = self.board.to_play;
             let undo = self.board.make_move_fast(mov, move_gives_check);
+            self.tt.prefetch(self.board.hash);
             let child_ply = ply + 1;
             self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
             self.stack[child_ply].hash = self.board.hash;
@@ -698,6 +701,7 @@ impl<'a> Searcher<'a> {
             static_eval
         };
 
+        let check_info = self.board.check_info();
         let mut moves = MoveGenerator::quiescence(move_buffer, tt_move);
         let mut best_move = Move::NONE;
         let killer_moves = self.stack.get_killers(ply);
@@ -747,7 +751,8 @@ impl<'a> Searcher<'a> {
             }
 
             let moved_piece = self.board.piece_at(mov.from());
-            let undo = self.board.make_move(mov);
+            let undo = self.board.make_move(mov, &check_info);
+            self.tt.prefetch(self.board.hash);
             let child_ply = ply + 1;
             self.stack[child_ply].set_move(mov, moved_piece, undo.captured_piece);
             self.stack[child_ply].hash = self.board.hash;

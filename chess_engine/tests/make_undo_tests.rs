@@ -25,7 +25,7 @@ fn test_make_undo_for_fen(fen: &str) {
         if !child.legal(mov) {
             continue;
         }
-        let undo = child.make_move(mov);
+        let undo = child.make_move(mov, &child.check_info());
         assert_ne!(child, board, "make_move must change the board: {mov:?}");
         child.undo_move(mov, undo);
         assert_eq!(

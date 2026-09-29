@@ -41,7 +41,7 @@ fn test_hash_discrimination_ep() {
 #[test]
 fn test_hash_incremental_equals_from_scratch() {
     let mut board = Board::start_pos();
-    board.make_move(Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn));
+    board.make_move(Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn), &board.check_info());
     let expected =
         Board::from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1").unwrap();
     assert_eq!(board.hash, expected.hash);
@@ -58,7 +58,7 @@ fn test_hash_incremental_ruy_lopez() {
         Move::new(Sq::F1, Sq::B5, MoveFlags::Quiet),
     ];
     for m in moves {
-        board.make_move(m);
+        board.make_move(m, &board.check_info());
     }
     let expected =
         Board::from_fen("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3")
@@ -70,17 +70,17 @@ fn test_hash_incremental_ruy_lopez() {
 fn test_hash_transposition() {
     // Order A: g1f3, b8c6, b1c3, g8f6
     let mut board_a = Board::start_pos();
-    board_a.make_move(Move::new(Sq::G1, Sq::F3, MoveFlags::Quiet));
-    board_a.make_move(Move::new(Sq::B8, Sq::C6, MoveFlags::Quiet));
-    board_a.make_move(Move::new(Sq::B1, Sq::C3, MoveFlags::Quiet));
-    board_a.make_move(Move::new(Sq::G8, Sq::F6, MoveFlags::Quiet));
+    board_a.make_move(Move::new(Sq::G1, Sq::F3, MoveFlags::Quiet), &board_a.check_info());
+    board_a.make_move(Move::new(Sq::B8, Sq::C6, MoveFlags::Quiet), &board_a.check_info());
+    board_a.make_move(Move::new(Sq::B1, Sq::C3, MoveFlags::Quiet), &board_a.check_info());
+    board_a.make_move(Move::new(Sq::G8, Sq::F6, MoveFlags::Quiet), &board_a.check_info());
 
     // Order B: b1c3, g8f6, g1f3, b8c6
     let mut board_b = Board::start_pos();
-    board_b.make_move(Move::new(Sq::B1, Sq::C3, MoveFlags::Quiet));
-    board_b.make_move(Move::new(Sq::G8, Sq::F6, MoveFlags::Quiet));
-    board_b.make_move(Move::new(Sq::G1, Sq::F3, MoveFlags::Quiet));
-    board_b.make_move(Move::new(Sq::B8, Sq::C6, MoveFlags::Quiet));
+    board_b.make_move(Move::new(Sq::B1, Sq::C3, MoveFlags::Quiet), &board_b.check_info());
+    board_b.make_move(Move::new(Sq::G8, Sq::F6, MoveFlags::Quiet), &board_b.check_info());
+    board_b.make_move(Move::new(Sq::G1, Sq::F3, MoveFlags::Quiet), &board_b.check_info());
+    board_b.make_move(Move::new(Sq::B8, Sq::C6, MoveFlags::Quiet), &board_b.check_info());
 
     assert_eq!(board_a.hash, board_b.hash);
 }
@@ -90,7 +90,7 @@ fn test_hash_undo_restores() {
     let mut board = Board::start_pos();
     let h = board.hash;
     let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
-    let undo = board.make_move(mov);
+    let undo = board.make_move(mov, &board.check_info());
     assert_ne!(board.hash, h);
     board.undo_move(mov, undo);
     assert_eq!(board.hash, h);

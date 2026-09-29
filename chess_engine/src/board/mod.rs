@@ -48,19 +48,11 @@ impl Default for Board {
         }
     }
 }
-
-// TODO: Implement checker squares and lazy chckers/pinned calculation
-// #[derive(Default)]
-// pub struct BoardState {
-//     pub checkers: u64,
-//     pub pinned: u64,
-//     pub check_squares: [u64; Piece::NB],
-//     pub checkers_squares: u64,
-//     pub captured_piece: Option<ColoredPiece>,
-//     pub castling_rights: CastlingRights,
-//     pub en_passant_target_sq: Option<Sq>,
-//     pub half_move_clock: u8,
-// }
+pub struct CheckInfo {
+    pub check_squares: [u64; Piece::NB],
+    pub disc_blockers: u64,
+    pub enemy_ksq: Sq,
+}
 
 #[derive(Clone)]
 pub struct UndoInfo {
@@ -306,6 +298,45 @@ impl Board {
         }
     }
 
+    fn blockers(&self, king_sq: Sq, slider_color: Color, blocker_color: Color) -> u64 {
+        let slider_pieces = self.colors(slider_color);
+        let rooks = (self.pieces(Piece::Rook) | self.pieces(Piece::Queen)) & slider_pieces;
+        let bishops = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen)) & slider_pieces;
+
+        let snipers =
+            (rook_xray_attacks(king_sq) & rooks) | (bishop_xray_attacks(king_sq) & bishops);
+        let occupancy = self.occupied() ^ snipers;
+
+        let mut result = 0;
+        for_each_bit!(sq in snipers => {
+            let between = bb_between(king_sq, sq) & occupancy;
+            if bb_only_one(between) {
+                result |= between & self.colors(blocker_color);
+            }
+        });
+        result
+    }
+
+    pub fn check_info(&self) -> CheckInfo {
+        let us = self.to_play;
+        let them = !us;
+        let ksq = self.king_sq(them);
+        let occ = self.occupied();
+
+        let mut squares = [0; Piece::NB];
+        squares[Piece::Pawn as usize] = pawn_attacks(ksq, them);
+        squares[Piece::Knight as usize] = knight_attacks(ksq);
+        squares[Piece::Bishop as usize] = bishop_attacks(ksq, occ);
+        squares[Piece::Rook as usize] = rook_attacks(ksq, occ);
+        squares[Piece::Queen as usize] = squares[Piece::Bishop as usize] | squares[Piece::Rook as usize];
+
+        CheckInfo {
+            check_squares: squares,
+            disc_blockers: self.blockers(ksq, us, us),
+            enemy_ksq: ksq,
+        }
+    }
+
     #[inline]
     pub fn legal(&self, mov: Move) -> bool {
         let occupied = self.occupied();
@@ -370,21 +401,31 @@ impl Board {
     }
 
     #[inline]
-    pub fn gives_check(&self, mov: Move) -> bool {
+    pub fn gives_check(&self, mov: Move, check_info: &CheckInfo) -> bool {
         let from = mov.from();
         let to = mov.to();
         let from_bb = from.bitboard();
         let to_bb = to.bitboard();
-        let flags = mov.flags();
         let us = self.to_play;
-        let them = !us;
-
-        let enemy_king_sq = self.king_sq(them);
+        let enemy_king_sq = check_info.enemy_ksq;
         let enemy_king_bb = enemy_king_sq.bitboard();
-        let occupied = self.occupied();
+
+        let moved_piece = unsafe { self.piece_type_at(from) };
+        if check_info.check_squares[moved_piece as usize] & to_bb != 0 {
+            return true;
+        }
+
+        if check_info.disc_blockers & from_bb != 0
+            && bb_line(from, enemy_king_sq) & to_bb == 0
+        {
+            return true;
+        }
+
+        let flags = mov.flags();
 
         if mov.is_castle() {
             let (rook_from, rook_to) = flags.castling_rook_squares(us);
+            let occupied = self.occupied();
             let occ_after =
                 (occupied ^ (from_bb | rook_from.bitboard())) | (to_bb | rook_to.bitboard());
             return (attacks::rook_attacks(rook_to, occ_after) & enemy_king_bb) != 0;
@@ -392,10 +433,8 @@ impl Board {
 
         if flags == MoveFlags::EnPassant {
             let captured_pawn_sq = mov.capture_square(us);
+            let occupied = self.occupied();
             let occ_after = (occupied ^ from_bb ^ captured_pawn_sq.bitboard()) | to_bb;
-            if (attacks::pawn_attacks(to, us) & enemy_king_bb) != 0 {
-                return true;
-            }
             let our_rooks_queens =
                 (self.pieces(Piece::Rook) | self.pieces(Piece::Queen)) & self.colors(us) & !from_bb;
             let our_bishops_queens = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen))
@@ -406,48 +445,18 @@ impl Board {
                 != 0;
         }
 
-        let occ_after = (occupied ^ from_bb) | to_bb;
-
-        // Direct Check
-        let piece_checking = mov
-            .promotion_piece()
-            .unwrap_or_else(|| unsafe { self.piece_type_at(from) });
-
-        if piece_checking != Piece::King
-            && (attacks::piece_attack(piece_checking, to, us, occ_after) & enemy_king_bb) != 0
-        {
-            return true;
-        }
-
-        // Discovered Check
-        let line = bb_line(from, enemy_king_sq);
-        if line != 0 && (line & to_bb) == 0 {
-            if from.file() == enemy_king_sq.file() || from.rank() == enemy_king_sq.rank() {
-                let our_rooks_queens = (self.pieces(Piece::Rook) | self.pieces(Piece::Queen))
-                    & self.colors(us)
-                    & !from_bb;
-                if (attacks::rook_attacks(enemy_king_sq, occ_after) & our_rooks_queens & line) != 0
-                {
-                    return true;
-                }
-            } else {
-                let our_bishops_queens = (self.pieces(Piece::Bishop) | self.pieces(Piece::Queen))
-                    & self.colors(us)
-                    & !from_bb;
-                if (attacks::bishop_attacks(enemy_king_sq, occ_after) & our_bishops_queens & line)
-                    != 0
-                {
-                    return true;
-                }
-            }
+        if mov.is_promotion() {
+            let occ_after = (self.occupied() ^ from_bb) | to_bb;
+            let promo_piece = unsafe { mov.promotion_piece().unwrap_unchecked() };
+            return (attacks::piece_attack(promo_piece, to, us, occ_after) & enemy_king_bb) != 0;
         }
 
         false
     }
 
     #[inline]
-    pub fn make_move(&mut self, mov: Move) -> UndoInfo {
-        self.make_move_fast(mov, self.gives_check(mov))
+    pub fn make_move(&mut self, mov: Move, check_info: &CheckInfo) -> UndoInfo {
+        self.make_move_fast(mov, self.gives_check(mov, check_info))
     }
 
     #[inline]
@@ -456,6 +465,7 @@ impl Board {
         let to = mov.to();
         let flags = mov.flags();
         let us = self.to_play;
+        let them = !us;
         let original_hash = self.hash;
 
         debug_assert!(self.piece_at(from).is_some());
@@ -505,7 +515,7 @@ impl Board {
         }
         if flags == MoveFlags::DoublePawn {
             let target_sq = unsafe { to.shift(us.backward()) };
-            let attackers = pawn_attacks(target_sq, us) & self.color_piece(Piece::Pawn, !us);
+            let attackers = pawn_attacks(target_sq, us) & self.color_piece(Piece::Pawn, them);
             if attackers != 0 {
                 self.hash ^= ZOBRIST_KEYS.en_passant(target_sq);
                 self.en_passant_target_sq = Some(target_sq);
@@ -519,7 +529,7 @@ impl Board {
         }
 
         self.ply += 1;
-        self.to_play = !us;
+        self.to_play = them;
         self.hash ^= ZOBRIST_KEYS.side();
         self.pinned.set(UNCOMPUTED_PINNED);
         if mov_gives_check {

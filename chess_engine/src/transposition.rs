@@ -223,9 +223,19 @@ impl TranspositionTable {
 
     #[inline(always)]
     fn bucket(&self, hash: u64) -> &[AtomicTTEntry; BUCKET_SIZE] {
-        // Lemire fastrange mapping across high bits of hash
         let idx = ((hash as u128 * self.buckets.len() as u128) >> 64) as usize;
         unsafe { &self.buckets.get_unchecked(idx).0 }
+    }
+
+    #[inline(always)]
+    pub fn prefetch(&self, hash: u64) {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            use std::arch::x86_64::{_MM_HINT_T0, _mm_prefetch};
+            _mm_prefetch::<_MM_HINT_T0>(self.bucket(hash).as_ptr() as *const i8);
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        let _ = hash;
     }
 
     #[inline]
