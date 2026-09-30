@@ -2,7 +2,7 @@
 
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
-![Estimated Rating](https://img.shields.io/badge/CCRL%20Blitz-~3,570%20--%203,590%20Elo-brightgreen.svg)
+![Estimated Rating](https://img.shields.io/badge/CCRL%20Blitz-~3,580%20--%203,605%20Elo-brightgreen.svg)
 [![WASM](https://img.shields.io/badge/WebAssembly-Supported-purple.svg)](chess_web/)
 [![CI](https://github.com/razvanfilea/ChessEngine/actions/workflows/ci.yml/badge.svg)](https://github.com/razvanfilea/ChessEngine/actions/workflows/ci.yml)
 
@@ -152,17 +152,18 @@ bounds `[0, 5]`.
 `benchmarks/gauntlet_ccrl_blitz.sh [tc] [rounds] [concurrency]` runs a CCRL Blitz-style gauntlet (8moves_v3 book,
 CCRL adjudication, 1 thread) against Pawn 4.0, Prune 4.0.1, Oxide 3.0 and Akimbo 1.0.0; each round is 8 games.
 
-Latest result (v5 net, 160 games per engine, before Akimbo replaced Ursus):
+Latest result (v5 net, 60+0.6, 128 MB hash, 800 games: 200 against each opponent):
 
 | Rank | Engine | Elo | Score |
 |---|---|---|---|
-| 1 | **LuckyChess (v5)** | **+50.3 ± 29.0** | **57.2%** |
-| 2 | Pawn 4.0 (3557) | +43.7 ± 31.0 | 56.2% |
-| 3 | Sirius 9.0 (3528) | +2.2 ± 34.4 | 50.3% |
-| 4 | Oxide 3.0 (3530) | −6.5 ± 24.5 | 49.1% |
-| 5 | Ursus (3509) | −91.1 ± 31.7 | 37.2% |
+| 1 | Prune 4.0.1 (3645) | +54.3 ± 22.5 | 57.8% |
+| 2 | **LuckyChess (v5)** | **+7.0 ± 11.0** | **51.0%** |
+| 3 | Akimbo 1.0.0 (3614) | −15.7 ± 25.2 | 47.8% |
+| 4 | Oxide 3.0 (3530) | −31.4 ± 14.1 | 45.5% |
+| 5 | Pawn 4.0 (3557) | −34.9 ± 20.7 | 45.0% |
 
-Against a field averaging ~3,530 CCRL Blitz this is roughly 3,580; with ±29 Elo of noise, the badge gives a range.
+Against a field averaging ~3,586 CCRL Blitz this is roughly 3,593; with ±11 Elo of noise, the badge gives a range.
+60+0.6 is an estimate of CCRL's 2'+1" on its reference hardware, not yet calibrated, so treat the number as approximate.
 
 ---
 

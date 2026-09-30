@@ -87,6 +87,11 @@ impl Move {
     }
 
     #[inline(always)]
+    pub fn is_any_of(self, other: &[Self; 2]) -> bool {
+        self == other[0] || self == other[1]
+    }
+
+    #[inline(always)]
     pub const fn bits(self) -> u16 {
         self.0
     }

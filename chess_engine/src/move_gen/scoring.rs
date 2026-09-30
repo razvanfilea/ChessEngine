@@ -1,5 +1,6 @@
 use chess_core::{bitboard::bb_lsb, prelude::*};
 
+use crate::search::{ContHistKeys, ContinuationHistoryTable};
 use crate::{
     attacks::{bishop_attacks, bishop_xray_attacks, rook_attacks, rook_xray_attacks},
     board::Board,
@@ -60,16 +61,20 @@ pub fn score_capture(mov: Move, board: &Board) -> i16 {
 #[inline(always)]
 pub fn score_quiet(
     mov: Move,
+    board: &Board,
     killer_moves: KillerMoves,
     history: &HistoryTable,
-    side: Color,
+    cont_history: &ContinuationHistoryTable,
+    conthist_keys: &ContHistKeys,
 ) -> i16 {
     if mov == killer_moves[0] {
         KILLER_1
     } else if mov == killer_moves[1] {
         KILLER_2
     } else {
-        history.get(side, mov.from(), mov.to())
+        let piece = unsafe { board.piece_type_at(mov.from()) };
+        history.get(board.to_play, mov.from(), mov.to())
+            + cont_history.score(conthist_keys, piece, mov.to())
     }
 }
 

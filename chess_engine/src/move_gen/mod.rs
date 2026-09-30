@@ -24,6 +24,15 @@ enum GenStage {
     Done,
 }
 
+// Quiets are sorted lazily: most cut nodes use 1–2 quiets
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+enum Order {
+    #[default]
+    Sorted,
+    Unsorted,
+    MaxFirst,
+}
+
 pub struct MoveGenerator {
     start_ptr: MoveListPtr,
     end_ptr: MoveListPtr,
@@ -31,6 +40,7 @@ pub struct MoveGenerator {
     list_index: usize,
     quiescence: bool,
     tt_move: Move,
+    order: Order,
 }
 
 impl MoveGenerator {
@@ -42,6 +52,7 @@ impl MoveGenerator {
             list_index: 0,
             quiescence: false,
             tt_move,
+            order: Order::default(),
         }
     }
 
@@ -100,33 +111,33 @@ impl MoveGenerator {
     }
 
     #[inline(always)]
+    const fn as_slice(&self) -> &[ScoredMove] {
+        unsafe { core::slice::from_raw_parts(self.start_ptr.0, self.len()) }
+    }
+
+    #[inline(always)]
     const fn as_slice_mut(&mut self) -> &mut [ScoredMove] {
         unsafe { core::slice::from_raw_parts_mut(self.start_ptr.0, self.len()) }
     }
 
     #[inline(always)]
     fn pick_next(&mut self) -> ScoredMove {
-        let idx = self.list_index;
-        let moves = &mut self.as_slice_mut()[idx..];
-
-        let mut best_index = 0;
-        let mut best_move = moves[0];
-
-        for (i, mov) in moves.iter().enumerate().skip(1) {
-            if mov.score > best_move.score {
-                best_move = *mov;
-                best_index = i;
+        let next = self.list_index;
+        self.order = match self.order {
+            Order::Sorted => Order::Sorted,
+            Order::Unsorted => {
+                select_first_max(&mut self.as_slice_mut()[next..]);
+                Order::MaxFirst
             }
-        }
+            Order::MaxFirst => {
+                insertion_sort(&mut self.as_slice_mut()[next..]);
+                Order::Sorted
+            }
+        };
 
-        unsafe {
-            std::hint::assert_unchecked(best_index < moves.len());
-        }
-
-        moves.swap(0, best_index);
-
+        let mov = unsafe { self.as_slice().get_unchecked(next).clone() };
         self.list_index += 1;
-        best_move
+        mov
     }
 
     #[inline(never)]
@@ -169,6 +180,8 @@ impl MoveGenerator {
                     scored_move.score = scoring::score_capture(scored_move.mov, board);
                 }
 
+                insertion_sort(self.as_slice_mut());
+
                 if self.quiescence {
                     self.stage = GenStage::Done;
                 } else {
@@ -185,14 +198,17 @@ impl MoveGenerator {
                 self.end_ptr = ptr;
 
                 for scored_move in &mut self.as_slice_mut()[remaining_captures..] {
-                    let mov = scored_move.mov;
-                    let mut score = scoring::score_quiet(mov, killer_moves, history, board.to_play);
-                    if mov != killer_moves[0] && mov != killer_moves[1] {
-                        let piece = unsafe { board.piece_type_at(mov.from()) };
-                        score += cont_history.score(conthist_keys, piece, mov.to());
-                    }
-                    scored_move.score = score;
+                    scored_move.score = scoring::score_quiet(
+                        scored_move.mov,
+                        board,
+                        killer_moves,
+                        history,
+                        cont_history,
+                        conthist_keys,
+                    );
                 }
+
+                self.order = Order::Unsorted;
 
                 self.stage = GenStage::Done;
             }
@@ -209,15 +225,18 @@ impl MoveGenerator {
                     scored_move.score = if mov.is_tactical() {
                         scoring::score_capture(mov, board)
                     } else {
-                        let mut score =
-                            scoring::score_quiet(mov, killer_moves, history, board.to_play);
-                        if mov != killer_moves[0] && mov != killer_moves[1] {
-                            let piece = unsafe { board.piece_type_at(mov.from()) };
-                            score += cont_history.score(conthist_keys, piece, mov.to());
-                        }
-                        score
+                        scoring::score_quiet(
+                            mov,
+                            board,
+                            killer_moves,
+                            history,
+                            cont_history,
+                            conthist_keys,
+                        )
                     };
                 }
+
+                insertion_sort(self.as_slice_mut());
 
                 self.stage = GenStage::Done;
             }
@@ -225,6 +244,32 @@ impl MoveGenerator {
         }
 
         None
+    }
+}
+
+/// Moves the first highest-scored move to the front, keeping the others in order,
+/// so the picks match a stable sort.
+fn select_first_max(moves: &mut [ScoredMove]) {
+    let mut best = 0;
+    for i in 1..moves.len() {
+        if moves[i].score > moves[best].score {
+            best = i;
+        }
+    }
+    let mov = moves[best];
+    moves.copy_within(0..best, 1);
+    moves[0] = mov;
+}
+
+fn insertion_sort(moves: &mut [ScoredMove]) {
+    for p in 1..moves.len() {
+        let tmp = moves[p];
+        let mut q = p;
+        while q > 0 && moves[q - 1].score < tmp.score {
+            moves[q] = moves[q - 1];
+            q -= 1;
+        }
+        moves[q] = tmp;
     }
 }
 

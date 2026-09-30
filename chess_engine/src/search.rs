@@ -554,8 +554,7 @@ impl Searcher {
                 && depth <= QUIET_SEE_MAX_DEPTH
                 && !mov.is_tactical()
                 && !move_gives_check
-                && mov != killer_moves[0]
-                && mov != killer_moves[1]
+                && !mov.is_any_of(&killer_moves)
                 && !see_ge(
                     mov,
                     &self.board,
