@@ -2,41 +2,34 @@
 
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
+use chess_core::prelude::*;
 use jni::{
     EnvUnowned,
     errors::ThrowRuntimeExAndDefault,
-    objects::{JClass, JIntArray, JObject, JString, JValue},
-    sys::{JNI_VERSION_1_6, jboolean, jbyte, jint, jintArray, jlong, jobject, jstring},
+    objects::{JClass, JObject, JString, JValue},
+    sys::{jboolean, jint, jlong, jobject, jstring},
 };
 
 mod engine;
 mod manager;
+mod notation;
+mod rules;
 
 use engine::SearchEngine;
 use manager::{BoardSnapshot, ChessGame};
 
-static GAME: LazyLock<Mutex<ChessGame>> = LazyLock::new(|| Mutex::new(ChessGame::new(true)));
+static GAME: LazyLock<Mutex<ChessGame>> = LazyLock::new(|| Mutex::new(ChessGame::new()));
 static ENGINE: LazyLock<SearchEngine> = LazyLock::new(|| SearchEngine::new(64));
 
 fn game() -> MutexGuard<'static, ChessGame> {
     GAME.lock().unwrap()
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn JNI_OnLoad(
-    _vm: *mut std::ffi::c_void,
-    _reserved: *mut std::ffi::c_void,
-) -> jint {
-    JNI_VERSION_1_6
-}
-
 fn snapshot_to_java<'a>(
     env: &mut jni::Env<'a>,
     snapshot: &BoardSnapshot,
 ) -> jni::errors::Result<JObject<'a>> {
-    let cls = env.find_class(jni::jni_str!(
-        "net/theluckycoder/chess/common/model/BoardState"
-    ))?;
+    let cls = env.find_class(jni::jni_str!("cloud/razvan/chess/common/model/BoardState"))?;
     let uci_str = env.new_string(&snapshot.uci_info)?;
 
     let pieces_arr = env.new_int_array(snapshot.pieces.len())?;
@@ -45,9 +38,22 @@ fn snapshot_to_java<'a>(
     let history_arr = env.new_int_array(snapshot.moves_history.len())?;
     history_arr.set_region(env, 0, &snapshot.moves_history)?;
 
+    let san_arr = env.new_object_array(
+        snapshot.moves_san.len() as i32,
+        jni::jni_str!("java/lang/String"),
+        JObject::null(),
+    )?;
+    for (i, san) in snapshot.moves_san.iter().enumerate() {
+        let s = env.new_string(san)?;
+        san_arr.set_element(env, i, &s)?;
+    }
+
+    let legal_arr = env.new_int_array(snapshot.legal_moves.len())?;
+    legal_arr.set_region(env, 0, &snapshot.legal_moves)?;
+
     env.new_object(
         cls,
-        jni::jni_sig!("(IIJLjava/lang/String;ZI[I[I)V"),
+        jni::jni_sig!("(IIJLjava/lang/String;ZI[I[I[Ljava/lang/String;[I)V"),
         &[
             JValue::Int(snapshot.game_state),
             JValue::Int(snapshot.eval_score),
@@ -57,183 +63,189 @@ fn snapshot_to_java<'a>(
             JValue::Int(snapshot.current_move_index),
             (&pieces_arr).into(),
             (&history_arr).into(),
+            (&san_arr).into(),
+            (&legal_arr).into(),
         ],
     )
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_initBoard(
-    mut env: EnvUnowned,
-    _class: JClass,
-    is_player_white: jboolean,
+/// Runs `f` and returns its snapshot as a `BoardState`, or null for `None`
+fn return_snapshot<'local>(
+    mut env: EnvUnowned<'local>,
+    f: impl FnOnce(&mut jni::Env<'local>) -> jni::errors::Result<Option<BoardSnapshot>>,
 ) -> jobject {
     env.with_env(|env| -> jni::errors::Result<jobject> {
-        ENGINE.new_game();
-        let mut g = game();
-        *g = ChessGame::new(is_player_white);
-        let snap = g.get_snapshot();
-        let obj = snapshot_to_java(env, &snap)?;
-        Ok(obj.into_raw())
-    })
-    .resolve::<ThrowRuntimeExAndDefault>()
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_loadFenMoves(
-    mut env: EnvUnowned,
-    _class: JClass,
-    fen: JString,
-    moves: JIntArray,
-    is_player_white: jboolean,
-) -> jobject {
-    env.with_env(|env| -> jni::errors::Result<jobject> {
-        let fen_str: String = fen.mutf8_chars(env)?.to_string();
-        let len = moves.len(env)?;
-        let mut buf = vec![0i32; len];
-        moves.get_region(env, 0, &mut buf)?;
-        ENGINE.new_game();
-        let maybe_snap = game().load_fen_moves(&fen_str, &buf, is_player_white);
-        match maybe_snap {
-            Some(snap) => {
-                let obj = snapshot_to_java(env, &snap)?;
-                Ok(obj.into_raw())
-            }
+        match f(env)? {
+            Some(snap) => Ok(snapshot_to_java(env, &snap)?.into_raw()),
             None => Ok(std::ptr::null_mut()),
         }
     })
     .resolve::<ThrowRuntimeExAndDefault>()
 }
 
+fn return_string<'local>(
+    mut env: EnvUnowned<'local>,
+    f: impl FnOnce(&mut jni::Env<'local>) -> jni::errors::Result<String>,
+) -> jstring {
+    env.with_env(|env| -> jni::errors::Result<jstring> {
+        let s = f(env)?;
+        Ok(env.new_string(&s)?.into_raw())
+    })
+    .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+fn replace_game(new_game: Option<ChessGame>) -> Option<BoardSnapshot> {
+    let new_game = new_game?;
+    ENGINE.new_game();
+    let mut g = game();
+    g.replace(new_game);
+    Some(g.snapshot(0, String::new()))
+}
+
+fn player_color(is_player_white: bool) -> Color {
+    if is_player_white {
+        Color::White
+    } else {
+        Color::Black
+    }
+}
+
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_makeMove(
-    mut env: EnvUnowned,
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_initBoard(
+    env: EnvUnowned,
+    _class: JClass,
+) -> jobject {
+    return_snapshot(env, |_| Ok(replace_game(Some(ChessGame::new()))))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_loadFen(
+    env: EnvUnowned,
+    _class: JClass,
+    fen: JString,
+) -> jobject {
+    return_snapshot(env, |env| {
+        let fen: String = fen.mutf8_chars(env)?.to_string();
+        Ok(replace_game(ChessGame::load(&fen, &[])))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_loadGame(
+    env: EnvUnowned,
+    _class: JClass,
+    save: JString,
+) -> jobject {
+    return_snapshot(env, |env| {
+        let save: String = save.mutf8_chars(env)?.to_string();
+        Ok(replace_game(ChessGame::load_save(&save)))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_saveGame(
+    env: EnvUnowned,
+    _class: JClass,
+) -> jstring {
+    return_string(env, |_| Ok(game().save()))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_makeMove(
+    env: EnvUnowned,
     _class: JClass,
     mov: jint,
 ) -> jobject {
-    env.with_env(|env| -> jni::errors::Result<jobject> {
-        let snap = game().make_move(mov);
-        let obj = snapshot_to_java(env, &snap)?;
-        Ok(obj.into_raw())
+    return_snapshot(env, |_| {
+        let mut g = game();
+        g.make_move(mov);
+        Ok(Some(g.snapshot(0, String::new())))
     })
-    .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_undo(
-    mut env: EnvUnowned,
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_undo(
+    env: EnvUnowned,
     _class: JClass,
+    is_player_white: jboolean,
 ) -> jobject {
-    env.with_env(|env| -> jni::errors::Result<jobject> {
-        let maybe_snap = game().undo();
-        match maybe_snap {
-            Some(snap) => {
-                let obj = snapshot_to_java(env, &snap)?;
-                Ok(obj.into_raw())
-            }
-            None => Ok(std::ptr::null_mut()),
-        }
+    return_snapshot(env, |_| {
+        let mut g = game();
+        Ok(g.undo(player_color(is_player_white))
+            .then(|| g.snapshot(0, String::new())))
     })
-    .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_redo(
-    mut env: EnvUnowned,
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_redo(
+    env: EnvUnowned,
     _class: JClass,
+    is_player_white: jboolean,
 ) -> jobject {
-    env.with_env(|env| -> jni::errors::Result<jobject> {
-        let maybe_snap = game().redo();
-        match maybe_snap {
-            Some(snap) => {
-                let obj = snapshot_to_java(env, &snap)?;
-                Ok(obj.into_raw())
-            }
-            None => Ok(std::ptr::null_mut()),
-        }
+    return_snapshot(env, |_| {
+        let mut g = game();
+        Ok(g.redo(player_color(is_player_white))
+            .then(|| g.snapshot(0, String::new())))
     })
-    .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_getBoardState(
-    mut env: EnvUnowned,
-    _class: JClass,
-) -> jobject {
-    env.with_env(|env| -> jni::errors::Result<jobject> {
-        let snap = game().get_snapshot();
-        let obj = snapshot_to_java(env, &snap)?;
-        Ok(obj.into_raw())
-    })
-    .resolve::<ThrowRuntimeExAndDefault>()
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_getPossibleMoves(
-    mut env: EnvUnowned,
-    _class: JClass,
-    square: jbyte,
-) -> jintArray {
-    env.with_env(|env| -> jni::errors::Result<jintArray> {
-        let moves = game().get_possible_moves(square as u8);
-        let arr = env.new_int_array(moves.len())?;
-        arr.set_region(env, 0, &moves)?;
-        Ok(arr.into_raw())
-    })
-    .resolve::<ThrowRuntimeExAndDefault>()
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_getCurrentFen(
-    mut env: EnvUnowned,
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_getCurrentFen(
+    env: EnvUnowned,
     _class: JClass,
 ) -> jstring {
-    env.with_env(|env| -> jni::errors::Result<jstring> {
-        let fen = game().get_current_fen();
-        let s = env.new_string(&fen)?;
-        Ok(s.into_raw())
-    })
-    .resolve::<ThrowRuntimeExAndDefault>()
+    return_string(env, |_| Ok(game().get_current_fen()))
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_getStartFen(
-    mut env: EnvUnowned,
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_exportPgn(
+    env: EnvUnowned,
     _class: JClass,
+    date: JString,
+    is_player_white: jboolean,
 ) -> jstring {
-    env.with_env(|env| -> jni::errors::Result<jstring> {
-        let fen = game().get_start_fen();
-        let s = env.new_string(&fen)?;
-        Ok(s.into_raw())
+    return_string(env, |env| {
+        let date: String = date.mutf8_chars(env)?.to_string();
+        Ok(game().pgn(&date, is_player_white))
     })
-    .resolve::<ThrowRuntimeExAndDefault>()
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_search(
-    _env: EnvUnowned,
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_engineMove(
+    env: EnvUnowned,
     _class: JClass,
     depth: jint,
-    max_time_ms: jlong,
-    hash_size_mb: jint,
-    _thread_count: jint,
-) -> jint {
-    let (board, position_keys) = {
-        let g = game();
-        (g.board().clone(), g.position_keys())
-    };
+    time_ms: jlong,
+    hash_mb: jint,
+    _threads: jint,
+) -> jobject {
+    return_snapshot(env, |_| {
+        let (board, position_keys, version, stop_count) = {
+            let g = game();
+            if g.game_state().is_game_over() {
+                return Ok(None);
+            }
+            let keys = g.position_keys();
+            (g.board().clone(), keys, g.version(), ENGINE.stop_count())
+        };
 
-    let result = ENGINE.search(board, &position_keys, depth, max_time_ms, hash_size_mb);
+        let Some(result) =
+            ENGINE.search(board, &position_keys, depth, time_ms, hash_mb, stop_count)
+        else {
+            return Ok(None);
+        };
 
-    {
         let mut g = game();
-        g.record_search_stats(result.search_time_ms, result.advanced_stats);
-    }
-
-    result.best_move
+        let unchanged = g.version() == version && ENGINE.stop_count() == stop_count;
+        if !unchanged || !g.make_move(result.best_move.bits() as i32) {
+            return Ok(None);
+        }
+        Ok(Some(g.snapshot(result.search_time_ms, result.uci_info)))
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_net_theluckycoder_chess_common_cpp_Native_stopSearch(
+pub extern "system" fn Java_cloud_razvan_chess_common_Native_stopSearch(
     _env: EnvUnowned,
     _class: JClass,
 ) {

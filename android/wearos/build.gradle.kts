@@ -4,16 +4,23 @@ plugins {
 }
 
 android {
-    namespace = "net.theluckycoder.chess.wearos"
+    namespace = "cloud.razvan.chess.wearos"
     compileSdk = Versions.Sdk.compile
 
     defaultConfig {
-        applicationId = "net.theluckycoder.chess"
+        applicationId = "cloud.razvan.chess.wearos"
         minSdk = Versions.Sdk.wearOsMin
         targetSdk = Versions.Sdk.target
         versionCode = Versions.App.code
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+        versionName = Versions.App.name
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
         }
     }
 
@@ -21,38 +28,31 @@ android {
         localeFilters += listOf("en")
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
+    }
 
-            packagingOptions {
-                resources {
-                    excludes.add("DebugProbesKt.bin")
-                }
-            }
+    packaging {
+        resources {
+            excludes.add("DebugProbesKt.bin")
         }
     }
 
     buildFeatures.compose = true
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = Versions.composeCompiler
-    }
-}
-
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class).configureEach {
-    kotlinOptions {
-        freeCompilerArgs = listOf(
-            "-Xopt-in=kotlin.RequiresOptIn",
-        )
-    }
 }
 
 dependencies {
     implementation(project(path = ":common"))
 
-    implementation("androidx.wear.compose:compose-foundation:1.1.0-rc01")
-    implementation("androidx.wear.compose:compose-material:1.1.0-rc01")
+    implementation(libs.wear.compose.foundation)
+    implementation(libs.wear.compose.material3)
 }

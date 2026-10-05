@@ -8,12 +8,10 @@
     <string name="side_black">Black Side</string>
     <string name="side_random">Random Side</string>
     <string name="difficulty_level">Difficulty Level: %d</string>
-    <string name="promotion_choose_piece">Choose a Piece to promote</string>
     <string name="title_settings">Settings</string>
     <string name="victory_white">White has won!</string>
     <string name="victory_black">Black has won!</string>
     <string name="draw">Draw</string>
-    <string name="invalid_game">Oops! The position is invalid</string>
 
     <!-- Actions -->
     <string name="action_start">Start</string>
@@ -27,8 +25,8 @@
     <string name="action_resume">Resume</string>
 
     <!-- FEN/PGN -->
-    <string name="fen_pgn_position_share">Share Game Position</string>
-    <string name="fen_position_current">Current\'s game FEN Position:</string>
+    <string name="fen_pgn_position">Game Position</string>
+    <string name="fen_position_current">Current FEN Position:</string>
     <string name="fen_position_load">Load FEN Position</string>
     <string name="fen_position_loaded">FEN Position Loaded</string>
     <string name="fen_position_error">FEN Position could not be loaded</string>
@@ -48,12 +46,10 @@
     <string name="pref_captured_pieces_desc">Display all captured pieces by either side</string>
     <string name="pref_piece_destinations">Piece Destinations</string>
     <string name="pref_piece_destinations_desc">Display legal moves for selected pieces</string>
-    <string name="pref_center_board">Center Board</string>
-    <string name="pref_center_board_desc">Places the board in the middle on the screen when in portrait orientation</string>
 
     <string name="pref_category_difficulty">Difficulty</string>
-    <string name="pref_search_depth">Search Depth</string>
-    <string name="pref_search_depth_desc">The maximum amount of moves that the engine may look ahead. (This is set by the difficulty)</string>
+    <string name="pref_difficulty_level">Difficulty Level</string>
+    <string name="pref_difficulty_level_desc">How many moves ahead the engine looks</string>
     <string name="pref_search_time">Search Time</string>
     <string name="pref_search_time_desc">The maximum time the engine is allowed to think in seconds</string>
 

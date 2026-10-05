@@ -10,13 +10,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { setUrl("https://jitpack.io") }
     }
 }
 
 rootProject.name = "Chess"
 include(
     ":app",
-//    ":wearos",
+    ":wearos",
     ":common"
 )

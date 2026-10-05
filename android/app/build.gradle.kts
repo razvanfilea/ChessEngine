@@ -4,18 +4,17 @@ plugins {
 }
 
 android {
-    namespace = "net.theluckycoder.chess"
+    namespace = "cloud.razvan.chess"
     compileSdk = Versions.Sdk.compile
 
     defaultConfig {
-        applicationId = "net.theluckycoder.chess"
+        applicationId = "cloud.razvan.chess"
         minSdk = Versions.Sdk.min
         targetSdk = Versions.Sdk.target
         versionCode = Versions.App.code
         versionName = Versions.App.name
-
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -32,7 +31,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
 
