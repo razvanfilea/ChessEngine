@@ -583,12 +583,13 @@ impl Searcher {
                 let mut reduction = 0;
                 if legal_moves > LMR_MIN_LEGAL_MOVES
                     && depth >= LMR_MIN_DEPTH
-                    && (mov.is_quiet() || scored_mov.is_bad_capture())
+                    && ((mov.is_quiet() && !mov.is_any_of(&killer_moves))
+                        || scored_mov.is_bad_capture())
                     && !in_check
-                    && !move_gives_check
                 {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8) as i8;
                     reduction -= improving as i8;
+                    reduction -= move_gives_check as i8;
                     let hist = self.history.get(us, mov.from(), mov.to()) as i32
                         + self.cont_history.score(
                             &conthist_keys,
@@ -596,7 +597,7 @@ impl Searcher {
                             mov.to(),
                         ) as i32;
                     reduction -= (hist / LMR_HISTORY_DIVISOR) as i8;
-                    reduction = reduction.max(0).min(depth as i8 - 2);
+                    reduction = reduction.max(0).min(depth as i8 - 1);
                 }
 
                 let lmr_depth = depth - 1 - reduction as u8;

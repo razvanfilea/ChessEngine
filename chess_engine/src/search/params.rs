@@ -53,8 +53,8 @@ pub(super) const fn lmp_threshold(depth: u8, improving: bool) -> usize {
 pub(super) const HISTORY_PRUNING_DEPTH: u8 = 8;
 pub(super) const HISTORY_PRUNING_MARGIN: i16 = 2250;
 
-pub(super) const LMR_MIN_DEPTH: u8 = 3;
-pub(super) const LMR_MIN_LEGAL_MOVES: usize = 2;
+pub(super) const LMR_MIN_DEPTH: u8 = 2;
+pub(super) const LMR_MIN_LEGAL_MOVES: usize = 1;
 pub(super) const LMR_HISTORY_DIVISOR: i32 = 12000;
 
 pub(super) const DELTA_MARGIN: i16 = 2 * piece_value(Piece::Pawn);
@@ -78,7 +78,7 @@ pub(super) static LMR_TABLE: std::sync::LazyLock<LmrTable> = std::sync::LazyLock
     while depth < MAX_PLY {
         let mut moves = 1;
         while moves < MAX_PLY {
-            let r = (0.75 + (depth as f64).ln() * (moves as f64).ln() / 2.25) as u8;
+            let r = (0.87 + (depth as f64).ln() * (moves as f64).ln() / 1.68) as u8;
             table[depth as usize][moves as usize] = (r, r.saturating_sub(1));
             moves += 1;
         }
