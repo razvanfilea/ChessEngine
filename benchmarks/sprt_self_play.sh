@@ -36,7 +36,7 @@ echo "==> Compiling current (dev) version..."
 cargo build --release --manifest-path "${REPO_ROOT}/Cargo.toml" --bin lucky_chess
 cp "${REPO_ROOT}/target/release/lucky_chess" "${DEV_BIN}"
 
-BOOK_PATH="${SCRIPT_DIR}/noob_3moves.epd"
+BOOK_PATH="${SCRIPT_DIR}/UHO_Lichess_4852_v1.epd"
 PGN_DIR="${SCRIPT_DIR}/pgn"
 mkdir -p "${PGN_DIR}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
