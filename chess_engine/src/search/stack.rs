@@ -93,6 +93,7 @@ pub struct StackEntry {
     pub stack_move: StackMove,
     pub hash: u64,
     pub acc_computed: [bool; Color::NB],
+    pub excluded: Move,
 }
 
 impl Default for StackEntry {
@@ -105,6 +106,7 @@ impl Default for StackEntry {
             stack_move: StackMove::default(),
             hash: 0,
             acc_computed: [false; Color::NB],
+            excluded: Move::NONE,
         }
     }
 }

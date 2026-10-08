@@ -38,6 +38,7 @@ pub fn search(
 pub struct Searcher {
     nodes_searched: u64,
     root_ply: u16,
+    root_depth: u8,
     selective_depth: u8,
     stopped: bool,
     tt: Arc<TranspositionTable>,
@@ -65,6 +66,7 @@ impl Searcher {
             lmr_table: &*LMR_TABLE,
             time_manager: TimeManager::from_depth(1),
             stopped: false,
+            root_depth: 0,
             selective_depth: 0,
             nodes_searched: 0,
             stack: SearchStack::default(),
@@ -115,6 +117,7 @@ impl Searcher {
         let mut prev_best_move = Move::NONE;
 
         'iterative: for current_depth in 1..=max_depth {
+            self.root_depth = current_depth;
             self.selective_depth = 0;
             best_score = self.aspiration_search(move_ptr, current_depth, best_score);
 
@@ -157,7 +160,7 @@ impl Searcher {
         }
 
         loop {
-            let score = self.nega_max::<true>(move_ptr, alpha, beta, depth, true);
+            let score = self.nega_max::<true>(move_ptr, alpha, beta, depth, true, false);
             if self.stopped {
                 return prev_score;
             }
@@ -296,7 +299,7 @@ impl Searcher {
 
     #[inline(always)]
     fn store_tt(&self, mov: Move, score: i16, eval: i16, depth: u8, flag: TTFlag) {
-        if self.stopped {
+        if self.stopped || !self.stack[self.ply()].excluded.is_none() {
             return;
         }
         let entry = TTEntry::new(mov, score, eval, depth, flag);
@@ -336,14 +339,18 @@ impl Searcher {
         beta: i16,
         mut depth: u8,
         can_null: bool,
+        cut_node: bool,
     ) -> i16 {
+        debug_assert!(!(IS_PV && cut_node));
         let ply = self.ply();
         if ply >= MAX_PLY - 1 {
             return self.eval_position();
         }
 
+        let excluded = self.stack[ply].excluded;
         let in_check = self.board.in_check();
         let has_non_pawn = self.board.has_non_pawn_material(self.board.to_play);
+        let can_prune = !IS_PV && !in_check;
         self.stack[ply].pv_length = 0;
         self.stack.clear_killers(ply + 1);
         self.nodes_searched += 1;
@@ -357,31 +364,40 @@ impl Searcher {
             return self.qsearch(move_buffer, alpha, beta);
         }
 
-        let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
-            Some(entry) => {
-                if ply > 0
-                    && let Some(score) = entry.cutoff(depth, alpha, beta)
-                {
-                    if !IS_PV {
-                        return score;
-                    }
-                    if entry.flag() == TTFlag::Exact {
-                        if !entry.mov.is_none() && self.board.legal(entry.mov) {
-                            self.pv_table[ply as usize][0] = entry.mov;
-                            self.stack[ply].pv_length = 1;
-                        }
-                        return score;
-                    }
-                }
-                (entry.mov, entry.eval)
-            }
-            None => (Move::NONE, EVAL_NONE),
+        let tt_entry = if excluded.is_none() {
+            self.tt.probe(self.board.hash, ply)
+        } else {
+            None
         };
-
-        let can_prune = !IS_PV && !in_check;
-        if static_eval == EVAL_NONE && can_prune {
-            static_eval = self.eval_position();
+        if let Some(entry) = tt_entry
+            && ply > 0
+            && let Some(score) = entry.cutoff(depth, alpha, beta)
+        {
+            if !IS_PV {
+                return score;
+            }
+            if entry.flag() == TTFlag::Exact {
+                if !entry.mov.is_none() && self.board.legal(entry.mov) {
+                    self.pv_table[ply as usize][0] = entry.mov;
+                    self.stack[ply].pv_length = 1;
+                }
+                return score;
+            }
         }
+        let tt_move = tt_entry.map_or(Move::NONE, |e| e.mov);
+        let static_eval = {
+            let default = if !excluded.is_none() {
+                self.stack[ply].eval
+            } else {
+                EVAL_NONE
+            };
+            let eval = tt_entry.map_or(default, |e| e.eval);
+            if eval == EVAL_NONE && can_prune {
+                self.eval_position()
+            } else {
+                eval
+            }
+        };
         self.stack[ply].eval = static_eval;
 
         let bad_node = depth >= 4 && tt_move.is_none();
@@ -399,7 +415,7 @@ impl Searcher {
             true
         };
 
-        if can_prune {
+        if can_prune && excluded.is_none() {
             // Reverse Futility Pruning
             let rfp_margin = (RFP_MARGIN_SLOPE * depth as i16)
                 - (RFP_IMPROVING_BONUS * improving as i16)
@@ -441,6 +457,7 @@ impl Searcher {
                     -beta + 1,
                     depth.saturating_sub(reduction),
                     false,
+                    !cut_node,
                 );
                 self.board.undo_null_move(undo);
 
@@ -483,6 +500,9 @@ impl Searcher {
             }
             let mov = scored_mov.mov;
             let move_buffer = moves.next_ptr();
+            if excluded == mov {
+                continue;
+            }
             if !self.board.legal(mov) {
                 continue;
             }
@@ -564,6 +584,49 @@ impl Searcher {
                 continue;
             }
 
+            // Singular Extensions
+            let mut extension: i16 = 0;
+            if ply > 0
+                && depth >= 6
+                && (ply as u32) * 2 < (self.root_depth as u32) * 5
+                && let Some(entry) = tt_entry
+                && mov == tt_move
+                && entry.depth + 3 >= depth
+                && entry.flag() != TTFlag::UpperBound
+                && entry.value.abs() < MATE_THRESHOLD
+            {
+                self.stack[ply].excluded = tt_move;
+                let tt_score = entry.value;
+                let singular_beta = tt_score - (depth as i16 * 8);
+                let singular_depth = (depth - 1) / 2;
+
+                let singular_score = self.nega_max::<false>(
+                    move_buffer,
+                    singular_beta - 1,
+                    singular_beta,
+                    singular_depth,
+                    true,
+                    cut_node,
+                );
+                self.stack[ply].excluded = Move::NONE;
+
+                if self.stopped {
+                    return 0;
+                }
+
+                if singular_score < singular_beta {
+                    extension = 1;
+                } else if singular_score >= beta && singular_score.abs() < MATE_THRESHOLD {
+                    return singular_score;
+                }
+                // Stage 2 (negative extensions), disabled while testing stage 1:
+                // } else if tt_score >= beta {
+                //     extension = -2;
+                // } else if cut_node {
+                //     extension = -2;
+                // }
+            }
+
             let moved_piece = self.board.piece_at(mov.from());
             let us = self.board.to_play;
             let undo = self.board.make_move_fast(mov, move_gives_check);
@@ -581,12 +644,12 @@ impl Searcher {
                 do_full_search = false;
 
                 let mut reduction = 0;
-                if legal_moves > LMR_MIN_LEGAL_MOVES
+                let lmr_eligible = legal_moves > LMR_MIN_LEGAL_MOVES
                     && depth >= LMR_MIN_DEPTH
                     && ((mov.is_quiet() && !mov.is_any_of(&killer_moves))
                         || scored_mov.is_bad_capture())
-                    && !in_check
-                {
+                    && !in_check;
+                if lmr_eligible {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8) as i8;
                     reduction -= improving as i8;
                     reduction -= move_gives_check as i8;
@@ -602,11 +665,25 @@ impl Searcher {
 
                 let lmr_depth = depth - 1 - reduction as u8;
 
-                score = -self.nega_max::<false>(move_buffer, -alpha - 1, -alpha, lmr_depth, true);
+                // Late moves are expected to be refuted, so their children are cut nodes
+                score = -self.nega_max::<false>(
+                    move_buffer,
+                    -alpha - 1,
+                    -alpha,
+                    lmr_depth,
+                    true,
+                    lmr_eligible || !cut_node,
+                );
 
                 if reduction > 0 && score > alpha {
-                    score =
-                        -self.nega_max::<false>(move_buffer, -alpha - 1, -alpha, depth - 1, true);
+                    score = -self.nega_max::<false>(
+                        move_buffer,
+                        -alpha - 1,
+                        -alpha,
+                        depth - 1,
+                        true,
+                        !cut_node,
+                    );
                 }
 
                 // ONLY for PV nodes, if it still beats alpha after full-depth search, open the window
@@ -616,7 +693,14 @@ impl Searcher {
             }
 
             if do_full_search {
-                score = -self.nega_max::<IS_PV>(move_buffer, -beta, -alpha, depth - 1, true);
+                score = -self.nega_max::<IS_PV>(
+                    move_buffer,
+                    -beta,
+                    -alpha,
+                    (depth as i16 - 1 + extension).max(0) as u8,
+                    true,
+                    !IS_PV && !cut_node,
+                );
             }
             self.board.undo_move(mov, undo);
 
@@ -651,6 +735,10 @@ impl Searcher {
         }
 
         if legal_moves == 0 {
+            // Singular search: the excluded move was the only legal move.
+            if !excluded.is_none() {
+                return alpha;
+            }
             let score = if in_check {
                 -INFINITY + ply as i16
             } else {
