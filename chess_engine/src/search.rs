@@ -653,6 +653,8 @@ impl Searcher {
                     && !in_check;
                 if lmr_eligible {
                     reduction = self.get_lmr(IS_PV, depth, legal_moves as u8) as i8;
+                    reduction += 2 * cut_node as i8;
+                    reduction -= (1 + cut_node as i8) * tt_pv as i8;
                     reduction -= improving as i8;
                     reduction -= move_gives_check as i8;
                     let hist = self.history.get(us, mov.from(), mov.to()) as i32
