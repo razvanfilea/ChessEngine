@@ -448,7 +448,7 @@ fn test_search_aspiration_fail_low_widening() {
     let tt = Arc::new(TranspositionTable::with_buckets(16));
 
     // Seed depth 4 with artificially high score (+2000) so depth 5 fails low initially
-    let entry = TTEntry::new(Move::NONE, 2000, 100, 4, TTFlag::LowerBound);
+    let entry = TTEntry::new(Move::NONE, 2000, 100, 4, TTFlag::LowerBound, false);
     tt.store(board.hash, entry, 0);
 
     let mut info_lines = Vec::new();

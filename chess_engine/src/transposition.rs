@@ -24,12 +24,17 @@ impl TTFlag {
     }
 }
 
+const PV_BIT: u8 = 0b0100;
+const AGE_SHIFT: u8 = 3;
+const AGE_MASK: u8 = 0x1F;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TTEntry {
     pub mov: Move,
     pub eval: i16,
     pub value: i16,
     pub depth: u8,
+    /// Bits 0-1: bound flag, bit 2: was a PV node (ttPv), bits 3-7: search generation.
     flag_age: u8,
 }
 
@@ -48,14 +53,8 @@ impl Default for TTEntry {
 
 impl TTEntry {
     #[inline(always)]
-    pub const fn new(mov: Move, value: i16, eval: i16, depth: u8, flag: TTFlag) -> Self {
-        Self {
-            mov,
-            eval,
-            value,
-            depth,
-            flag_age: flag as u8,
-        }
+    pub const fn new(mov: Move, value: i16, eval: i16, depth: u8, flag: TTFlag, pv: bool) -> Self {
+        Self::new_with_age(mov, value, eval, depth, flag, pv, 0)
     }
 
     #[inline(always)]
@@ -65,6 +64,7 @@ impl TTEntry {
         eval: i16,
         depth: u8,
         flag: TTFlag,
+        pv: bool,
         age: u8,
     ) -> Self {
         Self {
@@ -72,13 +72,13 @@ impl TTEntry {
             eval,
             value,
             depth,
-            flag_age: ((age & 0x3F) << 2) | (flag as u8),
+            flag_age: ((age & AGE_MASK) << AGE_SHIFT) | (pv as u8 * PV_BIT) | (flag as u8),
         }
     }
 
     #[inline(always)]
     pub fn set_age(&mut self, age: u8) {
-        self.flag_age = (self.flag_age & 0b0011) | ((age & 0x3F) << 2);
+        self.flag_age = (self.flag_age & (PV_BIT | 0b0011)) | ((age & AGE_MASK) << AGE_SHIFT);
     }
 
     #[inline(always)]
@@ -86,9 +86,15 @@ impl TTEntry {
         TTFlag::from_bits(self.flag_age)
     }
 
+    /// Whether this position was a PV node when stored, or inherited the bit from an earlier entry.
+    #[inline(always)]
+    pub fn is_pv(&self) -> bool {
+        self.flag_age & PV_BIT != 0
+    }
+
     #[inline(always)]
     pub fn age(&self) -> u8 {
-        self.flag_age >> 2
+        self.flag_age >> AGE_SHIFT
     }
 
     #[inline(always)]
@@ -192,7 +198,7 @@ struct TTBucket([AtomicTTEntry; BUCKET_SIZE]);
 
 pub struct TranspositionTable {
     buckets: Box<[TTBucket]>,
-    /// Current search generation (0..=63, matching `flag_age >> 2`).
+    /// Current search generation (0..=31, matching `TTEntry::age`).
     age: AtomicU8,
 }
 
@@ -218,7 +224,7 @@ impl TranspositionTable {
 
     #[inline(always)]
     pub fn new_search(&self) {
-        self.age.store((self.age() + 1) & 0x3F, Relaxed);
+        self.age.store((self.age() + 1) & AGE_MASK, Relaxed);
     }
 
     pub fn clear(&self) {
@@ -325,7 +331,7 @@ impl TranspositionTable {
     /// Lower = more replaceable. Rewards depth, penalizes stale search generations.
     #[inline(always)]
     fn quality(&self, entry: &TTEntry) -> i32 {
-        let age_diff = (self.age().wrapping_sub(entry.age()) & 0x3F) as i32;
+        let age_diff = (self.age().wrapping_sub(entry.age()) & AGE_MASK) as i32;
         entry.depth as i32 - age_diff * 4
     }
 
@@ -354,7 +360,7 @@ mod tests {
     fn test_store_and_probe() {
         let tt = TranspositionTable::with_buckets(16);
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
-        let entry = TTEntry::new(mov, 150, 140, 6, TTFlag::Exact);
+        let entry = TTEntry::new(mov, 150, 140, 6, TTFlag::Exact, false);
         tt.store(0x1234_5678_9ABC_DEF0, entry, 2);
 
         let probed = tt
@@ -374,7 +380,7 @@ mod tests {
     fn test_mate_score_adjustment() {
         let tt = TranspositionTable::with_buckets(16);
         let mate_score = 29_500; // Mate in 500 at ply 4
-        let entry = TTEntry::new(Move::NONE, mate_score, EVAL_NONE, 8, TTFlag::Exact);
+        let entry = TTEntry::new(Move::NONE, mate_score, EVAL_NONE, 8, TTFlag::Exact, false);
         tt.store(0xCAFE_BABE, entry, 4);
 
         // At ply 4 probe returns same mate score
@@ -393,14 +399,14 @@ mod tests {
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
 
         // 1. First store with a valid move and static eval
-        let entry1 = TTEntry::new(mov, 100, 35, 4, TTFlag::Exact);
+        let entry1 = TTEntry::new(mov, 100, 35, 4, TTFlag::Exact, false);
         tt.store(hash, entry1, 0);
         let entry = tt.probe(hash, 0).unwrap();
         assert_eq!(entry.mov, mov);
         assert_eq!(entry.eval, 35);
 
         // 2. Second store with Move::NONE and EVAL_NONE (e.g. on UpperBound fail-low at depth 5)
-        let entry2 = TTEntry::new(Move::NONE, 80, EVAL_NONE, 5, TTFlag::UpperBound);
+        let entry2 = TTEntry::new(Move::NONE, 80, EVAL_NONE, 5, TTFlag::UpperBound, false);
         tt.store(hash, entry2, 0);
         let entry = tt.probe(hash, 0).unwrap();
         // Move and eval must be preserved!
@@ -417,7 +423,7 @@ mod tests {
 
         let mov = Move::new(Sq::E2, Sq::E4, MoveFlags::DoublePawn);
         for i in 0..20 {
-            let entry = TTEntry::new(mov, 100, 50, 4, TTFlag::Exact);
+            let entry = TTEntry::new(mov, 100, 50, 4, TTFlag::Exact, false);
             tt.store((i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15), entry, 0);
         }
         assert!(tt.hashfull() > 0);
@@ -430,15 +436,22 @@ mod tests {
     #[test]
     fn test_entry_packing_roundtrip() {
         let mov = Move::new(Sq::A1, Sq::H8, MoveFlags::Capture);
-        let entry = TTEntry::new_with_age(mov, -1500, 320, 12, TTFlag::LowerBound, 42);
+        let entry = TTEntry::new_with_age(mov, -1500, 320, 12, TTFlag::LowerBound, true, 21);
         let bits = entry.to_bits();
-        let unpacked = TTEntry::from_bits(bits);
+        let mut unpacked = TTEntry::from_bits(bits);
 
         assert_eq!(unpacked.mov, mov);
         assert_eq!(unpacked.value, -1500);
         assert_eq!(unpacked.eval, 320);
         assert_eq!(unpacked.depth, 12);
         assert_eq!(unpacked.flag(), TTFlag::LowerBound);
-        assert_eq!(unpacked.age(), 42);
+        assert!(unpacked.is_pv());
+        assert_eq!(unpacked.age(), 21);
+
+        // Re-ageing keeps the flag and PV bit
+        unpacked.set_age(31);
+        assert_eq!(unpacked.age(), 31);
+        assert_eq!(unpacked.flag(), TTFlag::LowerBound);
+        assert!(unpacked.is_pv());
     }
 }

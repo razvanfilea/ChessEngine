@@ -298,11 +298,11 @@ impl Searcher {
     }
 
     #[inline(always)]
-    fn store_tt(&self, mov: Move, score: i16, eval: i16, depth: u8, flag: TTFlag) {
+    fn store_tt(&self, mov: Move, score: i16, eval: i16, depth: u8, flag: TTFlag, pv: bool) {
         if self.stopped || !self.stack[self.ply()].excluded.is_none() {
             return;
         }
-        let entry = TTEntry::new(mov, score, eval, depth, flag);
+        let entry = TTEntry::new(mov, score, eval, depth, flag, pv);
         self.tt.store(self.board.hash, entry, self.ply());
     }
 
@@ -369,6 +369,8 @@ impl Searcher {
         } else {
             None
         };
+        // Sticky: once a PV node, the position keeps the bit in the TT
+        let tt_pv = IS_PV || tt_entry.is_some_and(|e| e.is_pv());
         if let Some(entry) = tt_entry
             && ply > 0
             && let Some(score) = entry.cutoff(depth, alpha, beta)
@@ -725,7 +727,7 @@ impl Searcher {
                     self.update_quiet_history(mov, quiets_tried.as_slice(), &conthist_keys, depth);
                 }
 
-                self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound);
+                self.store_tt(mov, best_score, static_eval, depth, TTFlag::LowerBound, tt_pv);
                 return best_score;
             }
 
@@ -744,7 +746,7 @@ impl Searcher {
             } else {
                 0 // Stalemate
             };
-            self.store_tt(Move::NONE, score, static_eval, depth, TTFlag::Exact);
+            self.store_tt(Move::NONE, score, static_eval, depth, TTFlag::Exact, tt_pv);
             return score;
         }
 
@@ -753,7 +755,7 @@ impl Searcher {
         } else {
             (TTFlag::Exact, best_move)
         };
-        self.store_tt(mov, best_score, static_eval, depth, flag);
+        self.store_tt(mov, best_score, static_eval, depth, flag, tt_pv);
 
         best_score
     }
@@ -773,14 +775,15 @@ impl Searcher {
             self.selective_depth = ply as u8;
         }
 
-        let (tt_move, mut static_eval) = match self.tt.probe(self.board.hash, ply) {
+        // qsearch has no PV nodes of its own; it only carries the stored bit forward
+        let (tt_move, mut static_eval, tt_pv) = match self.tt.probe(self.board.hash, ply) {
             Some(entry) => {
                 if let Some(score) = entry.cutoff(0, alpha, beta) {
                     return score;
                 }
-                (entry.mov, entry.eval)
+                (entry.mov, entry.eval, entry.is_pv())
             }
-            None => (Move::NONE, EVAL_NONE),
+            None => (Move::NONE, EVAL_NONE, false),
         };
 
         let orig_alpha = alpha;
@@ -793,7 +796,7 @@ impl Searcher {
                 static_eval = self.eval_position();
             }
             if static_eval >= beta {
-                self.store_tt(Move::NONE, static_eval, static_eval, 0, TTFlag::LowerBound);
+                self.store_tt(Move::NONE, static_eval, static_eval, 0, TTFlag::LowerBound, tt_pv);
                 return static_eval;
             }
             if static_eval > alpha {
@@ -885,16 +888,16 @@ impl Searcher {
             }
 
             if score >= beta {
-                self.store_tt(mov, best_score, static_eval, 0, TTFlag::LowerBound);
+                self.store_tt(mov, best_score, static_eval, 0, TTFlag::LowerBound, tt_pv);
                 return best_score;
             }
         }
 
         if best_score <= orig_alpha {
-            self.store_tt(Move::NONE, best_score, static_eval, 0, TTFlag::UpperBound);
+            self.store_tt(Move::NONE, best_score, static_eval, 0, TTFlag::UpperBound, tt_pv);
         } else if in_check {
             // We can only store as exact if in check, otherwise we didnt even check all moves
-            self.store_tt(best_move, best_score, static_eval, 0, TTFlag::Exact);
+            self.store_tt(best_move, best_score, static_eval, 0, TTFlag::Exact, tt_pv);
         }
 
         // In check with no legal moves is checkmate; best_score is still -INFINITY here.
